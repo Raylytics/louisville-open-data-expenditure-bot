@@ -259,6 +259,11 @@ def run(cases: list, label: str, provider: str, out_dir: str) -> dict:
             refs = case["reference_sql"] if isinstance(case["reference_sql"], list) else [case["reference_sql"]]
             sql_ok, ans_ok, sql_note, ans_note = False, False, "", ""
             for ref_sql in refs:
+                # "{last_complete_year}" follows the loaded data, as the SQL
+                # prompt's own default does: a hardcoded year goes stale the
+                # moment a refresh completes another fiscal year.
+                ref_sql = ref_sql.replace(
+                    "{last_complete_year}", str(app.YEAR_CONTEXT["values"]["last_complete_year"]))
                 with app.db_lock:
                     reference_rows = app.con.execute(ref_sql).fetchall()
                 s_ok, s_note = _check_sql(case, served_df, reference_rows, events)

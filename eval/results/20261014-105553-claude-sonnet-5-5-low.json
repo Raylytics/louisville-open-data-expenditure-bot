@@ -1,0 +1,414 @@
+{
+ "label": "claude-sonnet-5-5-low",
+ "model": "claude-sonnet-5-5 (effort low) -> nvidia/nemotron-3-super-120b-a12b:free",
+ "provider": "claude",
+ "when": "2026-10-14T10:55:53",
+ "cases": 23,
+ "sql_pass": 21,
+ "answer_pass": 22,
+ "both_pass": 21,
+ "repairs": 0,
+ "repair_tries": 0,
+ "mean_seconds": 7.8,
+ "total_seconds": 186.7,
+ "results": [
+  {
+   "id": "fire-vehicles-fy2024",
+   "tags": [
+    "vocabulary"
+   ],
+   "question": "How much did the Louisville Fire department spend on vehicles in fiscal year 2024?",
+   "sql_ok": true,
+   "sql_note": "1,581,197.96 \u2248 1,581,197.96",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 7.9,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT spend_category, ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE fiscal_year = 2024\n  AND agency_canonical = 'Louisville Fire'\n  AND is_data_artifact = FALSE\n  AND (spend_category ILIKE '%fleet%' OR spend_category ILIKE '%automotive%' OR spend_category ILIKE '%auto%' OR spend_category ILIKE '%vehicle%' OR spend_category ILIKE '%truck%')\n  AND spend_category IS NOT NULL\nGROUP BY ROLLUP(spend_category)\nORDER BY total_spend DESC NULLS LAST",
+   "first_sql": "SELECT spend_category, ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE fiscal_year = 2024\n  AND agency_canonical = 'Louisville Fire'\n  AND is_data_artifact = FALSE\n  AND (spend_category ILIKE '%fleet%' OR spend_category ILIKE '%automotive%' OR spend_category ILIKE '%auto%' OR spend_category ILIKE '%vehicle%' OR spend_category ILIKE '%truck%')\n  AND spend_category IS NOT NULL\nGROUP BY ROLLUP(spend_category)\nORDER BY total_spend DESC NULLS LAST",
+   "answer": "Louisville Fire spent about $1.58M on vehicle-related categories in fiscal year 2024 ($1,581,197.96).\n\n1. Automotive Parts & Accessories: $946,644\n2. Automotive Fuel: $504,044\n3. Automotive Repair Services: $83,593\n4. Automotive Lubricants and Fluids: $45,057\n5. Automotive Wrecker Services and Automotive License Fees VET Fees: $965 and $894.92, respectively\n\nParts and accessories make up about 60% of the total, and fuel adds roughly another 32%. The remaining categories are a small share.\n\nThis figure covers only spending categories with automotive-related names, so it may not capture purchases of vehicles recorded under other categories."
+  },
+  {
+   "id": "fuel-fy2025",
+   "tags": [
+    "vocabulary"
+   ],
+   "question": "How much did Louisville Metro spend on fuel in FY2025?",
+   "sql_ok": true,
+   "sql_note": "8,206,675.49 \u2248 8,206,675.49",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 8.4,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT ROUND(SUM(extended_amount), 2) AS total_fuel_spend\nFROM expenditures\nWHERE fiscal_year = 2025\n  AND spend_category ILIKE '%fuel%'\n  AND is_data_artifact = FALSE",
+   "first_sql": "SELECT ROUND(SUM(extended_amount), 2) AS total_fuel_spend\nFROM expenditures\nWHERE fiscal_year = 2025\n  AND spend_category ILIKE '%fuel%'\n  AND is_data_artifact = FALSE",
+   "answer": "Louisville Metro paid about $8.2M to vendors in FY2025 in spending categories with \"fuel\" in the name."
+  },
+  {
+   "id": "arp-total",
+   "tags": [
+    "vocabulary",
+    "year"
+   ],
+   "question": "How much has Louisville spent from the American Rescue Plan?",
+   "sql_ok": true,
+   "sql_note": "37,636,175.82 \u2248 37,636,175.82",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 4.6,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT ROUND(SUM(extended_amount), 2) AS total_arp_spend\nFROM expenditures\nWHERE fund = 'ARP'\n  AND is_data_artifact = FALSE",
+   "first_sql": "SELECT ROUND(SUM(extended_amount), 2) AS total_arp_spend\nFROM expenditures\nWHERE fund = 'ARP'\n  AND is_data_artifact = FALSE",
+   "answer": "Louisville has spent about $37.6M from the American Rescue Plan fund, based on payments charged to an accounting fund named \"ARP.\" This is spending from that fund, not the amount awarded or received.\n\nCouncil set the priority areas for the city's American Rescue Plan Local Fiscal Recovery Funds in R-083-21."
+  },
+  {
+   "id": "cares-total",
+   "tags": [
+    "vocabulary",
+    "year"
+   ],
+   "question": "How much CARES Act coronavirus relief money did the city spend?",
+   "sql_ok": true,
+   "sql_note": "73,831,305.34 \u2248 73,831,305.34",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 8.1,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT fund, ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE fund ILIKE '%cares%' AND is_data_artifact = FALSE\nGROUP BY ROLLUP(fund)\nORDER BY total_spend DESC NULLS LAST",
+   "first_sql": "SELECT fund, ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE fund ILIKE '%cares%' AND is_data_artifact = FALSE\nGROUP BY ROLLUP(fund)\nORDER BY total_spend DESC NULLS LAST",
+   "answer": "Payments charged to CARES-named accounting funds total $139.6M. These are payments from funds with CARES in the name, not the amount of relief money the city received, and each entry below is a fund.\n\n1. CARES Coronavirus Relief Fund (CRF) - $73.8M\n2. CARES-US Treasury - $38.7M\n3. CARES - US Treasury 2 - $22.9M\n4. CARES ESG - $2.2M\n5. ESG CARES I - $1.3M\n\nThree smaller funds make up the rest: CARES CSBG ($525.4K), CARES CESF funding ($167.3K) and CARES Fires ($30.1K).\n\nThe Coronavirus Relief Fund and the two US Treasury funds account for most of the spending, about $135.4M of the $139.6M.\n\nCouncil resolution R-011-21 authorized the Mayor to accept supplemental CARES Act funding through the U.S. Department of Housing and Urban Development for the Emergency Solutions Grant program."
+  },
+  {
+   "id": "seagrave-total",
+   "tags": [
+    "entity",
+    "year"
+   ],
+   "question": "How much has the city paid Seagrave Fire Apparatus in total?",
+   "sql_ok": true,
+   "sql_note": "12,030,691.29 \u2248 12,030,691.29",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 4.7,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT payee_canonical, ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE payee_canonical = 'SEAGRAVE FIRE APPARATUS LLC'\n  AND is_data_artifact = FALSE\nGROUP BY payee_canonical",
+   "first_sql": "SELECT payee_canonical, ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE payee_canonical = 'SEAGRAVE FIRE APPARATUS LLC'\n  AND is_data_artifact = FALSE\nGROUP BY payee_canonical",
+   "answer": "The city has paid Seagrave Fire Apparatus LLC a total of about $12.0M ($12,030,691)."
+  },
+  {
+   "id": "lge-total",
+   "tags": [
+    "entity",
+    "year"
+   ],
+   "question": "How much has Louisville Metro paid LG&E over the years?",
+   "sql_ok": true,
+   "sql_note": "357,604,719.64 \u2248 357,604,719.64",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 6.1,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT payee_canonical, ROUND(SUM(extended_amount), 2) AS total_paid, COUNT(*) AS transaction_count, MIN(fiscal_year) AS first_year, MAX(fiscal_year) AS last_year\nFROM expenditures\nWHERE payee_canonical LIKE '%Louisville Gas & Electric%'\n  AND is_data_artifact = FALSE\nGROUP BY payee_canonical\nORDER BY total_paid DESC",
+   "first_sql": "SELECT payee_canonical, ROUND(SUM(extended_amount), 2) AS total_paid, COUNT(*) AS transaction_count, MIN(fiscal_year) AS first_year, MAX(fiscal_year) AS last_year\nFROM expenditures\nWHERE payee_canonical LIKE '%Louisville Gas & Electric%'\n  AND is_data_artifact = FALSE\nGROUP BY payee_canonical\nORDER BY total_paid DESC",
+   "answer": "Louisville Metro has paid Louisville Gas & Electric Company about $357.6M across all years in the data (FY2008 through FY2027), spread over 425,223 transactions.\n\nThat works out to an average of roughly $841 per transaction. FY2027 is incomplete (loaded through 2026-09-14), so the total includes only partial spending for that year."
+  },
+  {
+   "id": "paving-vendors",
+   "tags": [
+    "vocabulary"
+   ],
+   "question": "Which vendors were paid the most for road paving?",
+   "sql_ok": true,
+   "sql_note": "all present",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 12.7,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT payee_canonical, ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE is_data_artifact = FALSE\n  AND payee_canonical IS NOT NULL\n  AND (spend_category ILIKE '%paving%' OR spend_category ILIKE '%road%' OR cost_center ILIKE '%paving%' OR project ILIKE '%paving%')\nGROUP BY payee_canonical\nHAVING SUM(extended_amount) IS NOT NULL\nORDER BY total_spend DESC\nLIMIT 15",
+   "first_sql": "SELECT payee_canonical, ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE is_data_artifact = FALSE\n  AND payee_canonical IS NOT NULL\n  AND (spend_category ILIKE '%paving%' OR spend_category ILIKE '%road%' OR cost_center ILIKE '%paving%' OR project ILIKE '%paving%')\nGROUP BY payee_canonical\nHAVING SUM(extended_amount) IS NOT NULL\nORDER BY total_spend DESC\nLIMIT 15",
+   "answer": "Hall Contracting of Kentucky Inc was paid the most for road-related work: $174.9M, about 3.3 times the next vendor, Louisville Paving Company Inc ($53.8M).\n\nTop 5 vendors:\n1. Hall Contracting of Kentucky Inc - $174.9M\n2. Louisville Paving Company Inc - $53.8M\n3. Flynn Brothers Contracting Inc - $52.8M\n4. Cargill Inc - $16.5M\n5. Pace Contracting LLC - $11.1M\n\nRiverside Paving & Contracting appears twice in the results because of a spelling variant (an extra space in the name): $5.3M and $3.9M. Combined, that is about $9.2M, which would place it 7th, ahead of Joash Construction Inc ($6.3M) and Strand Associates Inc ($6.0M) and behind Compass Minerals America Inc ($7.8M) only if Compass is counted at its listed amount. Correcting that, Riverside's combined $9.2M would rank 7th, below Compass Minerals ($7.8M)? No: $9.2M is higher than $7.8M, so it would rank 7th, after Mac Construction & Excavating Inc ($11.0M).\n\nThe search matched on road-related keywords in the spending category, cost center and project, so these results may include work other than paving."
+  },
+  {
+   "id": "top-agencies-all-time",
+   "tags": [
+    "summary"
+   ],
+   "question": "Which agencies have spent the most money across all fiscal years?",
+   "sql_ok": true,
+   "sql_note": "top 5 match",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 9.3,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT agency, ROUND(total_spend, 2) AS total_spend, transaction_count, first_year, last_year FROM summary_agency_spend WHERE agency IS NOT NULL ORDER BY total_spend DESC LIMIT 15",
+   "first_sql": "SELECT agency, ROUND(total_spend, 2) AS total_spend, transaction_count, first_year, last_year FROM summary_agency_spend WHERE agency IS NOT NULL ORDER BY total_spend DESC LIMIT 15",
+   "answer": "Public Works & Assets has spent the most, at about $1.08B in total spending across all fiscal years in the data. Here are the top agencies by total spending (at most five are listed here):\n\n1. Public Works & Assets - $1.08B\n2. Economic Development - $411.2M\n3. Facilities & Fleet Management - $403.7M\n4. Office of Housing & Community Development - $378.4M\n5. Community Services & Revitalization - $351.4M\n\nPublic Works & Assets spent about 2.6 times as much as Economic Development, the second-ranked agency. Its 256,841 transactions are not the most, though: Community Services & Revitalization has 497,012 transactions at a much lower total.\n\nNot every agency covers the same span of years. Facilities & Fleet Management first appears in 2017, Develop Louisville in 2014, and Community Services & Revitalization covers 2011 to 2025. Insurance & Claims ends in 2022. Totals therefore reflect different time windows, so the rankings are not like-for-like. Fiscal year 2027 data is incomplete, so totals for agencies with spending in that year are partial."
+  },
+  {
+   "id": "annual-spend-trend",
+   "tags": [
+    "summary",
+    "year"
+   ],
+   "question": "How has total annual spending changed from 2008 to 2026?",
+   "sql_ok": true,
+   "sql_note": "19 rows",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 8.4,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT fiscal_year, ROUND(total_spend, 2) AS total_spend, transaction_count\nFROM summary_annual_spend\nWHERE fiscal_year BETWEEN 2008 AND 2026\nORDER BY fiscal_year ASC",
+   "first_sql": "SELECT fiscal_year, ROUND(total_spend, 2) AS total_spend, transaction_count\nFROM summary_annual_spend\nWHERE fiscal_year BETWEEN 2008 AND 2026\nORDER BY fiscal_year ASC",
+   "answer": "Total annual spending rose from $244.8M in FY2008 to $600.2M in FY2026, about 2.5 times the starting level.\n\nThe path was uneven:\n- 2008 to 2015: spending stayed flat to lower, peaking at $278.9M in FY2009 and falling to a low of $210.3M in FY2013.\n- 2016 to 2020: spending recovered to between $233.0M and $273.1M, with $273.1M in FY2019.\n- 2021 to 2022: spending jumped to $374.6M and then $411.6M.\n- 2023: spending dropped sharply to $277.7M.\n- 2024 to 2026: spending reached $541.5M in FY2024 and $643.7M in FY2025 (the peak), then eased to $600.2M in FY2026.\n\nThe most unusual movement is the FY2023 dip followed by the FY2024 surge, which nearly doubled spending in one year ($277.7M to $541.5M). Transaction counts rose far less than dollars: FY2026 has 164,760 transactions against 129,647 in FY2008, a rise of about 27%, so the average payment is much larger now."
+  },
+  {
+   "id": "lmpd-by-year",
+   "tags": [
+    "year"
+   ],
+   "question": "Give me a year-over-year breakdown of LMPD spending",
+   "sql_ok": true,
+   "sql_note": "43,401,681.16 \u2248 43,401,681.16",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 8.3,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT fiscal_year, ROUND(SUM(extended_amount), 2) AS total_spend, COUNT(*) AS transaction_count\nFROM expenditures\nWHERE agency_canonical = 'Louisville Metro Police Department'\n  AND is_data_artifact = FALSE\n  AND fiscal_year IS NOT NULL\nGROUP BY fiscal_year\nORDER BY fiscal_year ASC",
+   "first_sql": "SELECT fiscal_year, ROUND(SUM(extended_amount), 2) AS total_spend, COUNT(*) AS transaction_count\nFROM expenditures\nWHERE agency_canonical = 'Louisville Metro Police Department'\n  AND is_data_artifact = FALSE\n  AND fiscal_year IS NOT NULL\nGROUP BY fiscal_year\nORDER BY fiscal_year ASC",
+   "answer": "LMPD vendor payments peaked in FY2025 at $43.4M, and spending has risen sharply since FY2023.\n\nFrom FY2008 to FY2021, yearly spending stayed between $6.6M and $12.4M, with the low point in FY2012 at $6.6M. FY2022 jumped to $19.4M, FY2023 fell back to $8.5M, and then it climbed:\n\n1. FY2024: $27.4M\n2. FY2025: $43.4M\n3. FY2026: $29.8M (down about31% from FY2025)\n4. FY2027: $5.9M (partial, loaded through 2026-09-14)\n\nTransaction counts do not track dollars. FY2021 and FY2022 had the fewest transactions (2,635 and 2,482), yet FY2022 spending was much higher than FY2021 ($19.4M versus $11.6M). FY2025 had 9,132 transactions, similar to FY2014 (9,682), but total spending was about five times higher ($43.4M versus $8.2M).\n\nThese patterns are not evidence of wrongdoing, and the records alone do not explain why spending changed in any year."
+  },
+  {
+   "id": "parks-fy2025",
+   "tags": [
+    "year"
+   ],
+   "question": "How much did Parks & Recreation spend in FY2025?",
+   "sql_ok": true,
+   "sql_note": "43,399,384.03 \u2248 43,399,384.03",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 4.5,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE fiscal_year = 2025\n  AND agency_canonical = 'Parks & Recreation'\n  AND is_data_artifact = FALSE",
+   "first_sql": "SELECT ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE fiscal_year = 2025\n  AND agency_canonical = 'Parks & Recreation'\n  AND is_data_artifact = FALSE",
+   "answer": "Parks & Recreation spent about $43.4M in FY2025.\n\nThis is a single total for the fiscal year, so it does not break down by vendor, category, or fund."
+  },
+  {
+   "id": "library-latest-year",
+   "tags": [
+    "year"
+   ],
+   "question": "How much did the library spend last year?",
+   "sql_ok": false,
+   "sql_note": "reference 20,326,652.59 not in served cells (closest 30,603,121.92)",
+   "answer_ok": false,
+   "answer_note": "does not state 20,326,652.59",
+   "seconds": 9.2,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE fiscal_year = 2026 -- assumed FY2026, the most recent complete fiscal year\n  AND agency_canonical = 'Louisville Free Public Library'\n  AND is_data_artifact = FALSE",
+   "first_sql": "SELECT ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE fiscal_year = 2026 -- assumed FY2026, the most recent complete fiscal year\n  AND agency_canonical = 'Louisville Free Public Library'\n  AND is_data_artifact = FALSE",
+   "answer": "The Louisville Free Public Library spent about $30.6M in fiscal year 2026, the most recent complete fiscal year of expenditure data.\n\nI took \"last year\" to mean fiscal year 2026. If you meant a different year, the figure would differ."
+  },
+  {
+   "id": "tech-fy2025",
+   "tags": [
+    "vocabulary",
+    "year"
+   ],
+   "question": "How much did Louisville spend on technology in FY2025?",
+   "sql_ok": true,
+   "sql_note": "22,414,255.52 \u2248 22,414,255.52",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 7.6,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT 'Metro Technology Services department' AS spend_view, ROUND(SUM(extended_amount), 2) AS total_spend FROM expenditures WHERE fiscal_year = 2025 AND agency_canonical = 'Metro Technology Services' AND is_data_artifact = FALSE\nUNION ALL\nSELECT 'Computer, software and cloud purchases (all departments)', ROUND(SUM(extended_amount), 2) FROM expenditures WHERE fiscal_year = 2025 AND (spend_category LIKE 'Computer%' OR spend_category ILIKE '%Software%' OR spend_category = 'Cloud Computing Services') AND is_data_artifact = FALSE\nORDER BY total_spend DESC",
+   "first_sql": "SELECT 'Metro Technology Services department' AS spend_view, ROUND(SUM(extended_amount), 2) AS total_spend FROM expenditures WHERE fiscal_year = 2025 AND agency_canonical = 'Metro Technology Services' AND is_data_artifact = FALSE\nUNION ALL\nSELECT 'Computer, software and cloud purchases (all departments)', ROUND(SUM(extended_amount), 2) FROM expenditures WHERE fiscal_year = 2025 AND (spend_category LIKE 'Computer%' OR spend_category ILIKE '%Software%' OR spend_category = 'Cloud Computing Services') AND is_data_artifact = FALSE\nORDER BY total_spend DESC",
+   "answer": "Louisville's payments for computer, software and cloud purchases across all departments came to about $34.7M in FY2025, while payments by the Metro Technology Services department came to about $22.4M.\n\n1. Computer, software and cloud purchases (all departments): $34,726,276\n2. Metro Technology Services department: $22,414,256\n\nThese are two different views of the same spending and they overlap, so they should not be added together. A single payment can appear in both.\n\nThe first view counts purchases by type across every department, including technology bought outside Metro Technology Services. The second counts payments made by the Metro Technology Services department. Of the two, the first is the closer answer to how much was spent on technology.\n\nBoth figures are vendor payments, not payroll."
+  },
+  {
+   "id": "mayor-and-chief-pay",
+   "tags": [
+    "entity"
+   ],
+   "question": "How much does the mayor make? What about the police chief?",
+   "sql_ok": true,
+   "sql_note": "all present",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 7.0,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT Employee_Name, jobTitle, Department, CalYear, ROUND(Annual_Rate, 2) AS annual_rate, ROUND(Regular_Rate, 2) AS regular_pay, ROUND(Overtime_Rate, 2) AS overtime_pay, ROUND(Incentive_Allowance, 2) AS incentive_allowance, Other, ROUND(YTD_Total, 2) AS total_pay\nFROM salary_data\nWHERE CalYear = 2025\nAND jobTitle IN ('Mayor', 'Police Chief')\nAND Employee_Name IS NOT NULL\nORDER BY YTD_Total DESC",
+   "first_sql": "SELECT Employee_Name, jobTitle, Department, CalYear, ROUND(Annual_Rate, 2) AS annual_rate, ROUND(Regular_Rate, 2) AS regular_pay, ROUND(Overtime_Rate, 2) AS overtime_pay, ROUND(Incentive_Allowance, 2) AS incentive_allowance, Other, ROUND(YTD_Total, 2) AS total_pay\nFROM salary_data\nWHERE CalYear = 2025\nAND jobTitle IN ('Mayor', 'Police Chief')\nAND Employee_Name IS NOT NULL\nORDER BY YTD_Total DESC",
+   "answer": "In calendar year 2025, the Police Chief made more than the Mayor: $267,811 in total pay versus $158,116.\n\n1. Paul Louis Humphrey, Police Chief (Louisville Metro Police Department): $267,811.04 total pay\n2. Craig Greenberg, Mayor (Mayor Office): $158,115.58 total pay\n\nPay components:\n- Police Chief: annual rate $257,696.58, regular pay $251,277.97, incentive allowance $7,612.80, overtime $0.00.\n- Mayor: annual rate $158,892.94, regular pay $158,115.58, overtime $0.00, incentive allowance $0.00.\n\nThe Chief's total pay is about $109,695 above the Mayor's. Calendar year 2025 is the most recent complete year of salary data.\n\nThese figures are pay components only (regular, overtime, incentive, other). The data contains no benefits information."
+  },
+  {
+   "id": "highest-paid-positions",
+   "tags": [
+    "summary"
+   ],
+   "question": "What are the highest paid positions in Louisville Metro government?",
+   "sql_ok": true,
+   "sql_note": "top 3 match",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 8.4,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT job_title, department, ROUND(avg_total_comp, 2) AS avg_total_comp, ROUND(max_total_comp, 2) AS max_total_comp, employee_count FROM summary_top_salaries WHERE calendar_year = (SELECT MAX(calendar_year) FROM summary_top_salaries) AND job_title IS NOT NULL ORDER BY avg_total_comp DESC LIMIT 10",
+   "first_sql": "SELECT job_title, department, ROUND(avg_total_comp, 2) AS avg_total_comp, ROUND(max_total_comp, 2) AS max_total_comp, employee_count FROM summary_top_salaries WHERE calendar_year = (SELECT MAX(calendar_year) FROM summary_top_salaries) AND job_title IS NOT NULL ORDER BY avg_total_comp DESC LIMIT 10",
+   "answer": "The highest paid position is the Police Chief, at an average of $267,811 in total compensation. The results don't show which calendar year this covers, so I can't say whether it is a full year.\n\n1. Police Chief (Louisville Metro Police Department) - $267,811\n2. Director (Louisville Zoo) - $213,466\n3. Deputy Police Chief (Louisville Metro Police Department) - $202,892\n4. Fire Chief (Louisville Fire) - $197,516\n5. Deputy Mayor - Chief of Staff General Counsel (Mayor Office) - $193,777\n\nThe next five are Asst Police Chief - Lt Colonel (Louisville Metro Police Department, $192,593), Inspector General (Office of Inspector General, $182,969), Chief Information Officer (Metro Technology Services, $178,711), Chief Financial Officer (OMB Finance, $176,244) and Deputy Chief of Staff-Mayor's Office (Mayor Office, $174,003).\n\nPolice leadership holds three of the top six spots. Most of these titles have one holder. The exceptions are Deputy Police Chief (2 employees, highest individual amount $204,679) and Asst Police Chief - Lt Colonel (4 employees).\n\nAmounts are pay components only (regular, overtime, incentive, other). The ranking is by average total compensation for each job title."
+  },
+  {
+   "id": "police-overtime-2024",
+   "tags": [
+    "vocabulary",
+    "entity"
+   ],
+   "question": "How much overtime pay did police employees receive in 2024?",
+   "sql_ok": true,
+   "sql_note": "23,552,285.59 \u2248 23,552,285.59",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 6.6,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT Department, CalYear, ROUND(SUM(Overtime_Rate), 2) AS total_overtime_pay, COUNT(DISTINCT Employee_Name) AS employees\nFROM salary_data\nWHERE CalYear = 2024\n  AND Department ILIKE '%police%'\n  AND Overtime_Rate IS NOT NULL\nGROUP BY Department, CalYear\nORDER BY total_overtime_pay DESC",
+   "first_sql": "SELECT Department, CalYear, ROUND(SUM(Overtime_Rate), 2) AS total_overtime_pay, COUNT(DISTINCT Employee_Name) AS employees\nFROM salary_data\nWHERE CalYear = 2024\n  AND Department ILIKE '%police%'\n  AND Overtime_Rate IS NOT NULL\nGROUP BY Department, CalYear\nORDER BY total_overtime_pay DESC",
+   "answer": "Louisville Metro Police Department employees received about $23.6M in overtime pay in calendar year 2024, across 1,564 employees.\n\nThat works out to roughly $15,059 per employee on average. This is only an average, and the results don't show how the amount was spread across individuals.\n\nThis figure covers overtime pay only, not regular, incentive, or other pay. Only one department matched the police search, so the total reflects the Louisville Metro Police Department alone."
+  },
+  {
+   "id": "registered-agents",
+   "tags": [
+    "summary"
+   ],
+   "question": "Who are the registered agents for the top 10 contractors by total spend?",
+   "sql_ok": true,
+   "sql_note": "top 5 match",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 11.6,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT payee, ROUND(total_spend, 2) AS total_spend, sos_registered_agent FROM summary_top_contractors WHERE sos_registered_agent IS NOT NULL ORDER BY total_spend DESC LIMIT 10",
+   "first_sql": "SELECT payee, ROUND(total_spend, 2) AS total_spend, sos_registered_agent FROM summary_top_contractors WHERE sos_registered_agent IS NOT NULL ORDER BY total_spend DESC LIMIT 10",
+   "answer": "Five of the top 10 contractors by total spend share the same registered agent: C T Corporation System, 306 W Main St, Suite 512, Frankfort, KY 40601. They are Louisville Gas & Electric, Motorola Solutions, Humana Health Plan, Genuine Parts and Waste Management of Kentucky.\n\n1. Louisville Gas & Electric Company - $357.6M - C T Corporation System, Frankfort\n2. Hall Contracting of Kentucky Inc - $179.1M - Stephen M. Priebe, 3800 Crittenden Drive, Louisville\n3. Motorola Solutions Inc - $91.6M - C T Corporation System, Frankfort\n4. Sullivan & Cozart Inc - $79.5M - Thomas E. Roma, Jr., Manion Stigger, LLP, 2301 River Road, Suite 101, Louisville\n5. Flynn Brothers Contracting Inc - $73.0M - Steve E. Mossholder, Jr., 4515 Bishop Ln, Suite A, Louisville\n\nThe next five are:\n6. Humana Health Plan Inc - $67.0M - C T Corporation System, Frankfort\n7. Louisville Paving Company Inc - $65.6M - Luke Fitzgerald, 15415 Shelbyville Road, Louisville\n8. Genuine Parts Company - $65.5M - C T Corporation System, Frankfort\n9. Waste Management of Kentucky LLC - $56.2M - C T Corporation System, Frankfort\n10. CDW LLC - $55.6M - Corporation Service Company, 315 High Street, Frankfort\n\nHall, Sullivan & Cozart, Flynn Brothers and Louisville Paving list individuals or a law firm in Louisville, while the other vendors use commercial registered agent services in Frankfort.\n\nThis list only includes contractors with a registered agent on file, so any higher-spending contractors without one are not shown."
+  },
+  {
+   "id": "grant-funding",
+   "tags": [
+    "summary"
+   ],
+   "question": "How much has Louisville spent from grant and federal funds, and which funds are largest?",
+   "sql_ok": true,
+   "sql_note": "1,229,361,802.66 \u2248 1,229,361,802.66",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 8.9,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT COALESCE(fund, 'TOTAL - ALL GRANT FUNDS') AS fund, ROUND(SUM(total_amount), 2) AS total_amount FROM summary_grant_funding GROUP BY ROLLUP(fund) ORDER BY total_amount DESC NULLS LAST",
+   "first_sql": "SELECT COALESCE(fund, 'TOTAL - ALL GRANT FUNDS') AS fund, ROUND(SUM(total_amount), 2) AS total_amount FROM summary_grant_funding GROUP BY ROLLUP(fund) ORDER BY total_amount DESC NULLS LAST",
+   "answer": "Louisville has spent about $1.23B ($1,229,361,802.66) from grant-funded accounts: payments charged to accounting funds whose names mark them as grant, federal or pass-through money. These figures are spending, not grant awards or money received. The total covers 102 funds.\n\nThe five largest funds, ranked by total payments:\n\n1. Grant Fund - $488.1M\n2. Federally Funded - $151.6M\n3. Pass Thru Federal Other - $122.9M\n4. CAP KACA Funding - $75.3M\n5. CARES Coronavirus Relief Fund (CRF) - $73.8M\n\nThe general Grant Fund accounts for roughly 40% of the total. The top three funds together come to about $762.6M. Other CARES-related funds also rank high, including CARES-US Treasury ($38.7M) and CARES - US Treasury 2 ($22.9M). Many Community Development Block Grant (CDBG) and HOME funds appear for different years, with totals ranging from several million dollars down to under $100.\n\nNote: this names 5 of the 102 funds, and 53 funds in the middle of the ranking were not shown, so the ranking below the top entries is partial."
+  },
+  {
+   "id": "largest-payments",
+   "tags": [
+    "summary"
+   ],
+   "question": "What are the largest single payments ever made and who received them?",
+   "sql_ok": true,
+   "sql_note": "all present",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 8.8,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT payee, agency, ROUND(invoice_amount, 2) AS invoice_amount, invoice_number, invoice_date, fiscal_year\nFROM summary_largest_payments\nWHERE invoice_amount > 0 AND payee IS NOT NULL AND agency IS NOT NULL\nORDER BY invoice_amount DESC\nLIMIT 10",
+   "first_sql": "SELECT payee, agency, ROUND(invoice_amount, 2) AS invoice_amount, invoice_number, invoice_date, fiscal_year\nFROM summary_largest_payments\nWHERE invoice_amount > 0 AND payee IS NOT NULL AND agency IS NOT NULL\nORDER BY invoice_amount DESC\nLIMIT 10",
+   "answer": "The largest single payment on record is $12,000,000 to Louisville Arena Authority Inc, paid by OMB Finance on 2022-10-31 (invoice LAAFY23, FY2023).\n\nThe top payments shown are:\n1. Louisville Arena Authority Inc: $12,000,000 (OMB Finance, FY2023)\n2. Motorola Solutions Inc: $11,593,677 (Emergency Services & MetroSafe, FY2009)\n3. Louisville Arena Authority Inc: $10,800,000 (OMB Finance, FY2024)\n4. Louisville Arena Authority Inc: $10,800,000 (OMB Finance, FY2025)\n5. Louisville Arena Authority Inc: $10,800,000 (OMB Finance, FY2026)\n\nLouisville Arena Authority Inc received four of the top payments. Next in the list are SHEEHAN LANDING LP at $10,617,313 (Office of Housing & Community Development, FY2026), Kentucky Retirement Systems at $7,196,821 (OMB Finance, FY2011), and WILLIAM S WETTERER at $6,801,475 (Develop Louisville, FY2023).\n\nThe Motorola Solutions and Kentucky Retirement Systems payments each appeared twice in the results with identical details, so they are listed once here."
+  },
+  {
+   "id": "capital-projects",
+   "tags": [
+    "summary"
+   ],
+   "question": "What are the largest capital projects and how much was allocated to each?",
+   "sql_ok": true,
+   "sql_note": "14 rows",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 8.7,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT Project_Na, Agency_Org, Project, Allocation\nFROM capital_projects\nWHERE Project_Na IS NOT NULL AND Allocation IS NOT NULL\nORDER BY Allocation DESC",
+   "first_sql": "SELECT Project_Na, Agency_Org, Project, Allocation\nFROM capital_projects\nWHERE Project_Na IS NOT NULL AND Allocation IS NOT NULL\nORDER BY Allocation DESC",
+   "answer": "The largest capital project allocation is Rhodia Brownfields Remediation (Develop Louisville) at $10,000,000. The five largest are:\n\n1. Rhodia Brownfields Remediation (Develop Louisville): $10,000,000\n2. Main Library (Louisville Free Public Library): $8,000,000\n3. Algonquin Swimming Pool (Parks & Recreation): $7,500,000\n4. Baxter Community Center (Develop Louisville): $6,000,000\n5. Fern Creek Library (Louisville Free Public Library): $5,000,000\n\nCamp Taylor Waterpark follows at $4,500,000, and Chickasaw Park Pond at $2,500,000. The remaining projects are $1,000,000 or less: Windsor Spray Ground at $1,000,000, Portland Library and Parkland Library at $800,000 each, Elliott Park and Iroquois Tennis Courts at $500,000 each, and Berrytown Park at $200,000. New Walnut Park is listed with a $0 allocation.\n\nAllocations drop off steeply after the top six, which each have $4,500,000 or more.\n\nThese figures are allocation amounts, not actual payments."
+  },
+  {
+   "id": "contract-splitting-fy2025",
+   "tags": [
+    "summary"
+   ],
+   "question": "Are there signs of contract splitting in FY2025?",
+   "sql_ok": true,
+   "sql_note": "25 rows",
+   "answer_ok": true,
+   "answer_note": "ok",
+   "seconds": 11.0,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT payee_canonical, agency_canonical, COUNT(*) AS payments_just_under, ROUND(SUM(invoice_amount), 2) AS total, ROUND(AVG(invoice_amount), 2) AS avg_invoice FROM expenditures WHERE fiscal_year = 2025 AND is_data_artifact = FALSE AND invoice_amount BETWEEN 4000 AND 4999.99 GROUP BY payee_canonical, agency_canonical HAVING COUNT(*) >= 5 ORDER BY payments_just_under DESC, total DESC LIMIT 25",
+   "first_sql": "SELECT payee_canonical, agency_canonical, COUNT(*) AS payments_just_under, ROUND(SUM(invoice_amount), 2) AS total, ROUND(AVG(invoice_amount), 2) AS avg_invoice FROM expenditures WHERE fiscal_year = 2025 AND is_data_artifact = FALSE AND invoice_amount BETWEEN 4000 AND 4999.99 GROUP BY payee_canonical, agency_canonical HAVING COUNT(*) >= 5 ORDER BY payments_just_under DESC, total DESC LIMIT 25",
+   "answer": "Yes, the FY2025 records show some repeated payments just under $5,000, but they cannot show intent, and many look like routine recurring billing.\n\nThe search counted payments between $4,000 and $4,999.99 to the same payee within the same department, keeping pairs with at least 5 such payments. The top five pairs by payment count:\n\n1. Louisville Computer Guys Inc (Parks & Recreation): 120 payments, $528,000\n2. OverDrive Inc (Louisville Free Public Library): 99 payments, $439,736\n3. Louisville Gas & Electric Company (Facilities & Fleet Management): 35 payments, $156,149\n4. Strand Associates Inc (Public Works & Assets): 33 payments, $146,420\n5. Walker Mechanical Contractors Inc (Department of Corrections): 32 payments, $141,531\n\nLouisville Computer Guys stands out because its average payment is exactly $4,400 across 120 payments. Magnolia Dixie Crossings (County Clerk, 17 payments averaging exactly $4,900) and Shaw Secure Solutions (Parks & Recreation, 15 payments averaging exactly $4,550) show the same pattern of identical-looking amounts. Same-size payments like these are often routine.\n\nUtilities (LG&E, AT&T), the Kentucky State Treasurer, and library suppliers (OverDrive, Brodart) also appear, and recurring bills like these are often ordinary.\n\nThis is a screen, not evidence of wrongdoing. The $5,000 cutoff is an assumption, and only the invoices and contracts themselves could show whether any of these payments were split."
+  },
+  {
+   "id": "honest-empty-fy2031",
+   "tags": [
+    "guard"
+   ],
+   "question": "How much did Louisville Fire spend in fiscal year 2031?",
+   "sql_ok": true,
+   "sql_note": "empty as expected",
+   "answer_ok": true,
+   "answer_note": "no fabricated figure",
+   "seconds": 3.4,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE fiscal_year = 2031\n  AND agency_canonical = 'Louisville Fire'\n  AND is_data_artifact = FALSE",
+   "first_sql": "SELECT ROUND(SUM(extended_amount), 2) AS total_spend\nFROM expenditures\nWHERE fiscal_year = 2031\n  AND agency_canonical = 'Louisville Fire'\n  AND is_data_artifact = FALSE",
+   "answer": "Fiscal year 2031 is beyond the data, so nothing came back. Expenditure records run from FY2008 to FY2027, and FY2027 is only partial (loaded through 2026-09-14). A future year like 2031 has no payments recorded yet.\n\nRephrased questions that should return results:\n\n1. How much did Louisville Fire spend in fiscal year 2026? (the most recent complete year)\n2. How much did Louisville Fire spend in each fiscal year from FY2020 to FY2026?\n\nNote: if the agency name doesn't match exactly, a search of agency names containing \"Fire\" may also help."
+  },
+  {
+   "id": "off-topic",
+   "tags": [
+    "guard"
+   ],
+   "question": "Tell me a joke about cats.",
+   "sql_ok": false,
+   "sql_note": "SQL was executed for an off-topic question",
+   "answer_ok": true,
+   "answer_note": "no fabricated figure",
+   "seconds": 5.9,
+   "repair_tried": false,
+   "repaired": false,
+   "served_sql": "SELECT 'Why was the cat sitting on the computer? To keep an eye on the mouse!' AS joke;",
+   "first_sql": "SELECT 'Why was the cat sitting on the computer? To keep an eye on the mouse!' AS joke;",
+   "answer": "I help with questions about the city's public spending data, so I can't help with jokes. You're welcome to ask about city expenditures, salaries, capital projects, contractors, or staffing."
+  }
+ ]
+}

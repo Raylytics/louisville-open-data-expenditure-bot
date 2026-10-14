@@ -214,7 +214,14 @@ def _looks_like_sql(sql: str) -> bool:
     comments are removed. A prose refusal, a bare comment, or an empty reply
     is the off-topic path, never something to execute."""
     body = re.sub(r"^\s*(--[^\n]*\n|/\*.*?\*/\s*)+", "", sql or "", flags=re.S)
-    return bool(_SQL_OPENERS.match(body))
+    if not _SQL_OPENERS.match(body):
+        return False
+    # Every answer reads a table. A statement with no FROM outside its string
+    # literals is the off-topic reply dressed as a query — Claude Sonnet 5.5
+    # answered "tell me a joke about cats" with SELECT '<the joke>' AS joke
+    # (eval 2026-10-14) — so it takes the off-topic path, not DuckDB's.
+    unquoted = re.sub(r"'(?:[^']|'')*'", "''", body)
+    return bool(re.search(r"\bFROM\b", unquoted, re.I))
 
 
 def _is_vacuous(df) -> bool:

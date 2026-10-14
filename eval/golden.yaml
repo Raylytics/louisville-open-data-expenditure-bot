@@ -132,7 +132,7 @@
   question: How much did the library spend last year?
   reference_sql: >
     SELECT ROUND(SUM(extended_amount), 2) FROM expenditures
-    WHERE agency_canonical = 'Louisville Free Public Library' AND fiscal_year = 2025 AND is_data_artifact = FALSE
+    WHERE agency_canonical = 'Louisville Free Public Library' AND fiscal_year = {last_complete_year} AND is_data_artifact = FALSE
   check: scalar
 
 - id: tech-fy2025

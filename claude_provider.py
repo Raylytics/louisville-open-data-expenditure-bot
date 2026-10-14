@@ -184,7 +184,8 @@ def _usage_ns(usage) -> SimpleNamespace:
               + (getattr(usage, "cache_creation_input_tokens", 0) or 0))
     completion = getattr(usage, "output_tokens", 0) or 0
     return SimpleNamespace(prompt_tokens=prompt, completion_tokens=completion,
-                           total_tokens=prompt + completion)
+                           total_tokens=prompt + completion,
+                           cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0)
 
 
 def _check_stop(stop_reason, text: str) -> None:
@@ -242,7 +243,8 @@ def _log_call(model: str, headers, usage=None) -> None:
     headers = headers or {}
     log.info("Claude call: model=%s request-id=%s workspace=%s usage=%s",
              model, headers.get("request-id"), headers.get("anthropic-workspace-id"),
-             None if usage is None else dict(input=usage.prompt_tokens, output=usage.completion_tokens))
+             None if usage is None else dict(input=usage.prompt_tokens, cached=usage.cache_read_tokens,
+                                             output=usage.completion_tokens))
 
 
 class _RawResponse:

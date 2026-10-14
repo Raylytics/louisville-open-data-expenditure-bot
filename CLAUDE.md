@@ -286,8 +286,13 @@ translates to/from the OpenAI response shape the rest of the code reads.
   at `CLAUDE_EFFORT` (default `low`). Sonnet for SQL accuracy, low effort to
   keep thinking — and time-to-first-token — short; Haiku is the faster rung
   when Sonnet is overloaded (429/5xx/529) or retired (404, skipped 15 min).
-  **Not yet benchmarked**: run `python eval/run_eval.py --provider claude`
-  before trusting the ranking, and compare with the Cerebras baseline (23/23).
+  Benchmarked 2026-10-14 on the 23-question eval against the refreshed local
+  data (`eval/results/20261014-*`): Sonnet 5.5 low **23/23**, 7.7s/question;
+  Cerebras gpt-oss-120b 22/23, 3.6s; Haiku 5.5 low 21/23, 7.8s (no faster
+  than Sonnet, so it stays the backup rung only). Re-run
+  `python eval/run_eval.py --provider claude` before changing the ranking.
+  Prompt caching verified: 15,699 of 15,715 SQL-call input tokens read from
+  cache (the log line's `cached=`).
 - **Translation rules:** system messages → cached `system` block;
   `temperature` dropped (current models 400 on it); `max_tokens` floored at
   8192 (adaptive thinking spends from it); `refusal` or no answer text → falls

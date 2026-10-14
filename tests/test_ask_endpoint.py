@@ -553,6 +553,9 @@ def test_empty_explanation_prompt_carries_the_findings_without_the_rewrite_order
     "-- The question is not about spending",
     "",
     "/* nothing to query */",
+    # Claude Sonnet 5.5, eval 2026-10-14: the joke itself, dressed as a query.
+    "SELECT 'Why was the cat sitting on the computer? To keep an eye on the mouse!' AS joke;",
+    "SELECT 'I only answer questions FROM the spending data' AS message",
 ])
 def test_prose_or_comment_replies_take_the_off_topic_path(client, monkeypatch, reply):
     """The guard used to look for SQL keywords ANYWHERE in the reply, so a
@@ -568,8 +571,9 @@ def test_prose_or_comment_replies_take_the_off_topic_path(client, monkeypatch, r
 
 
 @pytest.mark.parametrize("reply", [
-    "SELECT 1", "  -- assumed FY2025\nSELECT 1", "WITH t AS (SELECT 1) SELECT * FROM t",
-    "(SELECT 1) UNION ALL (SELECT 2)", "/* c */ select 1",
+    "SELECT 1 FROM expenditures", "  -- assumed FY2025\nSELECT 1 FROM t", "WITH t AS (SELECT 1) SELECT * FROM t",
+    "(SELECT 1 FROM a) UNION ALL (SELECT 2 FROM b)", "/* c */ select 1 from t",
+    "SELECT 'Library' AS agency, SUM(x) FROM expenditures",
 ])
 def test_looks_like_sql_accepts_real_statements(reply):
     import app
