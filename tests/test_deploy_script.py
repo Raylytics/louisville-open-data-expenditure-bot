@@ -332,3 +332,29 @@ def test_snapshot_for_another_commit_refuses(harness, approved):
     assert proc.returncode == 1 and "no preview snapshot for this commit" in proc.stdout
     assert not _cdk_args(calls)
 
+
+
+# roborev 6026 ---------------------------------------------------------------
+
+def test_bypass_with_a_stale_snapshot_still_deploys(harness, marker):
+    """A snapshot left by an undeployed preview of another commit must not
+    block an emergency LOU_SKIP_PREVIEW=1 hotfix."""
+    marker.unlink(missing_ok=True)
+    _write_snapshot(REPO / ".preview-health.json", expenditures=100, cache_version="aaaa1111", sha="0" * 40)
+    proc, _ = harness("deploy", env={**_live(), "LOU_SKIP_PREVIEW": "1"})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "no preview snapshot for this commit: data freshness and cache impact NOT checked" in proc.stdout
+
+
+def test_bypass_still_checks_the_warm_token_before_building(harness, marker):
+    marker.unlink(missing_ok=True)
+    (REPO / ".preview-health.json").unlink(missing_ok=True)
+    proc, calls = harness("deploy", env={"LOU_SKIP_PREVIEW": "1", "LOU_WARM": "1", "ADMIN_TOKEN": ""})
+    assert proc.returncode == 1 and "needs ADMIN_TOKEN" in proc.stdout
+    assert not any(" deploy --require-approval" in c for c in _cdk_args(calls))
+
+
+def test_non_json_production_health_warns_but_deploys(harness, approved):
+    proc, _ = harness("deploy", env={"LIVE_URL": "https://live.test/", "LIVE_HEALTH": "<html>maintenance</html>"})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "is not JSON" in proc.stdout and "Traceback" not in proc.stderr

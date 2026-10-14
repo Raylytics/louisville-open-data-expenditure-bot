@@ -142,11 +142,15 @@ case "$STEP" in
     # Production unreachable is a warning, not a refusal: a hotfix during an
     # outage is exactly when this deploy has to go through.
     SNAP=../../.preview-health.json
-    if [ "${LOU_SKIP_PREVIEW:-}" = "1" ] && [ ! -f "$SNAP" ]; then
-      echo "!! LOU_SKIP_PREVIEW=1 and no preview snapshot: data freshness and cache impact NOT checked"
+    # A snapshot left by an earlier, never-deployed preview names another
+    # commit: under the emergency bypass that is the same as no snapshot.
+    if ! python3 -c "import json,sys; assert json.load(open(sys.argv[1]))['sha']==sys.argv[2]" "$SNAP" "$(git -C ../.. rev-parse HEAD)" 2>/dev/null; then
+      if [ "${LOU_SKIP_PREVIEW:-}" = "1" ]; then
+        echo "!! LOU_SKIP_PREVIEW=1 and no preview snapshot for this commit: data freshness and cache impact NOT checked"
+      else
+        echo "!! no preview snapshot for this commit — re-run ./infra/preview.sh up, then ./infra/preview.sh ok"; exit 1
+      fi
     else
-      python3 -c "import json,sys; assert json.load(open(sys.argv[1]))['sha']==sys.argv[2]" "$SNAP" "$(git -C ../.. rev-parse HEAD)" 2>/dev/null \
-        || { echo "!! no preview snapshot for this commit — re-run ./infra/preview.sh up, then ./infra/preview.sh ok"; exit 1; }
       live_url=$(stack_out CloudFrontUrl) || exit 1
       live=""
       if [ -n "$live_url" ] && [ "$live_url" != "None" ]; then
@@ -157,7 +161,13 @@ case "$STEP" in
       else
         printf '%s' "$live" | python3 -c '
 import json, os, sys
-snap, live = json.load(open(sys.argv[1])), json.load(sys.stdin)
+snap = json.load(open(sys.argv[1]))
+try:
+    live = json.load(sys.stdin)
+    assert isinstance(live, dict)
+except Exception:   # a 200 edge/maintenance page: unreadable is a warning, like unreachable
+    print("!! production\x27s /api/health is not JSON: data freshness and cache impact NOT checked")
+    sys.exit(0)
 new, old = snap["tables"], live.get("tables", {})
 rc = 0
 diff = ", ".join(f"{t} {old.get(t)} -> {new.get(t)}" for t in sorted(set(new) | set(old)) if new.get(t) != old.get(t))
@@ -189,11 +199,12 @@ else:
 sys.exit(rc)
 ' "$SNAP" || exit 1
       fi
-      # Checked before anything is built: LOU_WARM=1 without the token would
-      # otherwise fail only after the new image is already serving.
-      [ "${LOU_WARM:-}" != "1" ] || [ -n "${ADMIN_TOKEN:-}" ] \
-        || { echo "!! LOU_WARM=1 needs ADMIN_TOKEN in the environment (the /lou/prod value)"; exit 1; }
     fi
+    # Checked before anything is built, on every path (bypass included):
+    # LOU_WARM=1 without the token would otherwise fail only after the new
+    # image is already serving.
+    [ "${LOU_WARM:-}" != "1" ] || [ -n "${ADMIN_TOKEN:-}" ] \
+      || { echo "!! LOU_WARM=1 needs ADMIN_TOKEN in the environment (the /lou/prod value)"; exit 1; }
     cdk diff
     # Security-relevant changes (IAM statements, resource policies, security
     # groups) fail closed: the CLI's interactive prompt cannot be answered from

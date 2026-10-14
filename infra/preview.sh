@@ -56,7 +56,11 @@ up() {
   docker run --rm --network "$NET" -e AWS_ACCESS_KEY_ID=local -e AWS_SECRET_ACCESS_KEY=local -e AWS_DEFAULT_REGION=us-east-1 \
     "$IMG" python -c "import boto3, state_store; c=boto3.client('dynamodb', endpoint_url='http://lou-preview-dynamodb:8000'); state_store.ensure_table(c, 'lou-state'); print('table lou-state ready')"
   echo "== the app, as Lambda runs it: uid 1000, read-only, /tmp only"
-  docker run -d --rm --name lou-preview-app --network "$NET" -p "127.0.0.1:$PORT:8000" \
+  # The commit the image was built from (+ "-dirty" for uncommitted changes):
+  # `ok` refuses unless it is HEAD, so a container from an earlier commit can
+  # never supply the numbers deploy.sh decides on (roborev 6026).
+  built=$(git rev-parse HEAD); git diff --quiet && git diff --cached --quiet || built="$built-dirty"
+  docker run -d --rm --name lou-preview-app --label "lou.sha=$built" --network "$NET" -p "127.0.0.1:$PORT:8000" \
     --user 1000:1000 --read-only --tmpfs /tmp:rw,size=1g -m 1769m \
     --env-file .env \
     -e STATE_BACKEND=dynamodb -e STATE_TABLE=lou-state -e DYNAMODB_ENDPOINT_URL=http://lou-preview-dynamodb:8000 \
@@ -93,6 +97,8 @@ ok() {
   # older local artifact, or to orphan the warmed starters without re-warming
   # (louisville-open-data-4e9). So `ok` needs the preview still running.
   sha=$(git rev-parse HEAD)
+  built=$(docker inspect -f '{{index .Config.Labels "lou.sha"}}' lou-preview-app 2>/dev/null || true)
+  [ "$built" = "$sha" ] || { echo "!! the running preview was built from ${built:-an unknown commit}, not HEAD $sha — run \`$0 up\` (and verify) again"; exit 1; }
   curl -sf --max-time 10 "http://127.0.0.1:$PORT/api/health" \
     | python3 -c "import json,sys; d=json.load(sys.stdin); json.dump({'sha': sys.argv[1], 'tables': d['tables'], 'cache_version': d.get('cache_version')}, open(sys.argv[2], 'w'))" "$sha" "$SNAP" \
     || { echo "!! cannot read the preview's /api/health on :$PORT — run \`$0 up\` (the preview must be running for \`ok\`)"; exit 1; }
