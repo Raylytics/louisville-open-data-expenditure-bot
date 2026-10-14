@@ -80,7 +80,10 @@ class ClaudeEmpty(RuntimeError):
 # balance fails every call identically until a human acts, so skip Claude for
 # a while instead of paying a doomed round trip three times per question.
 RECHECK_SECONDS = 900
-_unusable_at = None
+# A timeout is not durable, but while Claude is that slow every call would pay
+# the whole budget again before reaching a healthy provider; bench it briefly.
+TIMEOUT_LATCH_SECONDS = 120
+_unusable_until = None
 # A model the API says does not exist is skipped (ranked list moves on) until
 # the same recheck; per model, so retiring Sonnet does not bench Haiku.
 _dead_models: dict = {}
@@ -88,12 +91,19 @@ _lock = threading.Lock()
 
 
 def is_latched() -> bool:
-    return _unusable_at is not None and (time.time() - _unusable_at) < RECHECK_SECONDS
+    return _unusable_until is not None and time.time() < _unusable_until
 
 
-def _latch(on: bool = True) -> None:
-    global _unusable_at
-    _unusable_at = time.time() if on else None
+def _latch(on: bool = True, seconds: float = RECHECK_SECONDS) -> None:
+    global _unusable_until
+    _unusable_until = time.time() + seconds if on else None
+
+
+def budget() -> float:
+    """Seconds Claude may spend on one call, across ALL ranked models, before
+    the call moves to OpenRouter/Cerebras. Short on purpose: the Lambda has
+    120s in total, and the old chain must still have room to answer."""
+    return float(os.environ.get("CLAUDE_TIMEOUT_SECONDS", "20") or 20)
 
 
 def _model_is_dead(model: str) -> bool:
@@ -123,6 +133,11 @@ def is_durable_failure(e: Exception) -> bool:
 def _is_model_gone(e: Exception) -> bool:
     import anthropic
     return isinstance(e, anthropic.NotFoundError)
+
+
+def _is_timeout(e: Exception) -> bool:
+    import anthropic
+    return isinstance(e, anthropic.APITimeoutError)
 
 
 def _is_overloaded(e: Exception) -> bool:
@@ -303,13 +318,29 @@ def call_first(make_call):
     latched out, or every model failed — the caller then runs its normal
     provider chain. Never raises: Claude is an optimisation in front of a
     working chain, so its failures are logged and swallowed."""
-    client = get_client(_timeout())
+    client = get_client()
     if client is None or is_latched():
         return None
+    import anthropic
+    # Each attempt may wait up to budget() for a response (for a stream: for
+    # headers and for each gap between events, which thinking keeps short).
+    # A timeout stops Claude for this call at once, and the other failures
+    # are fast, so the deadline only has to stop a slow chain of quick
+    # failures — Claude costs at most about one budget per call.
+    deadline = time.monotonic() + budget()
+    timed = client.with_options(timeout=anthropic.Timeout(budget(), connect=min(10.0, budget())))
     for model in live_models():
+        if time.monotonic() >= deadline:
+            log.warning("Claude budget (%.0fs) spent; using the fallback providers", budget())
+            return None
         try:
-            return make_call(client, model)(), model
+            return make_call(timed, model)(), model
         except Exception as e:  # noqa: BLE001 — every failure falls through
+            if _is_timeout(e):
+                log.warning("Claude model '%s' timed out; skipping Claude for %ds",
+                            model, TIMEOUT_LATCH_SECONDS)
+                _latch(seconds=TIMEOUT_LATCH_SECONDS)
+                return None
             if is_durable_failure(e):
                 log.error("Claude unusable (%s: %s); skipping it for %ds",
                           type(e).__name__, e, RECHECK_SECONDS)
@@ -327,10 +358,6 @@ def call_first(make_call):
             log.warning("Claude call failed (%s: %s); using the fallback providers", type(e).__name__, e)
             return None
     return None
-
-
-def _timeout() -> float:
-    return float(os.environ.get("LLM_TIMEOUT_SECONDS", "60") or 60)
 
 
 def is_claude_error(e: Exception) -> bool:

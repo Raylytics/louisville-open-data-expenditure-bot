@@ -74,7 +74,7 @@ class Server:
 @pytest.fixture(autouse=True)
 def _reset(monkeypatch):
     monkeypatch.setattr(cp, "_client", None)
-    monkeypatch.setattr(cp, "_unusable_at", None)
+    monkeypatch.setattr(cp, "_unusable_until", None)
     monkeypatch.setattr(cp, "_dead_models", {})
     aa._mark_primary_unusable(False)
     yield
@@ -211,3 +211,46 @@ def test_generate_sql_falls_through_to_the_old_chain(monkeypatch):
     sql, _, _ = aa.generate_sql(primary, "nemotron", "SCHEMA", "q")
     assert sql == "SELECT 'openrouter'" and primary.calls == 1
     assert aa.get_last_tier_used() == aa.get_primary_tier()
+
+
+def test_a_timeout_stops_claude_for_the_call_and_benches_it(monkeypatch):
+    calls = []
+
+    def _slow(c, m):
+        def _call():
+            calls.append(m)
+            raise anthropic.APITimeoutError(request=httpx2.Request("POST", "https://api.anthropic.com/v1/messages"))
+        return _call
+    _install(monkeypatch, {})
+    assert cp.call_first(_slow) is None
+    assert calls == ["claude-sonnet-5-5"]      # Haiku does not get a fresh wait
+    assert cp.is_latched()
+    assert cp.call_first(_slow) is None and calls == ["claude-sonnet-5-5"]
+
+
+def test_one_budget_is_shared_across_the_ranked_models(monkeypatch):
+    """Sonnet's 529 arrives after the budget is spent: Haiku is not tried."""
+    monkeypatch.setenv("CLAUDE_TIMEOUT_SECONDS", "5")
+    now = [1000.0]
+    monkeypatch.setattr(cp.time, "monotonic", lambda: now[0])
+    server = _install(monkeypatch, {"claude-sonnet-5-5": (529, {"type": "overloaded_error", "message": "busy"}),
+                                    "claude-haiku-5-5": (200, _message(model="claude-haiku-5-5"))})
+
+    def _slow_sql_call(c, m):
+        call = _sql_call(c, m)
+
+        def _run():
+            try:
+                return call()
+            finally:
+                now[0] += 6
+        return _run
+    assert cp.call_first(_slow_sql_call) is None
+    assert [r["model"] for r in server.requests] == ["claude-sonnet-5-5"]
+
+
+def test_usage_has_no_claude_entry_without_a_key(monkeypatch):
+    import app
+    assert "anthropic" not in app.get_usage_summary()["providers"]
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    assert "anthropic" in app.get_usage_summary()["providers"]

@@ -587,12 +587,14 @@ def get_usage_summary() -> dict:
             "rpd": limits.get("rpd"),
             "tpd": limits.get("tpd"),
         },
+    }
+    if claude_provider.is_configured():
         # Claude: billed per token to the Console org; no daily request cap.
-        "anthropic": {
+        # Absent without a key, so the usage line has no Claude part then.
+        providers["anthropic"] = {
             "requests_today": by.get("anthropic", {}).get("requests", 0),
             "tokens_today": by.get("anthropic", {}).get("tokens", 0),
-        },
-    }
+        }
 
     return {
         "providers": providers,
@@ -1944,9 +1946,13 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
         # an in-stream "Upstream error ... overloaded" mid-answer).
         # With Claude configured, attempt 1 is Claude-first and a Claude
         # stream that dies is retried whole on the usual chain (attempt 2)
-        # before the fallback client alone.
+        # before the fallback client alone. Attempt 2 runs only when Claude
+        # served attempt 1: if attempt 1 already fell through to the usual
+        # chain and THAT stream died, rerunning it would spend the free
+        # allowance on the provider that just failed.
         attempts = [(client, MODEL, paid_client, FALLBACK_MODEL, True)]
-        if get_preferred_tier() == claude_provider.TIER:
+        chain_retry = get_preferred_tier() == claude_provider.TIER
+        if chain_retry:
             attempts.append((client, MODEL, paid_client, FALLBACK_MODEL, False))
         draft_retried = False
         if paid_client is not None:
@@ -1975,6 +1981,8 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
                     break
                 except Exception as e:
                     draft_error = e
+                    if i == 0 and chain_retry and get_last_tier_used() != claude_provider.TIER:
+                        del attempts[1]  # the usual chain is what just failed
                     if i + 1 < len(attempts):
                         log.warning("Draft stream failed (%s); retrying whole draft on the fallback provider", e)
                         yield send("log", {"content": "Summary stream failed; retrying on the backup provider..."})

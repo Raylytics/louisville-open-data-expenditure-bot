@@ -294,6 +294,10 @@ translates to/from the OpenAI response shape the rest of the code reads.
   through to the next provider.
 - **Latch:** a 401/403, an unscoped key, or "credit balance is too low" skips
   Claude for 15 minutes (`claude_provider.RECHECK_SECONDS`), healing by itself.
+- **Time budget:** `CLAUDE_TIMEOUT_SECONDS` (default 20) per call, shared by
+  all ranked models; a timeout ends Claude's turn at once and benches it for
+  2 minutes. The Lambda has 120s in total, and the old chain needs room
+  (roborev 5953: two models x the 60s LLM timeout could eat all of it).
 - **Tier/accounting:** tier `claude`, provider `anthropic` in the usage split;
   each call logs `request-id` and `anthropic-workspace-id` (never the key).
 - **Prod wiring:** `ANTHROPIC_API_KEY` is in `SSM_SECRET_NAMES`; put it at

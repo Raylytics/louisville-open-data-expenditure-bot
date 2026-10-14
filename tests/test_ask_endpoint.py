@@ -976,3 +976,36 @@ def test_answers_carry_the_packs_data_note_and_the_irregularity_caveat(client, m
     assert app.IRREGULARITY_NOTE in infos
     ev = _events(_post(client, "Which agencies spent the most in FY2025?"))
     assert app.IRREGULARITY_NOTE not in [e["content"] for e in ev if e["type"] == "info"]
+
+
+# ── Draft retry with Claude in front (roborev 5953) ──────────────────────────
+
+@pytest.mark.parametrize("failed_tier,expected_retry", [
+    # Claude's stream died: retry on the usual chain (Claude skipped).
+    ("claude", "chain"),
+    # Attempt 1 already fell through to OpenRouter and THAT stream died:
+    # rerunning the same chain would spend the free allowance on the provider
+    # that just failed, so go straight to the paid client.
+    ("openrouter", "paid"),
+])
+def test_draft_retry_follows_the_tier_that_failed(client, monkeypatch, failed_tier, expected_retry):
+    import app
+    import analytics_agent
+    paid = object()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setattr(app, "paid_client", paid)
+    calls = []
+
+    def _stream(a_client, model, system, question, sql, results, prefer_claude=True, **kw):
+        calls.append("paid" if a_client is paid else ("claude" if prefer_claude else "chain"))
+        if len(calls) == 1:
+            analytics_agent._set_tier(failed_tier)
+            raise RuntimeError("stream died mid-answer")
+        yield "Recovered draft."
+
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
+    monkeypatch.setattr(app, "interpret_results_stream", _stream)
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("Refined."))
+    events = _events(_post(client, "which agencies spent the most in 2025?"))
+    assert calls == ["claude", expected_retry]
+    assert "error" not in _types(events)
