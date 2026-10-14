@@ -1016,6 +1016,10 @@ async def health():
         "model": get_active_model(MODEL),
         "model_configured": MODEL,
         "model_fallback": get_model_fallback_event(),
+        # The key prefix the cached answers live under. deploy.sh compares the
+        # previewed image's value with production's: a difference means the
+        # deploy orphans every warmed starter (4e9), so it must re-warm.
+        "cache_version": CACHE_VERSION,
         "errors": errors,
     }
 

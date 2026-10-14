@@ -25,6 +25,7 @@ NET=lou-preview
 IMG=lou-lambda:preview
 PORT=${LOU_PREVIEW_PORT:-8010}   # not :8000 — that is the dev uvicorn convention (CLAUDE.md)
 MARK=.preview-ok
+SNAP=.preview-health.json   # what the previewed image served; deploy.sh compares it with production
 STEP=${1:-all}
 
 require() { command -v "$1" >/dev/null || { echo "!! $1 is required"; exit 1; }; }
@@ -87,7 +88,15 @@ verify() {
 
 ok() {
   git diff --quiet && git diff --cached --quiet || { echo "!! working tree has uncommitted changes; commit first so the marker names what was previewed"; exit 1; }
-  sha=$(git rev-parse HEAD); echo "$sha" > "$MARK"
+  # The preview's own /api/health (row counts, cache_version) is recorded
+  # with the marker: deploy.sh refuses to roll production's data back to an
+  # older local artifact, or to orphan the warmed starters without re-warming
+  # (louisville-open-data-4e9). So `ok` needs the preview still running.
+  sha=$(git rev-parse HEAD)
+  curl -sf --max-time 10 "http://127.0.0.1:$PORT/api/health" \
+    | python3 -c "import json,sys; d=json.load(sys.stdin); json.dump({'sha': sys.argv[1], 'tables': d['tables'], 'cache_version': d.get('cache_version')}, open(sys.argv[2], 'w'))" "$sha" "$SNAP" \
+    || { echo "!! cannot read the preview's /api/health on :$PORT — run \`$0 up\` (the preview must be running for \`ok\`)"; exit 1; }
+  echo "$sha" > "$MARK"
   echo "== previewed and approved: $sha  ->  ./infra/cdk/deploy.sh"
 }
 

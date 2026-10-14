@@ -25,3 +25,4 @@ infra/cdk/cdk.out/
 cdk.context.json
 infra/cdk/.cutover-state.json
 .preview-ok
+.preview-health.json

@@ -107,7 +107,7 @@ aws sts get-caller-identity --profile lou      # MFA
                                                # -> hostname on CloudFront (once bound).
 ```
 
-**Re-warm after anything that changes CACHE_VERSION** (a prompt, a city fact,
+**Re-warm after anything that changes CACHE_VERSION** (a prompt, a city fact, the data,
 `table_notes`, `EVENT_SCHEMA_VERSION`): every cached starter is orphaned and
 would otherwise be answered live, one visitor at a time. `LOU_WARM=1` needs
 `ADMIN_TOKEN` (the `/lou/prod/ADMIN_TOKEN` SSM value). Agents may not read SSM
@@ -133,6 +133,20 @@ must be confirmed from the SNS e-mail before alarms reach it.
 `.beads/issues.jsonl` (and bd may auto-stage it), which makes the tree dirty
 and the deploy refuse; committing it moves HEAD past the marker. File/close
 issues before `preview.sh ok`, or re-run the preview after committing.
+
+**The image bakes the LOCAL `data/lou.duckdb`** — not what the last
+`lou-refresh` produced. On 2026-10-14 a code deploy rolled production from
+the Oct-1 data back to a Sep-25 local artifact, and the data change moved
+`CACHE_VERSION`, orphaning every warmed starter (`louisville-open-data-4e9`).
+So `preview.sh ok` records the preview's `/api/health` (row counts +
+`cache_version`) in `.preview-health.json`, and `deploy.sh` compares it with
+production before building: **fewer expenditure rows than live refuses**
+(fetch the current artifact first:
+`aws s3 cp s3://lou-data-012146975534-us-east-1/latest/lou.duckdb data/lou.duckdb --profile lou`,
+then preview again; deliberate rollback `LOU_ALLOW_OLDER_DATA=1`), and **a
+changed `cache_version` refuses unless `LOU_WARM=1`** (with `ADMIN_TOKEN`,
+checked up front; deliberately cold `LOU_ALLOW_COLD_CACHE=1`). An unreachable
+production only warns, so a hotfix during an outage still goes through.
 
 Emergency bypass of the preview gate: `LOU_SKIP_PREVIEW=1` — loud in the
 output, for a hotfix only. Security-widening diffs additionally need

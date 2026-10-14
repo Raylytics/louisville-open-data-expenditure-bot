@@ -132,6 +132,68 @@ case "$STEP" in
         || { echo "!! working tree differs from the previewed commit; commit (and preview) first"; exit 1; }
       echo "== previewed commit ${head:0:7} approved locally"
     fi
+    # The image bakes the LOCAL data/lou.duckdb. On 2026-10-14 that silently
+    # rolled production from the Oct-1 refresh back to a Sep-25 artifact, and
+    # the data change moved CACHE_VERSION, orphaning every warmed starter
+    # (louisville-open-data-4e9). Compare what the preview served (recorded by
+    # `preview.sh ok`) with what production serves now:
+    #   - fewer expenditure rows than live  -> refuse (LOU_ALLOW_OLDER_DATA=1 overrides);
+    #   - a different cache_version without LOU_WARM=1 -> refuse (LOU_ALLOW_COLD_CACHE=1 overrides).
+    # Production unreachable is a warning, not a refusal: a hotfix during an
+    # outage is exactly when this deploy has to go through.
+    SNAP=../../.preview-health.json
+    if [ "${LOU_SKIP_PREVIEW:-}" = "1" ] && [ ! -f "$SNAP" ]; then
+      echo "!! LOU_SKIP_PREVIEW=1 and no preview snapshot: data freshness and cache impact NOT checked"
+    else
+      python3 -c "import json,sys; assert json.load(open(sys.argv[1]))['sha']==sys.argv[2]" "$SNAP" "$(git -C ../.. rev-parse HEAD)" 2>/dev/null \
+        || { echo "!! no preview snapshot for this commit — re-run ./infra/preview.sh up, then ./infra/preview.sh ok"; exit 1; }
+      live_url=$(stack_out CloudFrontUrl) || exit 1
+      live=""
+      if [ -n "$live_url" ] && [ "$live_url" != "None" ]; then
+        live=$(curl -sf --max-time 20 "${live_url%/}/api/health") || live=""
+      fi
+      if [ -z "$live" ]; then
+        echo "!! cannot read production's /api/health: data freshness and cache impact NOT checked"
+      else
+        printf '%s' "$live" | python3 -c '
+import json, os, sys
+snap, live = json.load(open(sys.argv[1])), json.load(sys.stdin)
+new, old = snap["tables"], live.get("tables", {})
+rc = 0
+diff = ", ".join(f"{t} {old.get(t)} -> {new.get(t)}" for t in sorted(set(new) | set(old)) if new.get(t) != old.get(t))
+print("== data vs production: " + (diff or "identical row counts"))
+n, o = new.get("expenditures"), old.get("expenditures")
+if n is not None and o is not None and n < o:
+    if os.environ.get("LOU_ALLOW_OLDER_DATA") == "1":
+        print(f"!! LOU_ALLOW_OLDER_DATA=1: deploying {n} expenditure rows over production\x27s {o}")
+    else:
+        print(f"!! this image carries OLDER data than production (expenditures {n} < {o}).")
+        print("!! the local data/lou.duckdb is behind the last lou-refresh; fetch the current one:")
+        print("!!   aws s3 cp s3://lou-data-012146975534-us-east-1/latest/lou.duckdb data/lou.duckdb --profile lou")
+        print("!! then preview again. Deliberate rollback: LOU_ALLOW_OLDER_DATA=1")
+        rc = 1
+cv, lv = snap.get("cache_version"), live.get("cache_version")
+if not lv:
+    print("== production does not report cache_version yet: cache impact not checked")
+elif cv != lv:
+    if os.environ.get("LOU_WARM") == "1":
+        print(f"== cache_version {lv} -> {cv}: the starters will be re-warmed (LOU_WARM=1)")
+    elif os.environ.get("LOU_ALLOW_COLD_CACHE") == "1":
+        print(f"!! LOU_ALLOW_COLD_CACHE=1: cache_version {lv} -> {cv} orphans every warmed starter, NOT re-warming")
+    else:
+        print(f"!! this deploy changes cache_version ({lv} -> {cv}): every warmed starter answer is orphaned.")
+        print("!! re-run with LOU_WARM=1 and ADMIN_TOKEN set (CLAUDE.md, Publishing). Deliberately cold: LOU_ALLOW_COLD_CACHE=1")
+        rc = 1
+else:
+    print(f"== cache_version unchanged ({cv}): warmed starters stay valid")
+sys.exit(rc)
+' "$SNAP" || exit 1
+      fi
+      # Checked before anything is built: LOU_WARM=1 without the token would
+      # otherwise fail only after the new image is already serving.
+      [ "${LOU_WARM:-}" != "1" ] || [ -n "${ADMIN_TOKEN:-}" ] \
+        || { echo "!! LOU_WARM=1 needs ADMIN_TOKEN in the environment (the /lou/prod value)"; exit 1; }
+    fi
     cdk diff
     # Security-relevant changes (IAM statements, resource policies, security
     # groups) fail closed: the CLI's interactive prompt cannot be answered from
@@ -183,7 +245,7 @@ case "$STEP" in
       echo "== re-warming the starter answers through CloudFront"
       ( cd ../.. && ADMIN_TOKEN="$ADMIN_TOKEN" python3 warm_cache.py --host "${CF%/}" --delay 5 )
     fi
-    rm -f ../../.preview-ok
+    rm -f ../../.preview-ok ../../.preview-health.json
     ;;
   *) echo "usage: $0 [synth|diff|deploy]"; exit 2 ;;
 esac

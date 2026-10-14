@@ -30,6 +30,7 @@ case "$*" in
       *"OutputKey=='PublicDomain'"*) printf '%s' "${LIVE_DOMAIN:-}" ;;
       *"OutputKey=='CertificateArn'"*) printf '%s' "${LIVE_CERT:-}" ;;
       *"OutputKey=='AlertEmail'"*) printf '%s' "${LIVE_EMAIL:-}" ;;
+      *"OutputKey=='CloudFrontUrl'"*) printf '%s' "${LIVE_URL:-}" ;;
     esac ;;
   *) echo "" ;;
 esac
@@ -47,6 +48,7 @@ echo "curl $*" >>"$CALLS"
 case "$*" in
   *"%{http_code} %{content_type}"*) printf '200 text/event-stream; charset=utf-8' ;;
   *"%{http_code}"*) printf '200' ;;
+  *"live.test"*) [ -n "${LIVE_HEALTH:-}" ] || exit 22; printf '%s' "$LIVE_HEALTH" ;;
   *) printf '{"status":"ok","tables":{"expenditures":1}}' ;;
 esac
 '''
@@ -184,13 +186,32 @@ def _head():
 
 @pytest.fixture
 def marker():
-    path = REPO / ".preview-ok"
-    before = path.read_text() if path.exists() else None
+    path, snap = REPO / ".preview-ok", REPO / ".preview-health.json"
+    saved = {p: (p.read_text() if p.exists() else None) for p in (path, snap)}
+    _write_snapshot(snap, expenditures=100, cache_version="aaaa1111")
     yield path
-    if before is None:
-        path.unlink(missing_ok=True)
-    else:
-        path.write_text(before)
+    for p, before in saved.items():
+        if before is None:
+            p.unlink(missing_ok=True)
+        else:
+            p.write_text(before)
+
+
+def _write_snapshot(snap, expenditures, cache_version, sha=None):
+    snap.write_text(json.dumps({"sha": sha or _head(), "cache_version": cache_version,
+                                "tables": {"expenditures": expenditures, "salary_data": 5}}))
+
+
+def _live(expenditures=100, cache_version="aaaa1111"):
+    body = {"status": "ok", "tables": {"expenditures": expenditures, "salary_data": 5}}
+    if cache_version:
+        body["cache_version"] = cache_version
+    return {"LIVE_URL": "https://live.test/", "LIVE_HEALTH": json.dumps(body)}
+
+
+def _clean_tree():
+    return (subprocess.run(["git", "-C", str(REPO), "diff", "--quiet"]).returncode == 0
+            and subprocess.run(["git", "-C", str(REPO), "diff", "--cached", "--quiet"]).returncode == 0)
 
 
 def test_deploy_refuses_without_a_preview_of_this_commit(harness, marker):
@@ -233,3 +254,81 @@ def test_emergency_bypass_is_loud(harness, marker):
     assert "deploying WITHOUT a local preview" in proc.stdout
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "DEPLOY VERIFIED" in proc.stdout
+
+
+# --- data freshness + cache impact (louisville-open-data-4e9) ---------------
+# The image bakes the local artifact: a deploy once rolled production back to
+# older data and orphaned every warmed starter. The gate compares the preview's
+# /api/health snapshot with production's before anything is built.
+
+@pytest.fixture
+def approved(marker):
+    if not _clean_tree():
+        pytest.skip("working tree is dirty; the preview gate would (correctly) refuse first")
+    marker.write_text(_head() + "\n")
+    return REPO / ".preview-health.json"
+
+
+def test_older_data_than_production_refuses(harness, approved):
+    proc, calls = harness("deploy", env=_live(expenditures=200))
+    assert proc.returncode == 1
+    assert "OLDER data than production (expenditures 100 < 200)" in proc.stdout
+    assert "latest/lou.duckdb" in proc.stdout
+    assert not any(" deploy --require-approval" in c for c in _cdk_args(calls)), "must refuse before building"
+
+
+def test_older_data_override_is_loud(harness, approved):
+    proc, calls = harness("deploy", env={**_live(expenditures=200), "LOU_ALLOW_OLDER_DATA": "1"})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "LOU_ALLOW_OLDER_DATA=1: deploying 100 expenditure rows" in proc.stdout
+
+
+def test_changed_cache_version_without_warm_refuses(harness, approved):
+    proc, calls = harness("deploy", env=_live(cache_version="bbbb2222"))
+    assert proc.returncode == 1
+    assert "changes cache_version (bbbb2222 -> aaaa1111)" in proc.stdout and "LOU_WARM=1" in proc.stdout
+    assert not any(" deploy --require-approval" in c for c in _cdk_args(calls))
+
+
+def test_changed_cache_version_with_warm_needs_the_token_up_front(harness, approved):
+    proc, calls = harness("deploy", env={**_live(cache_version="bbbb2222"), "LOU_WARM": "1", "ADMIN_TOKEN": ""})
+    assert proc.returncode == 1 and "needs ADMIN_TOKEN" in proc.stdout
+    assert not any(" deploy --require-approval" in c for c in _cdk_args(calls))
+
+
+def test_changed_cache_version_cold_override(harness, approved):
+    proc, _ = harness("deploy", env={**_live(cache_version="bbbb2222"), "LOU_ALLOW_COLD_CACHE": "1"})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "NOT re-warming" in proc.stdout
+
+
+def test_same_data_and_cache_version_deploys(harness, approved):
+    proc, _ = harness("deploy", env=_live())
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "cache_version unchanged (aaaa1111)" in proc.stdout and "identical row counts" in proc.stdout
+
+
+def test_newer_data_is_reported_and_allowed(harness, approved):
+    proc, _ = harness("deploy", env=_live(expenditures=90))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "expenditures 90 -> 100" in proc.stdout
+
+
+def test_production_without_cache_version_is_not_a_refusal(harness, approved):
+    proc, _ = harness("deploy", env=_live(cache_version=None))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "does not report cache_version" in proc.stdout
+
+
+def test_unreachable_production_warns_but_deploys(harness, approved):
+    proc, _ = harness("deploy", env={"LIVE_URL": "https://live.test/", "LIVE_HEALTH": ""})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "NOT checked" in proc.stdout
+
+
+def test_snapshot_for_another_commit_refuses(harness, approved):
+    _write_snapshot(approved, expenditures=100, cache_version="aaaa1111", sha="0" * 40)
+    proc, calls = harness("deploy", env=_live())
+    assert proc.returncode == 1 and "no preview snapshot for this commit" in proc.stdout
+    assert not _cdk_args(calls)
+

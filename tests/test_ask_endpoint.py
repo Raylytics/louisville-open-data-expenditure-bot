@@ -1013,3 +1013,9 @@ def test_draft_retry_follows_the_tier_that_failed(client, monkeypatch, failed_ti
     events = _events(_post(client, "which agencies spent the most in 2025?"))
     assert calls == ["claude", expected_retry]
     assert "error" not in _types(events)
+
+
+def test_health_reports_the_cache_version(client):
+    """deploy.sh compares this with the previewed image's value (4e9)."""
+    import app
+    assert client.get("/api/health").json()["cache_version"] == app.CACHE_VERSION != "unversioned"
