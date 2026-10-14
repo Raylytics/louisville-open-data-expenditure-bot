@@ -271,7 +271,36 @@ Persistent state lives in Docker named volumes, not the image: `louisville-data`
 
 The old `docker-compose.yml` and `deploy.sh` were **removed** (they described a superseded SSH-rsync flow that leaked `.env` and carried the 45s health `start_period` that caused the 2026-08-11 outage). The authoritative deploy is the MCP Docker flow above; there is no compose/rsync path.
 
-### Providers: OpenRouter primary, Cerebras fallback
+### Providers: Claude first, then OpenRouter primary, Cerebras fallback
+
+**Claude (Anthropic API) takes precedence over both providers below** when
+`ANTHROPIC_API_KEY` is set (added 2026-10-14, `claude_provider.py`). It sits
+*in front of* the OpenRouter → Cerebras chain rather than inside it: every LLM
+call (SQL, draft, refine — swapped or not — and the background note) tries
+Claude first, and any Claude failure hands the same call to the unchanged
+two-provider machinery described below. Unset the key and the bot is exactly
+what it was. Official `anthropic` SDK (1.x) → `POST /v1/messages`; the module
+translates to/from the OpenAI response shape the rest of the code reads.
+
+- **Models:** `CLAUDE_MODELS` (ranked, default `claude-sonnet-5-5,claude-haiku-5-5`)
+  at `CLAUDE_EFFORT` (default `low`). Sonnet for SQL accuracy, low effort to
+  keep thinking — and time-to-first-token — short; Haiku is the faster rung
+  when Sonnet is overloaded (429/5xx/529) or retired (404, skipped 15 min).
+  **Not yet benchmarked**: run `python eval/run_eval.py --provider claude`
+  before trusting the ranking, and compare with the Cerebras baseline (23/23).
+- **Translation rules:** system messages → cached `system` block;
+  `temperature` dropped (current models 400 on it); `max_tokens` floored at
+  8192 (adaptive thinking spends from it); `refusal` or no answer text → falls
+  through to the next provider.
+- **Latch:** a 401/403, an unscoped key, or "credit balance is too low" skips
+  Claude for 15 minutes (`claude_provider.RECHECK_SECONDS`), healing by itself.
+- **Tier/accounting:** tier `claude`, provider `anthropic` in the usage split;
+  each call logs `request-id` and `anthropic-workspace-id` (never the key).
+- **Prod wiring:** `ANTHROPIC_API_KEY` is in `SSM_SECRET_NAMES`; put it at
+  `/lou/prod/ANTHROPIC_API_KEY` (SecureString) and the next cold start uses it.
+  Until then the loader logs "not found" for it and Claude stays off.
+- `eval/run_eval.py --provider cerebras|openrouter` drops the Anthropic key so
+  those runs still measure the provider they name.
 
 **Cerebras retired its always-free tier in July 2026** (replaced by a one-time $5
 trial that expires after 30 days), so the old free key answers **HTTP 402

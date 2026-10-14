@@ -53,7 +53,7 @@ if LOG_DIR:
 
 log = logging.getLogger("app")
 
-SSM_SECRET_NAMES = ("OPENROUTER_API_KEY", "CEREBRAS_PAID_API_KEY", "ADMIN_TOKEN")
+SSM_SECRET_NAMES = ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "CEREBRAS_PAID_API_KEY", "ADMIN_TOKEN")
 
 
 def _load_secrets_from_ssm() -> int:
@@ -100,6 +100,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import state_store
 
+import claude_provider
 from analytics_agent import (
     EmptyCompletionError,
     execute_sql_safe,
@@ -118,6 +119,8 @@ from analytics_agent import (
     begin_request_tier_tracking,
     get_openrouter_limits,
     get_primary_tier,
+    get_preferred_tier,
+    get_last_claude_model,
     provider_of,
     tier_label,
     get_model_fallback_event,
@@ -584,6 +587,11 @@ def get_usage_summary() -> dict:
             "rpd": limits.get("rpd"),
             "tpd": limits.get("tpd"),
         },
+        # Claude: billed per token to the Console org; no daily request cap.
+        "anthropic": {
+            "requests_today": by.get("anthropic", {}).get("requests", 0),
+            "tokens_today": by.get("anthropic", {}).get("tokens", 0),
+        },
     }
 
     return {
@@ -623,7 +631,7 @@ def is_service_error(e: Exception) -> bool:
         # Without this it fell through to the generic branch and told the user
         # to reword a question they had written perfectly well.
         EmptyCompletionError,
-    )):
+    )) or claude_provider.is_claude_error(e):
         return True
     # String fallback ONLY for LLM-specific phrasings. Deliberately narrow: the
     # SQL-retry path can hand us DuckDB errors like 'Table "x" does not exist',
@@ -914,6 +922,9 @@ This data covers expenditures from FY{first_year}-FY{newest_year}, employee sala
 
     client = make_client()
     paid_client = make_paid_client()
+    if claude_provider.is_configured():
+        log.info("First choice: Claude %s (effort %s), then the providers below",
+                 ", ".join(claude_provider.models()), claude_provider.effort())
     if paid_client:
         log.info("Model: %s (%s), fallback: %s (cerebras paid)",
                  MODEL, get_primary_tier(), FALLBACK_MODEL)
@@ -1515,8 +1526,11 @@ async def ask(request: Request):
                                  "rows": rows, "detail": detail})
 
         def model_for(tier):
-            # The primary client runs MODEL (or whatever a deprecation swapped
-            # in); any other tier is the Cerebras fallback client.
+            # Claude runs whichever of CLAUDE_MODELS answered; the primary
+            # client runs MODEL (or whatever a deprecation swapped in); any
+            # other tier is the Cerebras fallback client.
+            if tier == claude_provider.TIER:
+                return get_last_claude_model()
             return get_active_model(MODEL) if tier == get_primary_tier() else FALLBACK_MODEL
 
         def llm_status(tier, intended):
@@ -1565,7 +1579,7 @@ async def ask(request: Request):
         yield send("log", {"content": "Generating SQL query..."})
         yield send("status", {"content": "Writing the query…"})
         t_start = time.time()
-        sql_tier = get_primary_tier()
+        sql_tier = get_preferred_tier()
         try:
             sql, sql_usage, raw_resp = generate_sql(client, MODEL, sql_system, question, on_retry=on_retry, history=history, context=vocab, fallback_client=paid_client, fallback_model=FALLBACK_MODEL)
             sql_tier = get_last_tier_used()
@@ -1580,7 +1594,7 @@ async def ask(request: Request):
             # error-retry as SELECT '<the refusal>' AS message.
             if not _looks_like_sql(sql):
                 log.info("Model returned non-SQL response (likely off-topic)")
-                yield step("generate_sql", llm_status(sql_tier, get_primary_tier()), t_start,
+                yield step("generate_sql", llm_status(sql_tier, get_preferred_tier()), t_start,
                            model=model_for(sql_tier), tier=sql_tier,
                            tokens=sql_usage.get("total_tokens"), attempts=1,
                            regenerated_after_error=False, off_topic=True)
@@ -1624,7 +1638,7 @@ async def ask(request: Request):
             yield evt
         yield send("sql", {"content": sql})
         yield send("debug", {"content": f"SQL generated in {t_sql:.1f}s | {sql_usage.get('total_tokens', 0)} tokens | Model: {get_active_model(MODEL)} | Tier: {tier_label(sql_tier)}"})
-        yield step("generate_sql", llm_status(sql_tier, get_primary_tier()), None, ms=t_sql * 1000,
+        yield step("generate_sql", llm_status(sql_tier, get_preferred_tier()), None, ms=t_sql * 1000,
                    model=model_for(sql_tier), tier=sql_tier, tokens=sql_usage.get("total_tokens"),
                    attempts=1, regenerated_after_error=False)
 
@@ -1653,7 +1667,7 @@ async def ask(request: Request):
                 log.info("SQL retry generated")
                 yield send("log", {"content": "Retrying with corrected SQL..."})
                 yield send("sql", {"content": sql})
-                yield step("generate_sql", llm_status(retry_tier, get_primary_tier()), t_step,
+                yield step("generate_sql", llm_status(retry_tier, get_preferred_tier()), t_step,
                            model=model_for(retry_tier), tier=retry_tier,
                            tokens=retry_usage.get("total_tokens"), attempts=2,
                            regenerated_after_error=True, error=type(e).__name__)
@@ -1752,7 +1766,7 @@ async def ask(request: Request):
                 else:
                     yield send("log", {"content": "Model kept the original query."})
                 yield send("debug", {"content": f"Repair pass in {time.time() - t_start:.1f}s"})
-                yield step("repair", llm_status(repair_tier, get_primary_tier()), t_start,
+                yield step("repair", llm_status(repair_tier, get_preferred_tier()), t_start,
                            model=model_for(repair_tier), tier=repair_tier,
                            tokens=repair_usage.get("total_tokens"), rows=repair_rows,
                            hint=hint_summary, kept=kept, outcome=outcome)
@@ -1888,7 +1902,7 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
                     empty_served.append(text)
                     yield send("interpretation", {"content": text})
                 empty_tier = get_last_tier_used()
-                empty_step = (llm_status(empty_tier, get_primary_tier()), {})
+                empty_step = (llm_status(empty_tier, get_preferred_tier()), {})
             except Exception as e:
                 # The footer cites against the text actually served, so the
                 # fallback has to join it: matching the partial stream instead
@@ -1928,17 +1942,22 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
         # creation); attempt 2: the fallback client alone, for a stream that
         # failed after it started (observed live: OpenRouter 200s, then sends
         # an in-stream "Upstream error ... overloaded" mid-answer).
-        attempts = [(client, MODEL, paid_client, FALLBACK_MODEL)]
+        # With Claude configured, attempt 1 is Claude-first and a Claude
+        # stream that dies is retried whole on the usual chain (attempt 2)
+        # before the fallback client alone.
+        attempts = [(client, MODEL, paid_client, FALLBACK_MODEL, True)]
+        if get_preferred_tier() == claude_provider.TIER:
+            attempts.append((client, MODEL, paid_client, FALLBACK_MODEL, False))
         draft_retried = False
         if paid_client is not None:
-            attempts.append((paid_client, FALLBACK_MODEL, None, None))
+            attempts.append((paid_client, FALLBACK_MODEL, None, None, False))
         try:
-            for i, (a_client, a_model, a_fb, a_fb_model) in enumerate(attempts):
+            for i, (a_client, a_model, a_fb, a_fb_model, a_claude) in enumerate(attempts):
                 draft, draft_error = "", None
                 try:
                     for chunk in interpret_results_stream(
                         a_client, a_model, interpret_system, question, sql, result_str, on_retry=on_retry, history=history, fallback_client=a_fb, fallback_model=a_fb_model,
-                        documents=documents,
+                        documents=documents, prefer_claude=a_claude,
                     ):
                         draft += chunk
                         interp_tokens += 1
@@ -2001,7 +2020,7 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
         if draft_error is None:
             # "retried" = the whole draft was re-run on the backup provider
             # after a mid-stream failure (which also makes it a "fallback").
-            yield step("interpret", llm_status(draft_tier, get_primary_tier()), None,
+            yield step("interpret", llm_status(draft_tier, get_preferred_tier()), None,
                        ms=t_draft * 1000, model=model_for(draft_tier), tier=draft_tier,
                        chunks=draft_chunks, truncated=draft_truncated, retried=draft_retried)
 
@@ -2034,8 +2053,12 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
             # Provider order is flipped for this one call when a paid client
             # exists (see REFINE_PREFER_PAID above); everything else stays
             # free-first.
+            # Claude, when configured, is first for the refine too.
+            r_intended = get_preferred_tier()
             if REFINE_PREFER_PAID and paid_client is not None:
                 r_client, r_model, r_fb, r_fb_model, r_swapped = paid_client, FALLBACK_MODEL, client, MODEL, True
+                if r_intended != claude_provider.TIER:
+                    r_intended = "paid"
             else:
                 r_client, r_model, r_fb, r_fb_model, r_swapped = client, MODEL, paid_client, FALLBACK_MODEL, False
             yield from refine_events_with_fallback(
@@ -2063,7 +2086,7 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
                 r_detail = {"error": type(refine_failure[0]).__name__,
                             "served": "partial" if refine_counter["n"] else "draft"}
             else:
-                r_status = llm_status(refine_tier, "paid" if r_swapped else get_primary_tier())
+                r_status = llm_status(refine_tier, r_intended)
                 r_detail = {"served": "refined"}
             yield step("refine", r_status, t_refine, model=model_for(refine_tier), tier=refine_tier,
                        chunks=refine_counter["n"], **r_detail)
@@ -2098,6 +2121,9 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
             attempts = [(client, get_active_model(MODEL), get_primary_tier())]
             if paid_client is not None:
                 attempts.insert(0, (paid_client, FALLBACK_MODEL, "paid"))
+            claude_client = claude_provider.get_client()
+            if claude_client is not None and not claude_provider.is_latched() and claude_provider.live_models():
+                attempts.insert(0, (claude_client, claude_provider.live_models()[0], claude_provider.TIER))
             try:
                 note, bg_usage, bg_tier = generate_background(attempts, question, "".join(served_text))
                 track_usage(bg_usage.get("prompt_tokens", 0), bg_usage.get("completion_tokens", 0), tier=bg_tier)

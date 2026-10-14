@@ -18,6 +18,7 @@ Usage:
     set -a; source .env; set +a          # the provider keys
     python eval/run_eval.py                       # whichever provider .env selects
     python eval/run_eval.py --provider cerebras   # spare OpenRouter's 50/day free cap
+    python eval/run_eval.py --provider claude     # Claude first (CLAUDE_MODELS), as production
     python eval/run_eval.py --only fire-vehicles-fy2024 --label after-grounding
     PREBUILT_DB=data/lou.duckdb python eval/run_eval.py   # faster boot
 
@@ -48,7 +49,14 @@ def _select_provider(provider: str) -> None:
     picks the Cerebras pay-as-you-go key — an eval of 20+ questions would
     otherwise spend most of OpenRouter's 50-request free daily allowance,
     which production shares."""
-    if provider == "cerebras":
+    if provider in ("cerebras", "openrouter"):
+        # Claude takes precedence whenever its key is set; a run meant to
+        # measure another provider must not be answered by it.
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+    if provider == "claude":
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            sys.exit("--provider claude needs ANTHROPIC_API_KEY in the environment")
+    elif provider == "cerebras":
         for k in ("OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "OPENROUTER_MODEL", "CEREBRAS_API_KEY"):
             os.environ.pop(k, None)
         if not os.environ.get("CEREBRAS_PAID_API_KEY"):
@@ -215,7 +223,8 @@ def run(cases: list, label: str, provider: str, out_dir: str) -> dict:
 
     from fastapi.testclient import TestClient
     import app
-    from analytics_agent import execute_sql_safe, get_active_model, get_primary_tier
+    from analytics_agent import execute_sql_safe, get_active_model, get_preferred_tier
+    import claude_provider
 
     app.IP_RPM_LIMIT = 10_000  # the per-IP limit would stop the run after 5 questions
     results = []
@@ -223,7 +232,9 @@ def run(cases: list, label: str, provider: str, out_dir: str) -> dict:
     with TestClient(app.app) as client:
         app.response_cache.clear()
         model = get_active_model(app.MODEL)
-        print(f"model: {model} ({get_primary_tier()}); {len(cases)} cases\n")
+        if get_preferred_tier() == claude_provider.TIER:
+            model = ",".join(claude_provider.models()) + f" (effort {claude_provider.effort()}) -> {model}"
+        print(f"model: {model} ({get_preferred_tier()}); {len(cases)} cases\n")
         for case in cases:
             t0 = time.time()
             resp = client.post("/api/ask", json={"question": case["question"], "dev_mode": True})
@@ -271,7 +282,7 @@ def run(cases: list, label: str, provider: str, out_dir: str) -> dict:
             print(f"[{flag:8s}] {case['id']:28s} {elapsed:5.1f}s{fix}\n"
                   f"           sql: {sql_note}\n           answer: {ans_note}")
     summary = {
-        "label": label, "model": model, "provider": get_primary_tier(),
+        "label": label, "model": model, "provider": get_preferred_tier(),
         "when": dt.datetime.now().isoformat(timespec="seconds"),
         "cases": len(results),
         "sql_pass": sum(r["sql_ok"] for r in results),
@@ -332,7 +343,7 @@ def main():
     ap.add_argument("--only", action="append", help="case id (repeatable)")
     ap.add_argument("--tag", action="append", help="only cases with this tag (repeatable)")
     ap.add_argument("--label", default="run")
-    ap.add_argument("--provider", choices=["env", "cerebras", "openrouter"], default="env")
+    ap.add_argument("--provider", choices=["env", "cerebras", "openrouter", "claude"], default="env")
     ap.add_argument("--out", default=os.path.join(REPO, "eval", "results"))
     args = ap.parse_args()
     with open(args.golden) as f:

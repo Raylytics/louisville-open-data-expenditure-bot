@@ -25,6 +25,8 @@ import duckdb
 import openai
 import pandas as pd
 
+import claude_provider
+
 log = logging.getLogger("analytics")
 
 # Retry ladder for ordinary 429s. Env-tunable (louisville-open-data-5pg): on a
@@ -52,12 +54,29 @@ def begin_request_tier_tracking() -> None:
     _request_tier.set({"last": None})
 
 
-def _set_tier(tier: str) -> None:
-    global _last_tier_used
+def _set_tier(tier: str, model: str | None = None) -> None:
+    global _last_tier_used, _last_claude_model
     _last_tier_used = tier
+    if model:
+        _last_claude_model = model
     rec = _request_tier.get()
     if rec is not None:
         rec["last"] = tier
+        if model:
+            rec["claude_model"] = model
+
+
+_last_claude_model = None
+
+
+def get_last_claude_model() -> str | None:
+    """Which Claude model served the most recent Claude call (CLAUDE_MODELS is
+    a ranked list, so it is not always the first) — per request when a
+    recorder is installed, like get_last_tier_used."""
+    rec = _request_tier.get()
+    if rec is not None and rec.get("claude_model"):
+        return rec["claude_model"]
+    return _last_claude_model or (claude_provider.models() or [None])[0]
 
 
 def get_last_tier_used() -> str:
@@ -558,7 +577,7 @@ def _record_model_fallback(from_model: str, to_model: str) -> None:
 
 
 def _call_with_model_fallback(make_call, client, model, on_retry=None, fallback_client=None,
-                              fallback_model=None, swapped=False):
+                              fallback_model=None, swapped=False, prefer_claude=True):
     """Run an LLM call, surviving provider model deprecation.
 
     make_call(client, model) must return a zero-arg callable. On a
@@ -583,8 +602,19 @@ def _call_with_model_fallback(make_call, client, model, on_retry=None, fallback_
     call goes straight to its fallback (the default primary) instead of
     resolving a replacement — the resolver's preference list is keyed to the
     default primary's catalogue.
+
+    prefer_claude: try Claude (claude_provider) before any of the above. It
+    takes precedence over both providers, swapped or not; when it is not
+    configured, latched out, or fails, the call proceeds exactly as it would
+    without it. False for a retry after a Claude stream died mid-answer.
     """
     global _last_tier_used
+    if prefer_claude:
+        served = claude_provider.call_first(make_call)
+        if served is not None:
+            result, claude_model = served
+            _set_tier(claude_provider.TIER, claude_model)
+            return result
     if swapped:
         fb_model = fallback_model or model
         fallback_fn = make_call(fallback_client, fb_model) if fallback_client else None
@@ -943,7 +973,8 @@ def interpret_results(
 
 
 def interpret_results_stream(
-    client: openai.OpenAI, model: str, system_prompt: str, question: str, sql: str, results: str, on_retry=None, history: list = None, fallback_client: openai.OpenAI = None, documents: str = "", fallback_model: str = None
+    client: openai.OpenAI, model: str, system_prompt: str, question: str, sql: str, results: str, on_retry=None, history: list = None, fallback_client: openai.OpenAI = None, documents: str = "", fallback_model: str = None,
+    prefer_claude: bool = True,
 ):
     """Stream interpretation chunks as a generator.
 
@@ -968,7 +999,8 @@ def interpret_results_stream(
                 stream=True,
             )
         return _call
-    stream = _call_with_model_fallback(_make_call, client, model, on_retry=on_retry, fallback_client=fallback_client, fallback_model=fallback_model)
+    stream = _call_with_model_fallback(_make_call, client, model, on_retry=on_retry, fallback_client=fallback_client, fallback_model=fallback_model,
+                                       prefer_claude=prefer_claude)
     for chunk in _iter_with_stall_guard(stream):
         if chunk.choices and chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
@@ -1381,14 +1413,25 @@ def _primary_api_key() -> str:
 
 
 def provider_of(tier: str) -> str:
-    """The provider behind a tier label: 'openrouter' or 'cerebras'."""
+    """The provider behind a tier label: 'anthropic', 'openrouter' or 'cerebras'."""
+    if tier == claude_provider.TIER:
+        return "anthropic"
     return "openrouter" if tier == "openrouter" else "cerebras"
 
 
 def tier_label(tier: str) -> str:
     """Human label for the debug lines: which provider AND whether it costs money."""
     return {"openrouter": "free (OpenRouter)", "paid": "paid (Cerebras)",
-            "free": "free (Cerebras)"}.get(tier, tier)
+            "free": "free (Cerebras)", claude_provider.TIER: "paid (Claude)"}.get(tier, tier)
+
+
+def get_preferred_tier() -> str:
+    """The tier every call tries first: Claude when it is configured and not
+    latched out, else the OpenRouter/Cerebras primary. What step statuses are
+    judged against — a call served by anything else is a "fallback"."""
+    if claude_provider.is_configured() and not claude_provider.is_latched():
+        return claude_provider.TIER
+    return get_primary_tier()
 
 
 # OpenRouter caps `:free` models at 20 requests/minute and at 50 requests/day,

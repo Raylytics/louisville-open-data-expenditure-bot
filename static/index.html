@@ -1487,7 +1487,7 @@ const STEP_NAMES = {
   refine: 'Refine',
   background: 'Add general background',
 };
-const TIER_LABELS = { openrouter: 'free · OpenRouter', paid: 'paid · Cerebras', free: 'free · Cerebras' };
+const TIER_LABELS = { claude: 'paid · Claude', openrouter: 'free · OpenRouter', paid: 'paid · Cerebras', free: 'free · Cerebras' };
 
 function stepView(ev) {
   const d = ev.detail || {};
@@ -2305,6 +2305,7 @@ async function streamAnswer(question, opts = {}) {
           // One line per budget: OpenRouter's free allowance and Cerebras's
           // paid account are different limits and must not be summed.
           const o = event.providers.openrouter || {}, c = event.providers.cerebras || {};
+          const a = event.providers.anthropic;
           const fmt = (n) => (n || 0).toLocaleString();
           const free = o.rpd
             ? `${fmt(o.requests_today)}/${fmt(o.rpd)} requests today (${Math.min(100, Math.round((o.requests_today || 0) / o.rpd * 100))}%) · limit ${o.rpm}/min`
@@ -2312,7 +2313,9 @@ async function streamAnswer(question, opts = {}) {
           // Cerebras: requests only. Its streamed refine reports no usage, and
           // a chunk count (the whole answer in 1-2 chunks) is not a token figure.
           addRaw(card, el('div', 'debug-block',
-            `This query: ~${fmt(event.request_tokens)} tokens | Free (OpenRouter): ${free} · ${fmt(o.tokens_today)} tokens | Paid (Cerebras): ${fmt(c.requests_today)} requests today`));
+            `This query: ~${fmt(event.request_tokens)} tokens | `
+            + (a ? `Claude: ${fmt(a.requests_today)} requests · ${fmt(a.tokens_today)} tokens today | ` : '')
+            + `Free (OpenRouter): ${free} · ${fmt(o.tokens_today)} tokens | Paid (Cerebras): ${fmt(c.requests_today)} requests today`));
         }
 
         else if (event.type === 'usage') {
