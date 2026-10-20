@@ -26,3 +26,6 @@ cdk.context.json
 infra/cdk/.cutover-state.json
 .preview-ok
 .preview-health.json
+
+# beads tracker state is local-only (decision 2026-10-20): never commit the export
+.beads/
