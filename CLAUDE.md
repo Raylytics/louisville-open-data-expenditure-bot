@@ -24,6 +24,8 @@ bd close <id>         # Complete work
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 
+**`.beads/` is gitignored in this repo (decision 2026-10-20).** The export, hooks and config under `.beads/` are never committed; tracker state lives only in the local Dolt DB on this machine. Do not `git add -f` anything under `.beads/`, and never write a `chore(bd): sync export` commit.
+
 ## Session Completion
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
@@ -129,10 +131,10 @@ subscriber adoption exists because the 2026-09-24 redesign deploy ran without
 `LOU_ALERT_EMAIL` and destroyed the SNS subscription; a new or changed address
 must be confirmed from the SNS e-mail before alarms reach it.
 
-**Keep the tree clean between preview and deploy.** Any `bd` write re-exports
-`.beads/issues.jsonl` (and bd may auto-stage it), which makes the tree dirty
-and the deploy refuse; committing it moves HEAD past the marker. File/close
-issues before `preview.sh ok`, or re-run the preview after committing.
+**Keep the tree clean between preview and deploy.** `bd` writes used to re-export
+`.beads/issues.jsonl` into the tree and make the deploy refuse; since 2026-10-20
+`.beads/` is gitignored, so bd writes no longer dirty the tree. Any other staged
+or unstaged change still does: commit it before `preview.sh ok`.
 
 **The image bakes the LOCAL `data/lou.duckdb`** — not what the last
 `lou-refresh` produced. On 2026-10-14 a code deploy rolled production from
