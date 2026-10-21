@@ -301,3 +301,7 @@ tests/                 ~850 tests (engine invariants, prompts, endpoint flow, fa
 monitoring/            heartbeat script + healthchecks.io setup
 docs/                  canonical model, onboarding, RAG design, accuracy plan
 ```
+
+## License
+
+Code is MIT licensed, see [LICENSE](LICENSE). The expenditure data comes from Louisville Metro open data and stays under its own terms.
