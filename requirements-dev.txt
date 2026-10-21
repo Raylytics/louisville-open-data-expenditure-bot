@@ -8,3 +8,6 @@ moto[dynamodb,ssm]>=5,<6
 # infra/cdk: the stack tests synthesize the template (no AWS, no Docker).
 aws-cdk-lib>=2.170,<3
 constructs>=10,<11
+# graph/build_contractor_profiles.py (imported by tests/test_sos_reuse.py) pulls in
+# graph/scrape_officers.py, which needs BeautifulSoup. The refresh job installs it ad hoc.
+beautifulsoup4>=4.12,<5
