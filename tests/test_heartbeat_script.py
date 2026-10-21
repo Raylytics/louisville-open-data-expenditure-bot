@@ -76,6 +76,7 @@ echo "${day}T00:00:00Z"
 
 # Not a real check: the stub curl only matches on the hc-ping.com host.
 FAKE_PING_URL = "https://hc-ping.com/00000000-0000-0000-0000-000000000000"
+FAKE_NTFY_TOPIC = "test-topic"
 
 
 class Harness:
@@ -111,6 +112,7 @@ class Harness:
         env = dict(
             os.environ,
             HEALTHCHECKS_PING_URL=FAKE_PING_URL,
+            NTFY_TOPIC=FAKE_NTFY_TOPIC,
             **(extra_env or {}),
             PATH=f"{self.bin}:{os.environ['PATH']}",
             HOME=str(self.home),
@@ -336,7 +338,7 @@ def test_no_container_configured_skips_the_self_heal_entirely(hb):
     assert not any(c.startswith("NTFY") for c in calls), "no restart push either"
 
 
-def _run_raw(hb, env_overrides, drop=("HEALTHCHECKS_PING_URL",)):
+def _run_raw(hb, env_overrides, drop=("HEALTHCHECKS_PING_URL", "NTFY_TOPIC")):
     env = {k: v for k, v in os.environ.items() if k not in drop}
     env.update(
         PATH=f"{hb.bin}:{os.environ['PATH']}",
@@ -354,11 +356,13 @@ def _run_raw(hb, env_overrides, drop=("HEALTHCHECKS_PING_URL",)):
 
 
 def test_missing_ping_url_fails_loudly(hb):
-    """The URL is a credential and is no longer committed. Without it the
+    """NTFY_TOPIC is set so only the URL is missing.
+
+    The URL is a credential and is no longer committed. Without it the
     script must not probe and quietly skip the ping (that reads as an outage on
     the healthchecks side with nothing explaining it): exit non-zero, say why
     on stderr and in the log."""
-    proc = _run_raw(hb, {})
+    proc = _run_raw(hb, {"NTFY_TOPIC": FAKE_NTFY_TOPIC})
     assert proc.returncode != 0
     assert "HEALTHCHECKS_PING_URL" in proc.stderr
     assert "HEALTHCHECKS_PING_URL" in hb.log
@@ -371,7 +375,7 @@ def test_ping_url_read_from_file_when_env_unset(hb):
     url_file = hb.home / ".config" / "louisville-bot-heartbeat" / "ping_url"
     url_file.parent.mkdir(parents=True)
     url_file.write_text(FAKE_PING_URL + "\n")
-    proc = _run_raw(hb, {})
+    proc = _run_raw(hb, {"NTFY_TOPIC": FAKE_NTFY_TOPIC})
     assert proc.returncode == 0, proc.stderr
     assert hb.calls.read_text().split() == ["PING"]
 
@@ -379,6 +383,25 @@ def test_ping_url_read_from_file_when_env_unset(hb):
 def test_empty_ping_url_file_fails_loudly(hb):
     url_file = hb.root / "empty"
     url_file.write_text("")
-    proc = _run_raw(hb, {"HEALTHCHECKS_PING_URL_FILE": str(url_file)})
+    proc = _run_raw(hb, {"HEALTHCHECKS_PING_URL_FILE": str(url_file), "NTFY_TOPIC": FAKE_NTFY_TOPIC})
     assert proc.returncode != 0
     assert "PING" not in hb.calls.read_text().split()
+
+
+def test_missing_ntfy_topic_fails_loudly(hb):
+    """The topic is a credential (anyone with it can push to the phone), so it
+    is not committed either. Missing, the script withholds the ping so the
+    check going DOWN surfaces the broken config."""
+    proc = _run_raw(hb, {"HEALTHCHECKS_PING_URL": FAKE_PING_URL})
+    assert proc.returncode != 0
+    assert "NTFY_TOPIC" in proc.stderr
+    assert hb.calls.read_text().split() == []
+
+
+def test_ntfy_topic_read_from_shared_file(hb):
+    topic_file = hb.home / ".config" / "ntfy" / "topic"
+    topic_file.parent.mkdir(parents=True)
+    topic_file.write_text(FAKE_NTFY_TOPIC + "\n")
+    proc = _run_raw(hb, {"HEALTHCHECKS_PING_URL": FAKE_PING_URL})
+    assert proc.returncode == 0, proc.stderr
+    assert hb.calls.read_text().split() == ["PING"]

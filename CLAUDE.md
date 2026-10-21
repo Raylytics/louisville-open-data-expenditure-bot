@@ -570,6 +570,7 @@ filesystem (`read_csv` of an arbitrary path and `COPY TO` are both blocked —
 | `GEMINI_API_KEY` | `analytics_agent.py` standalone CLI path only (`--api-key`); not used by the app | not provisioned in `.env` | `Gemini API Key` (vault `Personal`, existing) |
 | `NEO4J_PASSWORD` | `graph/load_graph.py`, `refresh_data.py` (local Neo4j graph tooling) | code default for a local dev instance; no `.env` line | `lou-neo4j` (to create if a non-default instance is ever used) |
 | `HEALTHCHECKS_PING_URL` | `monitoring/louisville-bot-heartbeat.sh` dead-man's switch (runs on the Air, not in this app) | Air: `~/.config/louisville-bot-heartbeat/ping_url` (mode 600, written by `op read`; see `monitoring/README.md`). Not in git since the 2026-10-20 rotation | `lou-healthchecks`, field `ping_url` (`op://Personal/lou-healthchecks/ping_url`) |
+| `NTFY_TOPIC` | `monitoring/louisville-bot-heartbeat.sh` degraded and restart pushes (shared with the Air's host alerting and the healthchecks.io ntfy integration) | Air: `~/.config/ntfy/topic` (mode 600, written by `op read`). Not in git since the 2026-10-20 rotation | `mac-server-ntfy`, field `credential` (vault `Credentials`: `op://Credentials/mac-server-ntfy/credential`) |
 
 Not secrets (plain env, fine in `.env.example`): `CLAUDE_MODELS`, `CLAUDE_EFFORT`, `CLAUDE_TIMEOUT_SECONDS`, `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL`, `MODEL`, `LLM_BASE_URL`, `PREBUILT_DB`, `DATA_DIR`, `TRUSTED_PROXY_IPS`, `SSM_PARAMETER_PATH`, `SSM_SECRET_NAMES`, `STATE_*`, `LOU_*` deploy flags.
 

@@ -125,7 +125,7 @@ per-minute spam.
 - Schedule: **period 1 minute, grace 3 minutes**
 - Notification methods (both ON, both inherited from the existing setup):
   - **email** `mac-server` → evan.j.ray@gmail.com
-  - **ntfy** `air-server ntfy push` → topic `air-server-evan-ee4b28dd81`, max priority
+  - **ntfy** `air-server ntfy push` → the topic in `op://Credentials/mac-server-ntfy/credential`, max priority
     on down. Same topic as the host alert, so no new phone subscription is needed —
     the message body names which check fired.
 
@@ -189,20 +189,29 @@ launchctl bootstrap gui/501 /Users/macserver/Library/LaunchAgents/com.raylytics.
 
 If the plist itself changed, `cp` it into `~/Library/LaunchAgents/` before bootstrapping.
 
-The plist carries no secret. The ping URL reaches the LaunchAgent through
-`~/.config/louisville-bot-heartbeat/ping_url` on the Air (mode 600, the bare URL on one
-line). `op` is not signed in on the Air, so write it from the workstation, piping the
+The plist carries no secret. The script needs two credentials and exits 1 (logging an
+`ERROR`, withholding the ping) if either is missing:
+
+| Variable | Fallback file on the Air (mode 600, one line) | 1Password |
+|---|---|---|
+| `HEALTHCHECKS_PING_URL` | `~/.config/louisville-bot-heartbeat/ping_url` | `op://Personal/lou-healthchecks/ping_url` |
+| `NTFY_TOPIC` | `~/.config/ntfy/topic` (shared with the Air's `mempressure-check.sh`) | `op://Credentials/mac-server-ntfy/credential` |
+
+`op` is not signed in on the Air, so write the files from the workstation, piping each
 value straight through without printing it:
 
 ```bash
 op read --account my.1password.com op://Personal/lou-healthchecks/ping_url \
   | ssh macserver@air-server.local 'umask 077; mkdir -p ~/.config/louisville-bot-heartbeat; cat > ~/.config/louisville-bot-heartbeat/ping_url'
+op read --account my.1password.com op://Credentials/mac-server-ntfy/credential \
+  | ssh macserver@air-server.local 'umask 077; mkdir -p ~/.config/ntfy; cat > ~/.config/ntfy/topic'
 ```
 
-Run the script by hand with the URL from 1Password instead of the file:
+Run the script by hand with both values from 1Password instead of the files:
 
 ```bash
 HEALTHCHECKS_PING_URL=op://Personal/lou-healthchecks/ping_url \
+NTFY_TOPIC=op://Credentials/mac-server-ntfy/credential \
   op run --account my.1password.com -- /bin/sh monitoring/louisville-bot-heartbeat.sh
 ```
 
@@ -223,7 +232,7 @@ HEALTHCHECKS_PING_URL=op://Personal/lou-healthchecks/ping_url \
 curl "$(op read --account my.1password.com op://Personal/lou-healthchecks/ping_url)/fail"
 
 # See what ntfy actually delivered, no phone needed:
-curl -s "https://ntfy.sh/air-server-evan-ee4b28dd81/json?poll=1&since=10m"
+curl -s "https://ntfy.sh/$(op read --account my.1password.com op://Credentials/mac-server-ntfy/credential)/json?poll=1&since=10m"
 
 # Real drill — stop the container and wait out the grace period (~4-5 min).
 # NOTE: the watchdog will `docker start` it again within 60s, which is the point;

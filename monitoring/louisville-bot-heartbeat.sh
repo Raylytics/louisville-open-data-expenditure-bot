@@ -18,7 +18,10 @@
 # see monitoring/README.md).
 PING_URL_FILE="${HEALTHCHECKS_PING_URL_FILE:-$HOME/.config/louisville-bot-heartbeat/ping_url}"
 BASE_URL='https://louisville.raylytics.io'
-NTFY_TOPIC='air-server-evan-ee4b28dd81'
+# The ntfy.sh topic is a credential too: anyone who knows it can push to the
+# phone. NTFY_TOPIC, or else a mode-600 file holding just the topic, shared with
+# the Air's other alerting (op://Credentials/mac-server-ntfy/credential).
+NTFY_TOPIC_FILE="${NTFY_TOPIC_FILE:-$HOME/.config/ntfy/topic}"
 # The container to `docker start` when it has exited (the self-heal below).
 # Set CONTAINER='' in the LaunchAgent environment once the hostname points at
 # the AWS Lambda deployment (louisville-open-data-lla): there is no container
@@ -51,14 +54,22 @@ log() {
 if [ -z "${HEALTHCHECKS_PING_URL:-}" ] && [ -r "$PING_URL_FILE" ]; then
     HEALTHCHECKS_PING_URL=$(head -n 1 "$PING_URL_FILE" | tr -d '[:space:]')
 fi
-# Fail loudly rather than probe and drop the ping on the floor: a missing URL
-# looks exactly like an outage on the healthchecks side, so say why here.
-if [ -z "${HEALTHCHECKS_PING_URL:-}" ]; then
-    msg="ERROR: HEALTHCHECKS_PING_URL is unset and '$PING_URL_FILE' is missing or empty - cannot ping healthchecks.io"
+if [ -z "${NTFY_TOPIC:-}" ] && [ -r "$NTFY_TOPIC_FILE" ]; then
+    NTFY_TOPIC=$(head -n 1 "$NTFY_TOPIC_FILE" | tr -d '[:space:]')
+fi
+# Fail loudly rather than probe and drop the ping (or a push) on the floor: a
+# missing URL looks exactly like an outage on the healthchecks side, so say why
+# here. Withholding the ping on a missing topic is deliberate too: the check
+# going DOWN is how a broken config gets noticed.
+require() {
+    [ -n "$2" ] && return 0
+    msg="ERROR: $1 is unset and '$3' is missing or empty - not probing"
     log "$msg"
     echo "$msg" >&2
     exit 1
-fi
+}
+require HEALTHCHECKS_PING_URL "${HEALTHCHECKS_PING_URL:-}" "$PING_URL_FILE"
+require NTFY_TOPIC "${NTFY_TOPIC:-}" "$NTFY_TOPIC_FILE"
 
 # For conditions that persist until a human fixes them (an unwritable state
 # dir), where the state needed to dedupe is the very thing that is broken. The
