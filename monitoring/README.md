@@ -231,8 +231,10 @@ NTFY_TOPIC=op://Credentials/mac-server-ntfy/credential \
 # Fire the whole alert chain without touching the server (auto-recovers next minute):
 curl "$(op read --account my.1password.com op://Personal/lou-healthchecks/ping_url)/fail"
 
-# See what ntfy actually delivered, no phone needed:
-curl -s "https://ntfy.sh/$(op read --account my.1password.com op://Credentials/mac-server-ntfy/credential)/json?poll=1&since=10m"
+# See what ntfy actually delivered, no phone needed. jq drops the "topic" field
+# every ntfy message carries, so the credential is not printed:
+curl -s "https://ntfy.sh/$(op read --account my.1password.com op://Credentials/mac-server-ntfy/credential)/json?poll=1&since=10m" \
+  | jq -c '{time,priority,title,message}'
 
 # Real drill — stop the container and wait out the grace period (~4-5 min).
 # NOTE: the watchdog will `docker start` it again within 60s, which is the point;
