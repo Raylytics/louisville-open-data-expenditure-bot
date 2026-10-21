@@ -198,14 +198,20 @@ The plist carries no secret. The script needs two credentials and exits 1 (loggi
 | `NTFY_TOPIC` | `~/.config/ntfy/topic` (shared with the Air's `mempressure-check.sh`) | `op://Credentials/mac-server-ntfy/credential` |
 
 `op` is not signed in on the Air, so write the files from the workstation, piping each
-value straight through without printing it:
+value straight through without printing it. Each value is checked non-empty first and the
+file is replaced via `.new` + `mv`, so a failed `op read` (1Password locked, expired
+session) cannot truncate a working file and silence the heartbeat:
 
 ```bash
-op read --account my.1password.com op://Personal/lou-healthchecks/ping_url \
-  | ssh macserver@air-server.local 'umask 077; mkdir -p ~/.config/louisville-bot-heartbeat; cat > ~/.config/louisville-bot-heartbeat/ping_url'
-op read --account my.1password.com op://Credentials/mac-server-ntfy/credential \
-  | ssh macserver@air-server.local 'umask 077; mkdir -p ~/.config/ntfy; cat > ~/.config/ntfy/topic'
+v=$(op read --account my.1password.com op://Personal/lou-healthchecks/ping_url) && [ -n "$v" ] \
+  && printf '%s\n' "$v" | ssh macserver@air-server.local 'umask 077; d=~/.config/louisville-bot-heartbeat; mkdir -p $d && cat > $d/ping_url.new && test -s $d/ping_url.new && mv $d/ping_url.new $d/ping_url'
+v=$(op read --account my.1password.com op://Credentials/mac-server-ntfy/credential) && [ -n "$v" ] \
+  && printf '%s\n' "$v" | ssh macserver@air-server.local 'umask 077; d=~/.config/ntfy; mkdir -p $d && cat > $d/topic.new && test -s $d/topic.new && mv $d/topic.new $d/topic'
 ```
+
+The topic file is shared with the Air's `mempressure-check.sh` (mac-server repo), and the
+same topic is set on the healthchecks.io `air-server ntfy push` integration and the phone
+subscription: a rotation updates all of them.
 
 Run the script by hand with both values from 1Password instead of the files:
 
