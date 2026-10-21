@@ -74,6 +74,10 @@ echo "${day}T00:00:00Z"
 """
 
 
+# Not a real check: the stub curl only matches on the hc-ping.com host.
+FAKE_PING_URL = "https://hc-ping.com/00000000-0000-0000-0000-000000000000"
+
+
 class Harness:
     def __init__(self, tmp_path, curl_stub=CURL_STUB):
         self.root = tmp_path
@@ -106,6 +110,7 @@ class Harness:
         self.calls.write_text("")
         env = dict(
             os.environ,
+            HEALTHCHECKS_PING_URL=FAKE_PING_URL,
             **(extra_env or {}),
             PATH=f"{self.bin}:{os.environ['PATH']}",
             HOME=str(self.home),
@@ -329,3 +334,51 @@ def test_no_container_configured_skips_the_self_heal_entirely(hb):
     assert not any(c.startswith("DOCKER") for c in calls), calls
     assert "PING" not in calls, "ping must be withheld"
     assert not any(c.startswith("NTFY") for c in calls), "no restart push either"
+
+
+def _run_raw(hb, env_overrides, drop=("HEALTHCHECKS_PING_URL",)):
+    env = {k: v for k, v in os.environ.items() if k not in drop}
+    env.update(
+        PATH=f"{hb.bin}:{os.environ['PATH']}",
+        HOME=str(hb.home),
+        CALLS=str(hb.calls),
+        DOCKER=str(hb.bin / "docker"),
+        FAKE_HEALTH=OK_BODY,
+        FAKE_ASK="200",
+    )
+    env.update(env_overrides)
+    hb.calls.write_text("")
+    return subprocess.run(
+        ["/bin/sh", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
+    )
+
+
+def test_missing_ping_url_fails_loudly(hb):
+    """The URL is a credential and is no longer committed. Without it the
+    script must not probe and quietly skip the ping (that reads as an outage on
+    the healthchecks side with nothing explaining it): exit non-zero, say why
+    on stderr and in the log."""
+    proc = _run_raw(hb, {})
+    assert proc.returncode != 0
+    assert "HEALTHCHECKS_PING_URL" in proc.stderr
+    assert "HEALTHCHECKS_PING_URL" in hb.log
+    assert hb.calls.read_text().split() == [], "no probes, no ping"
+
+
+def test_ping_url_read_from_file_when_env_unset(hb):
+    """The Air's LaunchAgent gets the URL from a mode-600 file written by
+    `op read`, so the plist carries no secret."""
+    url_file = hb.home / ".config" / "louisville-bot-heartbeat" / "ping_url"
+    url_file.parent.mkdir(parents=True)
+    url_file.write_text(FAKE_PING_URL + "\n")
+    proc = _run_raw(hb, {})
+    assert proc.returncode == 0, proc.stderr
+    assert hb.calls.read_text().split() == ["PING"]
+
+
+def test_empty_ping_url_file_fails_loudly(hb):
+    url_file = hb.root / "empty"
+    url_file.write_text("")
+    proc = _run_raw(hb, {"HEALTHCHECKS_PING_URL_FILE": str(url_file)})
+    assert proc.returncode != 0
+    assert "PING" not in hb.calls.read_text().split()

@@ -17,7 +17,7 @@ Air (launchd, every 60s)                     healthchecks.io "louisville-bot" ch
   probe https://louisville.raylytics.io      period 1 min, grace 3 min
     ├── GET  /api/health   → serving?          │ no ping for ~4 min → DOWN
     └── POST /api/ask      → HTTP 200?         ├─▶ ntfy.sh push, MAX priority (bypasses DND)
-  both pass → curl hc-ping.com/<uuid>  ──────▶ └─▶ email to evan.j.ray@gmail.com
+  both pass → curl $HEALTHCHECKS_PING_URL ───▶ └─▶ email to evan.j.ray@gmail.com
   either fails → no ping (silence = alarm)
                  + self-heal if container exited
 ```
@@ -109,12 +109,19 @@ per-minute spam.
 ### 3. Check — healthchecks.io `louisville-bot`
 
 - Project: `evan.j.ray@gmail.com` (free tier, 4 of 20 checks used)
-- Ping URL: `https://hc-ping.com/e5f9d7ce-478f-49c5-b3c3-f3be7a7442e6`
-  > ⚠️ **Treat the ping UUID as a credential.** Anyone with it can spoof pings to keep
-  > the check green through a real outage, or hit `/fail` to fire max-priority pushes.
-  > Committed here deliberately (private repo); if the repo goes public, rotate it:
-  > Danger Zone → *Create a Copy* (keeps schedule + integrations, gets a fresh UUID),
-  > point the script at the new URL, verify pings land, delete the old check.
+- Ping URL: **not in this repo.** It lives in 1Password at
+  `op://Personal/lou-healthchecks/ping_url` (personal account `my.1password.com`), and
+  the script reads it from `HEALTHCHECKS_PING_URL`, falling back to the file
+  `~/.config/louisville-bot-heartbeat/ping_url` (override with
+  `HEALTHCHECKS_PING_URL_FILE`). With neither set it logs an `ERROR` and exits 1
+  without probing.
+  > ⚠️ **The ping URL is a credential.** Anyone with it can spoof pings to keep the
+  > check green through a real outage, or hit `/fail` to fire max-priority pushes.
+  > The original check's UUID was committed here while the repo was private; it went
+  > public, so on 2026-10-20 that check was replaced by a new one (same name, schedule
+  > and integrations) and the URL moved to 1Password. UUIDs cannot be regenerated, so
+  > if this one leaks too, create a new check and update the 1Password item and the
+  > file on the Air.
 - Schedule: **period 1 minute, grace 3 minutes**
 - Notification methods (both ON, both inherited from the existing setup):
   - **email** `mac-server` → evan.j.ray@gmail.com
@@ -182,6 +189,23 @@ launchctl bootstrap gui/501 /Users/macserver/Library/LaunchAgents/com.raylytics.
 
 If the plist itself changed, `cp` it into `~/Library/LaunchAgents/` before bootstrapping.
 
+The plist carries no secret. The ping URL reaches the LaunchAgent through
+`~/.config/louisville-bot-heartbeat/ping_url` on the Air (mode 600, the bare URL on one
+line). `op` is not signed in on the Air, so write it from the workstation, piping the
+value straight through without printing it:
+
+```bash
+op read --account my.1password.com op://Personal/lou-healthchecks/ping_url \
+  | ssh macserver@air-server.local 'umask 077; mkdir -p ~/.config/louisville-bot-heartbeat; cat > ~/.config/louisville-bot-heartbeat/ping_url'
+```
+
+Run the script by hand with the URL from 1Password instead of the file:
+
+```bash
+HEALTHCHECKS_PING_URL=op://Personal/lou-healthchecks/ping_url \
+  op run --account my.1password.com -- /bin/sh monitoring/louisville-bot-heartbeat.sh
+```
+
 > The plist uses `StartCalendarInterval` (every minute), **not** `StartInterval`:
 > launchd holds `StartInterval` jobs pending while the GUI session is idle or
 > locked, which stopped this heartbeat unnoticed from ~2026-09-01 to 2026-09-23.
@@ -196,7 +220,7 @@ If the plist itself changed, `cp` it into `~/Library/LaunchAgents/` before boots
 
 ```bash
 # Fire the whole alert chain without touching the server (auto-recovers next minute):
-curl https://hc-ping.com/e5f9d7ce-478f-49c5-b3c3-f3be7a7442e6/fail
+curl "$(op read --account my.1password.com op://Personal/lou-healthchecks/ping_url)/fail"
 
 # See what ntfy actually delivered, no phone needed:
 curl -s "https://ntfy.sh/air-server-evan-ee4b28dd81/json?poll=1&since=10m"

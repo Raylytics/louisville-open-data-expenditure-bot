@@ -11,7 +11,12 @@
 # mac-server check already covers "the whole machine is gone", so this one's job
 # is to distinguish "the bot is down" from "the host is down".
 
-CHECK_UUID='e5f9d7ce-478f-49c5-b3c3-f3be7a7442e6'
+# The healthchecks.io ping URL is a credential (anyone holding it can keep the
+# check green through an outage, or hit /fail to page), so it is never committed.
+# It comes from HEALTHCHECKS_PING_URL, or else from a mode-600 file holding just
+# the URL (on the Air: written by `op read` from op://Personal/lou-healthchecks/ping_url,
+# see monitoring/README.md).
+PING_URL_FILE="${HEALTHCHECKS_PING_URL_FILE:-$HOME/.config/louisville-bot-heartbeat/ping_url}"
 BASE_URL='https://louisville.raylytics.io'
 NTFY_TOPIC='air-server-evan-ee4b28dd81'
 # The container to `docker start` when it has exited (the self-heal below).
@@ -42,6 +47,18 @@ log() {
     mkdir -p "$LOG_DIR" 2>/dev/null
     echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') $*" >>"$LOG"
 }
+
+if [ -z "${HEALTHCHECKS_PING_URL:-}" ] && [ -r "$PING_URL_FILE" ]; then
+    HEALTHCHECKS_PING_URL=$(head -n 1 "$PING_URL_FILE" | tr -d '[:space:]')
+fi
+# Fail loudly rather than probe and drop the ping on the floor: a missing URL
+# looks exactly like an outage on the healthchecks side, so say why here.
+if [ -z "${HEALTHCHECKS_PING_URL:-}" ]; then
+    msg="ERROR: HEALTHCHECKS_PING_URL is unset and '$PING_URL_FILE' is missing or empty - cannot ping healthchecks.io"
+    log "$msg"
+    echo "$msg" >&2
+    exit 1
+fi
 
 # For conditions that persist until a human fixes them (an unwritable state
 # dir), where the state needed to dedupe is the very thing that is broken. The
@@ -120,7 +137,7 @@ case "$health" in
 esac
 
 if [ "$health_ok" = 1 ] && [ "$ask_code" = '200' ]; then
-    curl -fsS -m 10 --retry 3 "https://hc-ping.com/$CHECK_UUID" >/dev/null 2>&1
+    curl -fsS -m 10 --retry 3 "$HEALTHCHECKS_PING_URL" >/dev/null 2>&1
 
     # Count consecutive degraded probes: log the first, escalate a sustained run
     # at default priority so it is distinguishable from the max-priority down alert.
