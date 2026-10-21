@@ -283,7 +283,7 @@ git is the only file transport to the server. After rebuilding it, copy it
 into the data volume: `sh -c 'docker run --rm -v louisville-data:/data -v /Users/macserver/projects/louisville-open-data/data/contractor_profiles.csv:/src.csv:ro alpine cp /src.csv /data/contractor_profiles.csv'`
 then rebuild the prebuilt artifact (3b) and recreate the container.
 
-Persistent state lives in Docker named volumes, not the image: `louisville-data` (CSVs, read-only at `/data`), `louisville-state` (`.stats.json`, response cache), `louisville-logs` (rotating logs). Env (incl. the Cerebras keys) is set on the container, sourced from the gitignored `.env` locally; the keys are not in git.
+Persistent state lives in Docker named volumes, not the image: `louisville-data` (CSVs, read-only at `/data`), `louisville-state` (`.stats.json`, response cache), `louisville-logs` (rotating logs). Env (incl. the Cerebras keys) is set on the container, sourced from the gitignored `.env` locally; the keys are not in git. 1Password is the source of truth for those keys and `.env` is a seeded copy (see Secrets).
 
 The old `docker-compose.yml` and `deploy.sh` were **removed** (they described a superseded SSH-rsync flow that leaked `.env` and carried the 45s health `start_period` that caused the 2026-08-11 outage). The authoritative deploy is the MCP Docker flow above; there is no compose/rsync path.
 
@@ -322,7 +322,8 @@ translates to/from the OpenAI response shape the rest of the code reads.
 - **Tier/accounting:** tier `claude`, provider `anthropic` in the usage split;
   each call logs `request-id` and `anthropic-workspace-id` (never the key).
 - **Prod wiring:** `ANTHROPIC_API_KEY` is in `SSM_SECRET_NAMES`; put it at
-  `/lou/prod/ANTHROPIC_API_KEY` (SecureString) and the next cold start uses it.
+  `/lou/prod/ANTHROPIC_API_KEY` (SecureString, value from the 1Password item via
+  `op read`, see Secrets) and the next cold start uses it.
   Until then the loader logs "not found" for it and Claude stays off.
 - `eval/run_eval.py --provider cerebras|openrouter` drops the Anthropic key so
   those runs still measure the provider they name.
@@ -439,7 +440,8 @@ application behavior, never echoed, hashed, or printed (see the key-handling
 memory). Also denied: `s3 rm`/`rb`, `dynamodb delete-table`,
 `cloudformation delete-stack`, `cdk destroy`, `terraform destroy`,
 `iam delete-*`, `iam create-access-key`. Teardown and credential minting are
-human actions performed deliberately, not agent actions.
+human actions performed deliberately, not agent actions. SSM is a derived
+store: the human seeds and rotates `/lou/prod/*` from 1Password (see Secrets).
 
 **Account discipline.** Target account is **012146975534** (`us-east-1`),
 shared with an unrelated Airflow workload — decided 2026-08-28.
@@ -465,7 +467,7 @@ shared with an unrelated Airflow workload — decided 2026-08-28.
 python -m pytest -q
 
 # End-to-end accuracy eval against the REAL model (costs ~3 LLM calls/question)
-set -a; source .env; set +a
+set -a; source .env; set +a      # .env is seeded from 1Password (see Secrets); or: op run --env-file=op.env -- ...
 python eval/run_eval.py --provider cerebras --label <what-changed>
 
 # Run locally for dev (serves frontend + API same-origin on :8000)
@@ -542,6 +544,34 @@ filesystem (`read_csv` of an arbitrary path and `COPY TO` are both blocked —
 
 - Frontend calls a **same-origin relative `/api/ask`**, so the frontend and backend must be served by the same FastAPI process (this is why it can't be a static Netlify deploy).
 - Commit after impactful changes; push only when asked; deploy is a separate explicit step (see Deployment).
+
+## Secrets
+
+**Every credential an agent uses lives in 1Password.** API keys, tokens, DSNs, OAuth client secrets, webhook URLs, signing keys: if Claude Code, a cron job, an MCP server, or CI needs it, 1Password is the source of truth, and anything else (a local `.env`, SSM, GitHub Secrets, a server-side env file) is a derived copy seeded from it. This applies to the credentials this repo already uses, not only to new ones.
+
+- **Reference, don't copy.** Tracked files carry env var *names* and `op://<vault>/<item>/<field>` references, never values. Load at run time with `op run --env-file=op.env -- <cmd>` (an `op.env` of `op://` lines, gitignored) or `op read "op://..."` piped straight into the consumer. For this repo that means: the local `.env` (preview, eval, dev `uvicorn`) is seeded from 1Password, and every `aws ssm put-parameter` under `/lou/prod/*` takes its value from `op read`, never from a pasted string.
+- **Name items `<repo>-<service>`** (for example `mc-epn`), one item per service, fields named after the env vars. Use the 1Password account that owns the work (personal `my.1password.com` for this repo) and pass `--account` when more than one is signed in. This repo's items use the `lou-` slug in the personal account.
+- **A literal `.env` is debt, not a pattern.** It must be gitignored and `chmod 600`, and the inventory below marks it as pending migration. Move the values into 1Password the next time you touch them.
+- **SSM stays the production store and Tier 3 still applies.** The Lambda reads `/lou/prod/*` at cold start (`app._load_secrets_from_ssm`, `SSM_SECRET_NAMES`); agents never read those values back (see "AWS interaction policy"). 1Password is where the human gets the value to seed or rotate a parameter, so rotation is `op read` + `put-parameter` + a fresh deploy.
+- **Never print a secret.** Prove a key works by calling the API. Don't `cat` env files, echo variables, or paste values into transcripts, commit messages, or this file.
+- **Found a literal secret in a tracked file or in history?** Stop and tell the owner. It needs rotating and purging, and that is their call.
+- **Adding a credential:** create the 1Password item, add the `op://` line to `op.env.example` (or this repo's equivalent template), add a row below, and confirm the local copy is ignored. Here the template is `.env.example` (names only; keep it that way) and prod also needs the name added to `SSM_SECRET_NAMES` plus a `put-parameter`.
+
+### Credentials this repo uses
+
+| Env var | Used by / purpose | Where it lives today | 1Password item |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | `claude_provider.py`, first-choice LLM (workspace-scoped key) | gitignored `.env`, literal value (migrate); prod SSM `/lou/prod/ANTHROPIC_API_KEY` (SecureString, seed it) | `lou-anthropic` (to create) |
+| `OPENROUTER_API_KEY` | `analytics_agent.py`, OpenRouter primary provider | gitignored `.env`, literal value (migrate); prod SSM `/lou/prod/OPENROUTER_API_KEY` | `lou-openrouter` (to create) |
+| `CEREBRAS_PAID_API_KEY` | `analytics_agent.py`, Cerebras pay-as-you-go fallback | gitignored `.env`, literal value (migrate); prod SSM `/lou/prod/CEREBRAS_PAID_API_KEY` | `lou-cerebras` (to create) |
+| `CEREBRAS_API_KEY` | retired always-free Cerebras tier; normally empty | gitignored `.env` (legacy line; drop it when migrating) | `lou-cerebras` (same item) |
+| `ADMIN_TOKEN` | gates `/api/cache`: `warm_cache.py`, `refresh_data.py`, `LOU_WARM=1 ./infra/cdk/deploy.sh` | prod SSM `/lou/prod/ADMIN_TOKEN`; Air rollback container env (not in local `.env`) | `lou-admin-token` (to create) |
+| AWS `lou` profile | `aws --profile lou` / `lou-deploy` role (MFA) for every Tier 1-2 call and `deploy.sh` | `~/.aws/credentials` on the workstation | `lou-aws-deploy` (to create; access key + MFA seed) |
+| `GEMINI_API_KEY` | `analytics_agent.py` standalone CLI path only (`--api-key`); not used by the app | not provisioned in `.env` | `Gemini API Key` (vault `Personal`, existing) |
+| `NEO4J_PASSWORD` | `graph/load_graph.py`, `refresh_data.py` (local Neo4j graph tooling) | code default for a local dev instance; no `.env` line | `lou-neo4j` (to create if a non-default instance is ever used) |
+| `HEALTHCHECKS_PING_URL` | `monitoring/louisville-bot-heartbeat.sh` dead-man's switch (runs on the Air, not in this app) | Air: `~/.config/louisville-bot-heartbeat/ping_url` (mode 600, written by `op read`; see `monitoring/README.md`). Not in git since the 2026-10-20 rotation | `lou-healthchecks`, field `ping_url` (`op://Personal/lou-healthchecks/ping_url`) |
+
+Not secrets (plain env, fine in `.env.example`): `CLAUDE_MODELS`, `CLAUDE_EFFORT`, `CLAUDE_TIMEOUT_SECONDS`, `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL`, `MODEL`, `LLM_BASE_URL`, `PREBUILT_DB`, `DATA_DIR`, `TRUSTED_PROXY_IPS`, `SSM_PARAMETER_PATH`, `SSM_SECRET_NAMES`, `STATE_*`, `LOU_*` deploy flags.
 
 <!-- BEGIN WYK CONVENTIONS v:1 -->
 ## wyk — planning & handoff over bd
