@@ -495,7 +495,8 @@ def test_chart_a_complete_partition_of_a_few_positive_parts_is_a_pie():
 @pytest.mark.parametrize("case", ["limit", "no_sql", "two_rows", "seven_rows",
                                   "negative", "zero", "time_axis", "limit_in_cte",
                                   "where_in_label", "where_eq_label", "having",
-                                  "rollup_null_total", "null_group", "repeated_labels"])
+                                  "rollup_null_total", "null_group", "repeated_labels",
+                                  "rollup_with_real_null_group"])
 def test_chart_pie_is_refused_whenever_the_slices_are_not_one_whole(case):
     """Each case was a pie under the old 'five rows or fewer' rule and is a
     bar now. A bar is correct for every one of them; a pie is wrong for each."""
@@ -546,6 +547,12 @@ def test_chart_pie_is_refused_whenever_the_slices_are_not_one_whole(case):
     elif case == "repeated_labels":
         # fund x type: the most-varying column still repeats.
         labels, vals = ["Parks", "Parks", "Police", "Police"], [4.0, 3.0, 2.0, 1.0]
+    elif case == "rollup_with_real_null_group":
+        # ROLLUP over data with uncategorised spending: three parts, a real
+        # NULL group AND the NULL grand total. The ROLLUP excuses exactly one
+        # null row; the second is a slice the pie would silently omit.
+        labels, vals = ["Parks", "Police", "Fire", None, None], [4.0, 3.0, 2.0, 1.5, 10.5]
+        sql = sql.replace("GROUP BY 1", "GROUP BY ROLLUP(1)")
     df = pd.DataFrame({col: labels, "total_spend": vals})
     chart_type = infer_chart(df, sql)[0]
     assert chart_type == "bar", (case, chart_type)

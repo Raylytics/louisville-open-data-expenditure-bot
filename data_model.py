@@ -953,10 +953,11 @@ def is_share_of_whole(df, label_col: str, value_col: str, sql: str = None) -> bo
     - PIE_MIN_SLICES..PIE_MAX_SLICES rows once any grand-total row is set
       aside, including a ROLLUP/CUBE/GROUPING SETS total, whose label is
       NULL and matches no label shape (counting it let a two-part result
-      pass as three and draw a two-slice pie). Any OTHER null-labelled row
-      is a real group — spending with no category — that chart_window will
-      drop from the drawing, so the survivors would be shown as a whole they
-      are not: it refuses the pie;
+      pass as three and draw a two-slice pie). At most ONE null row can be
+      that total; any other null-labelled row is a real group — spending
+      with no category — that chart_window will drop from the drawing, so
+      the survivors would be shown as a whole they are not: it refuses the
+      pie;
     - every label distinct: a two-dimension result (fund x type) whose
       most-varying column still repeats would draw duplicate slice names;
     - every value is a finite positive number — a pie cannot show a negative
@@ -979,10 +980,15 @@ def is_share_of_whole(df, label_col: str, value_col: str, sql: str = None) -> bo
     if len(null_rows):
         # A null label is a total only when it says so: the SQL groups with
         # an extension that emits one, or its value is the sum of the parts.
+        # Either way there can be only ONE: a one-column ROLLUP emits exactly
+        # one NULL grand total, so a second null row is a real group
+        # (uncategorised spending) and the pie would omit it.
+        if len(null_rows) != 1:
+            return False
         parts = pd.to_numeric(body[value_col], errors="coerce").sum()
         nulls = pd.to_numeric(null_rows[value_col], errors="coerce")
         is_total = _GROUPING_EXT_RE.search(_blank_literals(sql)) is not None or bool(
-            len(null_rows) == 1 and nulls.notna().all()
+            nulls.notna().all()
             and abs(abs(float(nulls.iloc[0])) - abs(parts)) <= max(1.0, abs(parts) * 0.005))
         if not is_total:
             return False
