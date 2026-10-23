@@ -874,18 +874,57 @@ def sql_limits_result(sql: str) -> bool:
     return bool(_LIMIT_RE.search(_blank_literals(sql)))
 
 
+_HAVING_RE = re.compile(r"\bhaving\b", re.I)
+_WHERE_RE = re.compile(r"\bwhere\b", re.I)
+_WHERE_END_RE = re.compile(
+    r"\b(group|order|having|limit|qualify|window|union|intersect|except)\b", re.I)
+
+
+def sql_filters_label(sql: str, label_col: str) -> bool:
+    """Does the query select WHICH groups to show — a HAVING clause, or a WHERE
+    that names the label column?
+
+    "Compare Police, Fire and EMS" is `WHERE agency_canonical IN (...)`: three
+    groups of eighty, no LIMIT in sight, and still not a whole. HAVING is a
+    filter on groups by definition. A WHERE on some OTHER column (a fiscal
+    year, an artifact flag) narrows the population, not the partition, and
+    the groups shown are still every group of that population, so only the
+    label column's own name counts. Blunt on purpose, like the LIMIT test:
+    an alias that hides the filtered column (`SELECT fund AS source ... WHERE
+    fund IN`) is missed and errs toward a pie, which is the known limit.
+    """
+    if not sql or not label_col:
+        return False
+    scrubbed = _blank_literals(sql)
+    if _HAVING_RE.search(scrubbed):
+        return True
+    name = re.compile(r"(?<![\w.])" + re.escape(label_col) + r"\b|\." + re.escape(label_col) + r"\b", re.I)
+    for m in _WHERE_RE.finditer(scrubbed):
+        end = _WHERE_END_RE.search(scrubbed, m.end())
+        clause = scrubbed[m.end():end.start() if end else len(scrubbed)]
+        if name.search(clause):
+            return True
+    return False
+
+
 def is_share_of_whole(df, label_col: str, value_col: str, sql: str = None) -> bool:
     """May this frame be drawn as a pie — is it a COMPLETE partition of one
     total into a few positive parts?
 
-    Four tests, all required:
+    Five tests, all required:
 
-    - the query kept every group (no LIMIT anywhere; ``sql`` is required —
-      without it the frame cannot prove completeness and gets a bar);
+    - the query kept every group: no LIMIT anywhere, no HAVING, no WHERE on
+      the label column (``sql`` is required — without it the frame cannot
+      prove completeness and gets a bar);
     - the axis is not time: periods are a sequence, not shares, and a pie of
       years is unreadable even when the years happen to be few;
-    - PIE_MIN_SLICES..PIE_MAX_SLICES rows once any grand-total row is set
-      aside (a ROLLUP total would be a slice equal to all the others);
+    - PIE_MIN_SLICES..PIE_MAX_SLICES rows once null labels and any
+      grand-total row are set aside — the same rows chart_window drops, so
+      the slices counted here are the slices drawn (a ROLLUP total has a
+      NULL label, which no label shape matches; counting it let a two-part
+      result pass as three and draw a two-slice pie);
+    - every label distinct: a two-dimension result (fund x type) whose
+      most-varying column still repeats would draw duplicate slice names;
     - every value is a finite positive number — a pie cannot show a negative
       or a zero slice, and this data has offsetting credits.
 
@@ -894,15 +933,18 @@ def is_share_of_whole(df, label_col: str, value_col: str, sql: str = None) -> bo
     (the other 80 agencies), drew a two-slice pie for every two-year
     comparison, and tried to render negative slices for a net-credit payee.
     """
-    if not sql or sql_limits_result(sql):
+    if not sql or sql_limits_result(sql) or sql_filters_label(sql, label_col):
         return False
     if label_col not in df.columns or value_col not in df.columns:
         return False
     if is_time_named(label_col):
         return False
-    body = df[~total_row_mask(df, label_col, value_col)]
+    body = df[df[label_col].notna()]
+    body = body[~total_row_mask(body, label_col, value_col)]
     n = len(body)
     if not (PIE_MIN_SLICES <= n <= PIE_MAX_SLICES):
+        return False
+    if body[label_col].nunique(dropna=True) != n:
         return False
     vals = pd.to_numeric(body[value_col], errors="coerce")
     if vals.isna().any() or not np.isfinite(vals.to_numpy(dtype=float)).all():

@@ -487,7 +487,9 @@ def test_chart_a_complete_partition_of_a_few_positive_parts_is_a_pie():
 
 
 @pytest.mark.parametrize("case", ["limit", "no_sql", "two_rows", "seven_rows",
-                                  "negative", "zero", "time_axis", "limit_in_cte"])
+                                  "negative", "zero", "time_axis", "limit_in_cte",
+                                  "where_in_label", "where_eq_label", "having",
+                                  "rollup_null_total", "null_group", "repeated_labels"])
 def test_chart_pie_is_refused_whenever_the_slices_are_not_one_whole(case):
     """Each case was a pie under the old 'five rows or fewer' rule and is a
     bar now. A bar is correct for every one of them; a pie is wrong for each."""
@@ -515,9 +517,44 @@ def test_chart_pie_is_refused_whenever_the_slices_are_not_one_whole(case):
     elif case == "limit_in_cte":
         sql = ("WITH top AS (SELECT agency_canonical FROM summary_agency_spend "
                "ORDER BY total_spend DESC LIMIT 4) " + sql + " WHERE agency_canonical IN (SELECT * FROM top)")
+    elif case == "where_in_label":
+        # "Compare Police, Fire, Parks and Public Works": four of eighty.
+        sql = (f"SELECT {col}, SUM(x) AS total_spend FROM expenditures WHERE {col} IN "
+               "('Parks', 'Police', 'Fire', 'Public Works') GROUP BY 1 ORDER BY 2 DESC")
+    elif case == "where_eq_label":
+        sql = (f"SELECT e.{col}, SUM(x) AS total_spend FROM expenditures e WHERE fiscal_year = 2025 "
+               f"AND e.{col} LIKE 'P%' GROUP BY 1 ORDER BY 2 DESC")
+    elif case == "having":
+        sql += " HAVING SUM(x) > 1000000"
+    elif case == "rollup_null_total":
+        # GROUP BY ROLLUP: the total row has a NULL label. Two parts + it
+        # must not count as three slices.
+        labels, vals = ["Operating", "Capital", None], [4.0, 3.0, 7.0]
+    elif case == "null_group":
+        # A real NULL group is dropped by chart_window, so a pie drawn from
+        # the survivors would be an incomplete partition.
+        labels, vals = ["Parks", "Police", None], [4.0, 3.0, 2.0]
+    elif case == "repeated_labels":
+        # fund x type: the most-varying column still repeats.
+        labels, vals = ["Parks", "Parks", "Police", "Police"], [4.0, 3.0, 2.0, 1.0]
     df = pd.DataFrame({col: labels, "total_spend": vals})
     chart_type = infer_chart(df, sql)[0]
     assert chart_type == "bar", (case, chart_type)
+
+
+def test_a_where_on_another_column_keeps_the_pie():
+    """A fiscal-year filter narrows the population, not the partition: every
+    expenditure type of that year is still shown, so it is still a whole."""
+    from data_model import sql_filters_label
+    sql = ("SELECT expenditure_type, SUM(x) AS total_spend FROM expenditures "
+           "WHERE fiscal_year = 2025 AND is_data_artifact = FALSE GROUP BY 1 ORDER BY 2 DESC")
+    assert not sql_filters_label(sql, "expenditure_type")
+    assert sql_filters_label(sql, "fiscal_year")
+    # `type` must not match inside `expenditure_type`, in either direction.
+    assert not sql_filters_label("SELECT fund AS type FROM t WHERE expenditure_type = 'x'", "type")
+    assert sql_filters_label("SELECT t.fund FROM t WHERE t.fund = 'x'", "fund")
+    assert sql_filters_label("SELECT fund FROM t WHERE note = 'fund' GROUP BY 1 HAVING SUM(x) > 1", "fund")
+    assert not sql_filters_label("SELECT fund FROM t WHERE note = 'fund' GROUP BY 1", "fund")
 
 
 def test_sql_limits_result_ignores_literals_and_comments():

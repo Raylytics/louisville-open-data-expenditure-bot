@@ -56,13 +56,21 @@ the frontend only draws what the event says.
   (numbers, dates, or zero-padded ISO parts like `2021-01`). Month *names*
   fail the sort test and fall to bars.
 - `pie`: only a **complete partition of a few positive parts**: no `LIMIT`
-  anywhere in the SQL, a categorical (non-time) axis, 3 to 6 rows after any
-  grand-total row is set aside, every value finite and > 0. The SQL is
-  required: without it completeness cannot be proven and the frame gets bars.
+  anywhere in the SQL, no `HAVING`, no `WHERE` that names the label column
+  (`sql_filters_label`: "compare Police, Fire and EMS" is three groups of
+  eighty, not a whole; a filter on another column such as the fiscal year
+  narrows the population, not the partition, and is fine), a categorical
+  (non-time) axis, 3 to 6 rows after null labels and any grand-total row are
+  set aside (the same rows `chart_window` drops, so what is counted is what
+  is drawn; a ROLLUP total has a NULL label), every label distinct, every
+  value finite and > 0. The SQL is required: without it completeness cannot
+  be proven and the frame gets bars. Known limit: a WHERE on the label's
+  *source* column behind an alias is not seen and errs toward a pie.
   *Origin (2026-10-23):* the old rule was "five rows or fewer", which drew a
   pie of "top 5 agencies" as if the other 80 did not exist, a two-slice pie
   for every two-year comparison, and tried to render negative slices for a
-  net-credit payee.
+  net-credit payee. The label-filter, null-label and duplicate-label tests
+  were added the same day after review (roborev 6660).
 - `bar`: everything else. It is the safe default; a bar is correct for any
   ranking or comparison.
 - `None` when nothing fits: fewer than 2 rows or more than `CHART_MAX_ROWS`
