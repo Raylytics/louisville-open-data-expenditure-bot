@@ -876,8 +876,6 @@ def sql_limits_result(sql: str) -> bool:
 
 _HAVING_RE = re.compile(r"\bhaving\b", re.I)
 _WHERE_RE = re.compile(r"\bwhere\b", re.I)
-_WHERE_END_RE = re.compile(
-    r"\b(group|order|having|limit|qualify|window|union|intersect|except)\b", re.I)
 
 
 def sql_filters_label(sql: str, label_col: str) -> bool:
@@ -900,11 +898,45 @@ def sql_filters_label(sql: str, label_col: str) -> bool:
         return True
     name = re.compile(r"(?<![\w.])" + re.escape(label_col) + r"\b|\." + re.escape(label_col) + r"\b", re.I)
     for m in _WHERE_RE.finditer(scrubbed):
-        end = _WHERE_END_RE.search(scrubbed, m.end())
-        clause = scrubbed[m.end():end.start() if end else len(scrubbed)]
-        if name.search(clause):
+        if name.search(_where_clause(scrubbed, m.end())):
             return True
     return False
+
+
+def _where_clause(scrubbed: str, start: int) -> str:
+    """The text of the WHERE clause whose keyword ends at ``start``.
+
+    It ends at the first clause keyword (GROUP, ORDER, HAVING, ...) or SELECT
+    at the WHERE's own nesting level, or at the parenthesis that closes that
+    level. Without the paren rule a WHERE inside a CTE ran on into the outer
+    SELECT list, so `WITH base AS (... WHERE fiscal_year = 2025) SELECT
+    agency_canonical ...` read as a filter on the agency. Subqueries inside
+    the clause (`IN (SELECT ...)`) stay part of it: their depth is positive.
+    """
+    depth = 0
+    i, n = start, len(scrubbed)
+    while i < n:
+        c = scrubbed[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            if depth == 0:
+                return scrubbed[start:i]
+            depth -= 1
+        elif depth == 0 and c.isalpha():
+            m = _IDENT_RE.match(scrubbed, i)
+            word = m.group(0).lower()
+            if word in _WHERE_END_WORDS:
+                return scrubbed[start:i]
+            i = m.end()
+            continue
+        i += 1
+    return scrubbed[start:]
+
+
+_WHERE_END_WORDS = frozenset(("group", "order", "having", "limit", "qualify", "window",
+                              "union", "intersect", "except", "select"))
+_GROUPING_EXT_RE = re.compile(r"\b(rollup|cube|grouping\s+sets)\b", re.I)
 
 
 def is_share_of_whole(df, label_col: str, value_col: str, sql: str = None) -> bool:
@@ -918,11 +950,13 @@ def is_share_of_whole(df, label_col: str, value_col: str, sql: str = None) -> bo
       prove completeness and gets a bar);
     - the axis is not time: periods are a sequence, not shares, and a pie of
       years is unreadable even when the years happen to be few;
-    - PIE_MIN_SLICES..PIE_MAX_SLICES rows once null labels and any
-      grand-total row are set aside — the same rows chart_window drops, so
-      the slices counted here are the slices drawn (a ROLLUP total has a
-      NULL label, which no label shape matches; counting it let a two-part
-      result pass as three and draw a two-slice pie);
+    - PIE_MIN_SLICES..PIE_MAX_SLICES rows once any grand-total row is set
+      aside, including a ROLLUP/CUBE/GROUPING SETS total, whose label is
+      NULL and matches no label shape (counting it let a two-part result
+      pass as three and draw a two-slice pie). Any OTHER null-labelled row
+      is a real group — spending with no category — that chart_window will
+      drop from the drawing, so the survivors would be shown as a whole they
+      are not: it refuses the pie;
     - every label distinct: a two-dimension result (fund x type) whose
       most-varying column still repeats would draw duplicate slice names;
     - every value is a finite positive number — a pie cannot show a negative
@@ -939,8 +973,19 @@ def is_share_of_whole(df, label_col: str, value_col: str, sql: str = None) -> bo
         return False
     if is_time_named(label_col):
         return False
+    null_rows = df[df[label_col].isna()]
     body = df[df[label_col].notna()]
     body = body[~total_row_mask(body, label_col, value_col)]
+    if len(null_rows):
+        # A null label is a total only when it says so: the SQL groups with
+        # an extension that emits one, or its value is the sum of the parts.
+        parts = pd.to_numeric(body[value_col], errors="coerce").sum()
+        nulls = pd.to_numeric(null_rows[value_col], errors="coerce")
+        is_total = _GROUPING_EXT_RE.search(_blank_literals(sql)) is not None or bool(
+            len(null_rows) == 1 and nulls.notna().all()
+            and abs(abs(float(nulls.iloc[0])) - abs(parts)) <= max(1.0, abs(parts) * 0.005))
+        if not is_total:
+            return False
     n = len(body)
     if not (PIE_MIN_SLICES <= n <= PIE_MAX_SLICES):
         return False

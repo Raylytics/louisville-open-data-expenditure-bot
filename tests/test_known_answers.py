@@ -484,6 +484,12 @@ def test_chart_a_complete_partition_of_a_few_positive_parts_is_a_pie():
     with_total = pd.concat([df, pd.DataFrame({"expenditure_type": ["TOTAL"],
                                               "total_spend": [8.6e8]})], ignore_index=True)
     assert infer_chart(with_total, sql)[0] == "pie"
+    # A ROLLUP total has a NULL label: set aside when the SQL says ROLLUP,
+    # or when its value is the sum of the parts; either way still a pie.
+    null_total = pd.concat([df, pd.DataFrame({"expenditure_type": [None],
+                                              "total_spend": [10.6e8]})], ignore_index=True)
+    assert infer_chart(null_total, sql.replace("GROUP BY 1", "GROUP BY ROLLUP(1)"))[0] == "pie"
+    assert infer_chart(null_total, sql)[0] == "pie"
 
 
 @pytest.mark.parametrize("case", ["limit", "no_sql", "two_rows", "seven_rows",
@@ -530,10 +536,13 @@ def test_chart_pie_is_refused_whenever_the_slices_are_not_one_whole(case):
         # GROUP BY ROLLUP: the total row has a NULL label. Two parts + it
         # must not count as three slices.
         labels, vals = ["Operating", "Capital", None], [4.0, 3.0, 7.0]
+        sql = sql.replace("GROUP BY 1", "GROUP BY ROLLUP(1)")
     elif case == "null_group":
-        # A real NULL group is dropped by chart_window, so a pie drawn from
-        # the survivors would be an incomplete partition.
-        labels, vals = ["Parks", "Police", None], [4.0, 3.0, 2.0]
+        # A real NULL group (spend with no category) is dropped by
+        # chart_window, so a pie drawn from the three survivors would show
+        # them as 100% of a whole they are not. Three non-null parts, so
+        # the slice-count rule alone would let it through.
+        labels, vals = ["Parks", "Police", "Fire", None], [4.0, 3.0, 2.0, 1.5]
     elif case == "repeated_labels":
         # fund x type: the most-varying column still repeats.
         labels, vals = ["Parks", "Parks", "Police", "Police"], [4.0, 3.0, 2.0, 1.0]
@@ -555,6 +564,17 @@ def test_a_where_on_another_column_keeps_the_pie():
     assert sql_filters_label("SELECT t.fund FROM t WHERE t.fund = 'x'", "fund")
     assert sql_filters_label("SELECT fund FROM t WHERE note = 'fund' GROUP BY 1 HAVING SUM(x) > 1", "fund")
     assert not sql_filters_label("SELECT fund FROM t WHERE note = 'fund' GROUP BY 1", "fund")
+    # A WHERE inside a CTE or derived table ends at its closing paren; it
+    # must not run on into the outer SELECT list.
+    cte = ("WITH base AS (SELECT * FROM expenditures WHERE fiscal_year = 2025) "
+           "SELECT agency_canonical, SUM(x) AS total_spend FROM base GROUP BY 1 ORDER BY 2 DESC")
+    assert not sql_filters_label(cte, "agency_canonical")
+    derived = ("SELECT agency_canonical, SUM(x) AS total_spend FROM (SELECT * FROM expenditures "
+               "WHERE fiscal_year = 2025) e GROUP BY 1")
+    assert not sql_filters_label(derived, "agency_canonical")
+    # ...while a subquery INSIDE the clause is still part of it.
+    assert sql_filters_label("SELECT fund, SUM(x) FROM t WHERE fund IN (SELECT fund FROM top) GROUP BY 1", "fund")
+    assert sql_filters_label(cte.replace("fiscal_year = 2025", "agency_canonical LIKE 'P%'"), "agency_canonical")
 
 
 def test_sql_limits_result_ignores_literals_and_comments():
