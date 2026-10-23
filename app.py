@@ -146,6 +146,7 @@ from data_model import (
     get_full_schema_description,
     humanize_text,
     infer_chart,
+    is_time_named,
     measure_kind,
     chart_window,
     chart_partial_markers,
@@ -797,6 +798,7 @@ and interpret results. You work with Louisville Metro government open data.
 {year_rules}
 - Use appropriate aggregations, GROUP BY, ORDER BY, and LIMIT clauses.
 - ALWAYS give a multi-row result an explicit ORDER BY. Without one the rows come back in storage order, which reads as random in the table and renders an unsorted bar chart. Unless the question is about a trend over time (order by the time column ascending), order by the numeric measure DESC so the largest values lead. This applies to UNION ALL queries too — put the ORDER BY after the final SELECT so it covers the whole result, not just one branch.
+- Shape every multi-row result so it charts cleanly: one label column (the entity or the time period) plus the measure the question asks about, with any extra measures after it. Name each measure for what it holds — a dollar sum as total_spend or total_amount, a count as payment_count or vendor_count — because the chart's axis is formatted from the column name. Keep a time series to one row per period, with the period as a bare number (2024) or a YYYY-MM string, so it draws as a line in order.
 - When a question asks about quantitative values (spend, cost, salary, amount), always include the relevant numbers in the SELECT. If ranking entities by a numeric value, include that value in the results. Not every query needs dollar amounts — only include them when relevant to the question.
 - ALWAYS filter out NULL values from display columns. Use WHERE column IS NOT NULL or COALESCE(column, 'N/A'). Never return rows with blank or null values in key fields — they confuse users.
 - CONSISTENCY: When answering follow-up questions, use the same tables and groupings as the original query. If the original used payee_canonical, the follow-up must too. If the original used summary_top_contractors, reference it consistently.
@@ -1161,7 +1163,7 @@ CITATION_FORMAT = "gateway-v1"
 # data_through, and the `headline` and `step` events are new. A cached starter
 # answer would otherwise replay the OLD frames forever — the prompts did not
 # change, so nothing else would orphan it. Bump on any change to event shape.
-EVENT_SCHEMA_VERSION = "4"   # 3: `background` event (03r); 4: `note` events
+EVENT_SCHEMA_VERSION = "5"   # 3: `background` event (03r); 4: `note` events; 5: `chart.label_kind`
 
 # Year coverage from year_context(), kept for per-request period markers
 # (which chart point is partial, which period a headline may use). Set at
@@ -1851,6 +1853,12 @@ async def ask(request: Request):
                         "title": title,
                         "label_axis": label_axis,
                         "value_kind": value_kind,
+                        # What the labels are, so the UI can pick the bar
+                        # orientation: a time axis reads left to right, while
+                        # names (payees, agencies, funds) read as a list and
+                        # get horizontal bars, where a 40-character name fits
+                        # without truncation or a 45-degree tilt.
+                        "label_kind": "time" if is_time_named(label_col) else "category",
                     }
                     # A year axis that includes the in-progress year gets
                     # partial_labels + data_through, so the UI can mark that

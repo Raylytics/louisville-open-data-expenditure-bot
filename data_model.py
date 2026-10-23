@@ -16,6 +16,7 @@ import re
 from datetime import date, timedelta
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 from city_config import CityConfig, load_city_config
@@ -642,6 +643,13 @@ CHART_MAX_POINTS = 30
 CHART_MAX_ROWS = 300
 CHART_TIME_KEYWORDS = ("year", "fiscal", "month", "date")
 CHART_LABEL_KEYWORDS = CHART_TIME_KEYWORDS + ("name", "agency", "payee", "type", "category", "fund")
+# A pie is read as "shares of one whole", so it is drawn only for a result
+# that IS one whole: every slice of a partition, none missing. Two slices are
+# a comparison (a bar says it better); past six the slivers blur. The bounds
+# follow the dataviz guidance this project uses (part-to-whole at a glance,
+# <= 6 segments; a 2-slice pie is an anti-pattern).
+PIE_MIN_SLICES = 3
+PIE_MAX_SLICES = 6
 
 # Whether a chart's y-values are dollars or a plain count, so the frontend axis
 # formats "1,500 employees" as 1,500 rather than "$1.5K".
@@ -848,11 +856,66 @@ def sql_ordinal_columns(sql: str) -> set:
     return out
 
 
+_LIMIT_RE = re.compile(r"\blimit\b|\bfetch\s+first\b", re.I)
+
+
+def sql_limits_result(sql: str) -> bool:
+    """Does this statement keep only SOME of the rows it grouped — a LIMIT (or
+    FETCH FIRST) anywhere outside a literal or comment?
+
+    Deliberately blunt, for the same reason sql_orders_result is: a LIMIT one
+    level down (a CTE, a derived table) still means the rows shown are a
+    subset of the partition, and a false "complete" is the costly error here
+    — it draws a pie whose slices do not add up to anything real. A false
+    "subset" merely picks a bar, which is always a correct chart.
+    """
+    if not sql:
+        return False
+    return bool(_LIMIT_RE.search(_blank_literals(sql)))
+
+
+def is_share_of_whole(df, label_col: str, value_col: str, sql: str = None) -> bool:
+    """May this frame be drawn as a pie — is it a COMPLETE partition of one
+    total into a few positive parts?
+
+    Four tests, all required:
+
+    - the query kept every group (no LIMIT anywhere; ``sql`` is required —
+      without it the frame cannot prove completeness and gets a bar);
+    - the axis is not time: periods are a sequence, not shares, and a pie of
+      years is unreadable even when the years happen to be few;
+    - PIE_MIN_SLICES..PIE_MAX_SLICES rows once any grand-total row is set
+      aside (a ROLLUP total would be a slice equal to all the others);
+    - every value is a finite positive number — a pie cannot show a negative
+      or a zero slice, and this data has offsetting credits.
+
+    Before this gate the rule was "five rows or fewer is a pie", which turned
+    "top 5 agencies by spend" into five slices of a whole that never existed
+    (the other 80 agencies), drew a two-slice pie for every two-year
+    comparison, and tried to render negative slices for a net-credit payee.
+    """
+    if not sql or sql_limits_result(sql):
+        return False
+    if label_col not in df.columns or value_col not in df.columns:
+        return False
+    if is_time_named(label_col):
+        return False
+    body = df[~total_row_mask(df, label_col, value_col)]
+    n = len(body)
+    if not (PIE_MIN_SLICES <= n <= PIE_MAX_SLICES):
+        return False
+    vals = pd.to_numeric(body[value_col], errors="coerce")
+    if vals.isna().any() or not np.isfinite(vals.to_numpy(dtype=float)).all():
+        return False
+    return bool((vals > 0).all())
+
+
 def infer_chart(df, sql: str = None) -> tuple:
     """Pick (chart_type, label_col, value_col) for a result DataFrame.
 
     Pure function (no DB), so it is unit-testable in isolation. ``sql`` is
-    optional and read only to see which measure the query ranked by.
+    optional and read only to see which measure the query ranked by and
+    whether it kept every group (the pie gate).
 
     - value (y): a numeric measure that varies and isn't a year/time id. The
       measure the query's ORDER BY keyed on, when there is one; else prefer a
@@ -862,8 +925,10 @@ def infer_chart(df, sql: str = None) -> tuple:
       (<=1 distinct, e.g. fiscal_year = 2025 for a "top 5 in 2025" result) is
       never a useful axis and is skipped.
     - chart_type: ``line`` only for a genuine time series (time-named axis with
-      one row per distinct, chronologically sortable time point); ``pie`` for a
-      few proportional slices; ``bar`` otherwise; ``None`` when no chart fits.
+      one row per distinct, chronologically sortable time point); ``pie`` only
+      for a complete partition of a few positive parts (is_share_of_whole);
+      ``bar`` otherwise — the safe default, correct for any ranking or
+      comparison; ``None`` when no chart fits.
     """
     cols = list(df.columns)
     n = len(df)
@@ -928,7 +993,7 @@ def infer_chart(df, sql: str = None) -> tuple:
         clean_series = ndist(label_col) == n  # one row per distinct time point
         if is_time and clean_series:
             chart_type = "line"
-        elif n <= 5:
+        elif is_share_of_whole(df, label_col, value_col, sql):
             chart_type = "pie"
         else:
             chart_type = "bar"
@@ -936,10 +1001,11 @@ def infer_chart(df, sql: str = None) -> tuple:
     # A line axis must be chronologically sortable (the caller sorts by it):
     # numeric, datetime, or zero-padded ISO date parts, which sort
     # lexicographically in chronological order. A non-numeric string axis
-    # (e.g. month NAMES) would mis-sort, so downgrade to a categorical chart.
+    # (e.g. month NAMES) would mis-sort, so downgrade to bars — never a pie,
+    # which a time axis can never be.
     if chart_type == "line":
         if not is_chronological(df[label_col], require_sorted=False):
-            chart_type = "pie" if n <= 5 else "bar"
+            chart_type = "bar"
 
     return chart_type, label_col, value_col
 

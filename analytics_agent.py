@@ -809,7 +809,9 @@ def build_interpret_prompt(schema_desc: str, extra_facts=None) -> str:
           most five supporting points — the largest items, or for a time
           series the turning points (peaks, dips, the biggest year-over-year
           changes). List every row only when the user explicitly asks for a
-          complete list.
+          complete list. Write about the figures themselves; the chart and
+          table stand beside the text, so the reader finds them without being
+          pointed at them.
         - When the results span or add up several years, name the period in
           the first sentence (e.g. fiscal years 2008-2026, the newest year
           partial). Pay figures are calendar years: name the year.

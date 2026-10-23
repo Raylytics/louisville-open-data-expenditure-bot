@@ -293,6 +293,20 @@ def test_chart_rendering_is_isolated_from_the_stream_loop():
     assert chart_block.index("new Chart(") < chart_block.index("catch (chartErr)")
 
 
+def test_named_categories_are_drawn_as_horizontal_bars():
+    """A bar chart over names (label_kind 'category') flips to horizontal so
+    payee and agency names read in full; a time axis keeps vertical bars. The
+    orientation is keyed on the backend's label_kind, never guessed from the
+    labels, and the box grows with the row count so 30 bars stay legible."""
+    html = open(os.path.join(REPO, "static", "index.html")).read()
+    chart_block = html[html.index("event.type === 'chart'"):html.index("event.type === 'interpretation'")]
+    assert "event.label_kind === 'category'" in chart_block
+    assert "indexAxis: horizontal ? 'y' : 'x'" in chart_block
+    # Axes are placed, not duplicated: one category axis, one value axis.
+    assert "horizontal ? { x: valAxis, y: catAxis } : { x: catAxis, y: valAxis }" in chart_block
+    assert "chartDiv.style.height" in chart_block
+
+
 def test_chart_y_axis_respects_value_kind():
     """The y-axis must not prefix $ on count measures (louisville-open-data-jin):
     a 'how many employees' chart shows 1,500, not $1.5K."""

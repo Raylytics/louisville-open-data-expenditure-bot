@@ -788,6 +788,19 @@ def test_chart_without_a_partial_point_has_no_marker_fields(client, monkeypatch)
     assert "partial_labels" not in chart and "data_through" not in chart
 
 
+def test_chart_event_says_what_kind_of_axis_it_has(client, monkeypatch):
+    """`label_kind` tells the UI whether the labels are periods (vertical
+    bars / a line, read left to right) or names (horizontal bars, so a payee
+    name is not truncated or tilted). Decided server-side from the column, so
+    the page never guesses from the strings."""
+    _happy(monkeypatch)
+    agencies = next(e for e in _events(_post(client, "top agencies?")) if e["type"] == "chart")
+    assert agencies["label_kind"] == "category"
+    _happy(monkeypatch, ANNUAL_SQL)
+    years = next(e for e in _events(_post(client, "annual spend?")) if e["type"] == "chart")
+    assert years["label_kind"] == "time"
+
+
 def test_happy_path_emits_one_step_per_stage_in_order(client, monkeypatch):
     _happy(monkeypatch)
     events = _events(_post(client, "which agencies spent the most in 2025?"))
@@ -887,7 +900,7 @@ def test_failed_refine_closes_as_failed_and_serves_the_draft(client, monkeypatch
 def test_cache_version_includes_the_event_schema_version():
     import app
     import inspect
-    assert app.EVENT_SCHEMA_VERSION == "4"   # 3: `background` (03r); 4: `note`
+    assert app.EVENT_SCHEMA_VERSION == "5"   # 3: `background` (03r); 4: `note`; 5: `chart.label_kind`
     src = inspect.getsource(app.startup)
     assert "EVENT_SCHEMA_VERSION" in src
     # The background prompt is model-visible input: a change to it must

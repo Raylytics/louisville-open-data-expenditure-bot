@@ -458,10 +458,75 @@ def test_chart_constant_year_topn_is_not_a_line():
         "agency": list("ABCDE"),
         "total_extended_spend": [8.3, 4.5, 2.9, 1.9, 1.4],
     })
-    chart_type, label_col, value_col = infer_chart(df)
+    sql = ("SELECT fiscal_year, agency, SUM(x) AS total_extended_spend FROM expenditures "
+           "WHERE fiscal_year = 2025 GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 5")
+    chart_type, label_col, value_col = infer_chart(df, sql)
     assert label_col == "agency"                 # varying dimension, not constant year
     assert value_col == "total_extended_spend"
-    assert chart_type == "pie"                   # 5 slices, not a line
+    # A top-5 is a slice of a larger whole, so it is bars, not a pie of five
+    # slices that pretend the other agencies do not exist.
+    assert chart_type == "bar"
+
+
+def test_chart_a_complete_partition_of_a_few_positive_parts_is_a_pie():
+    """Operating vs Capital vs Debt for one year: every group kept (no LIMIT),
+    three to six positive slices, a categorical axis — the one shape a pie
+    tells honestly."""
+    from data_model import is_share_of_whole
+    df = pd.DataFrame({"expenditure_type": ["Operating", "Capital", "Debt Service"],
+                       "total_spend": [8.1e8, 1.9e8, 0.6e8]})
+    sql = ("SELECT expenditure_type, ROUND(SUM(extended_amount), 2) AS total_spend "
+           "FROM expenditures WHERE fiscal_year = 2025 GROUP BY 1 ORDER BY 2 DESC")
+    assert is_share_of_whole(df, "expenditure_type", "total_spend", sql)
+    assert infer_chart(df, sql)[0] == "pie"
+    # A ROLLUP total is not a slice: it is set aside before counting, and the
+    # remaining rows still qualify.
+    with_total = pd.concat([df, pd.DataFrame({"expenditure_type": ["TOTAL"],
+                                              "total_spend": [8.6e8]})], ignore_index=True)
+    assert infer_chart(with_total, sql)[0] == "pie"
+
+
+@pytest.mark.parametrize("case", ["limit", "no_sql", "two_rows", "seven_rows",
+                                  "negative", "zero", "time_axis", "limit_in_cte"])
+def test_chart_pie_is_refused_whenever_the_slices_are_not_one_whole(case):
+    """Each case was a pie under the old 'five rows or fewer' rule and is a
+    bar now. A bar is correct for every one of them; a pie is wrong for each."""
+    labels = ["Parks", "Police", "Fire", "Public Works"]
+    vals = [4.0, 3.0, 2.0, 1.0]
+    col = "agency_canonical"
+    sql = f"SELECT {col}, SUM(x) AS total_spend FROM expenditures GROUP BY 1 ORDER BY 2 DESC"
+    if case == "limit":
+        sql += " LIMIT 4"
+    elif case == "no_sql":
+        sql = None
+    elif case == "two_rows":
+        labels, vals = labels[:2], vals[:2]
+    elif case == "seven_rows":
+        labels = labels + ["Housing", "Health", "Library"]
+        vals = vals + [0.9, 0.8, 0.7]
+    elif case == "negative":
+        vals = [4.0, 3.0, 2.0, -1.0]
+    elif case == "zero":
+        vals = [4.0, 3.0, 2.0, 0.0]
+    elif case == "time_axis":
+        col = "fiscal_year"
+        labels = ["FY2022", "FY2023", "FY2024", "FY2025"]
+        sql = f"SELECT {col}, SUM(x) AS total_spend FROM expenditures GROUP BY 1 ORDER BY 1"
+    elif case == "limit_in_cte":
+        sql = ("WITH top AS (SELECT agency_canonical FROM summary_agency_spend "
+               "ORDER BY total_spend DESC LIMIT 4) " + sql + " WHERE agency_canonical IN (SELECT * FROM top)")
+    df = pd.DataFrame({col: labels, "total_spend": vals})
+    chart_type = infer_chart(df, sql)[0]
+    assert chart_type == "bar", (case, chart_type)
+
+
+def test_sql_limits_result_ignores_literals_and_comments():
+    from data_model import sql_limits_result
+    assert sql_limits_result("SELECT a FROM t ORDER BY b LIMIT 10")
+    assert sql_limits_result("SELECT a FROM t FETCH FIRST 5 ROWS ONLY")
+    assert not sql_limits_result("SELECT a FROM t WHERE note = 'no limit here' -- limit")
+    assert not sql_limits_result("SELECT a FROM t")
+    assert not sql_limits_result(None)
 
 
 def test_chart_annual_trend_is_a_line():
@@ -476,7 +541,9 @@ def test_chart_numeric_month_is_a_line_but_month_names_are_not():
     assert infer_chart(nums)[0] == "line"
     names = pd.DataFrame({"month": ["April", "August", "December", "February"],
                           "total": [4.0, 3.0, 2.0, 1.0]})
-    assert infer_chart(names)[0] != "line"       # lexicographic sort would mislead
+    # Lexicographic sort would mislead, so not a line — and a time axis is
+    # never a pie either, so the downgrade lands on bars.
+    assert infer_chart(names)[0] == "bar"
 
 
 def test_chart_prefers_dollar_measure_over_count():

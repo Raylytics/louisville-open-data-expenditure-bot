@@ -58,7 +58,7 @@ A: Louisville Fire spent $1.58M on vehicle-related purchases in fiscal year 2024
                      ▼                          ▼
                order_for_display, totals moved last, truncation notes
                      │
-                     ├─▶ infer_chart  (bar/line/pie, currency vs count axis)
+                     ├─▶ infer_chart  (bar/line/pie, currency vs count axis; docs/charts.md)
                      ├─▶ rag.retrieve (BM25 over council legislation) → topic gate
                      ▼
                interpret (draft, server-side) ─▶ refine (streamed to the reader)
@@ -299,7 +299,7 @@ infra/                 CDK stack (Lambda, CloudFront, DynamoDB, alarms), preview
 eval/                  golden questions, eval runner, scorecards, judged passes
 tests/                 ~850 tests (engine invariants, prompts, endpoint flow, fallbacks)
 monitoring/            heartbeat script + healthchecks.io setup
-docs/                  canonical model, onboarding, RAG design, accuracy plan
+docs/                  canonical model, charts, onboarding, RAG design, accuracy plan
 ```
 
 ## License

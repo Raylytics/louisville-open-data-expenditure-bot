@@ -2068,6 +2068,13 @@ async function streamAnswer(question, opts = {}) {
           partial.forEach(p => turn.partial.add(p));
           if (event.data_through) turn.dataThrough = event.data_through;
           chartDiv = el('div', 'chart-box pending');
+          // Named categories (payees, agencies, funds) are drawn as horizontal
+          // bars so the names read in full; the box grows with the row count,
+          // within limits, so 30 bars are not 30 hairlines.
+          const horizontal = event.chart_type === 'bar' && event.label_kind === 'category';
+          if (horizontal) {
+            chartDiv.style.height = Math.min(640, Math.max(300, event.labels.length * 24 + 80)) + 'px';
+          }
           const canvas = el('canvas');
           // Text alternative for screen readers (the canvas itself is opaque to
           // them): include the values, not just the labels, so the data is conveyed.
@@ -2109,9 +2116,10 @@ async function streamAnswer(question, opts = {}) {
               x.beginPath(); x.moveTo(0, 8); x.lineTo(8, 0); x.stroke();
               return x.createPattern(p, 'repeat');
             })();
-            // Pie slices keep a categorical scale anchored on the accent.
-            const pieColors = [c.accent, c.warnMark, c.ink2, '#0e7490', '#b45309', '#15803d',
-              '#1e3a8a', '#0f766e', '#9a3412', '#4d7c0f', '#9d174d', '#2563eb', '#c2410c', '#166534'];
+            // Pie slices: a fixed categorical order anchored on the accent. The
+            // backend caps a pie at six slices, so six hues is the whole list;
+            // the warning color stays reserved for partial periods.
+            const pieColors = [c.accent, '#0e7490', '#b45309', '#15803d', '#1e3a8a', '#9d174d'];
             const line = event.chart_type === 'line';
             const bar = event.chart_type === 'bar';
             // A hatched band behind the partial period on a line chart.
@@ -2131,6 +2139,41 @@ async function streamAnswer(question, opts = {}) {
                 ctx.fillRect(left, top, right - left, bottom - top);
                 ctx.restore();
               },
+            };
+            // The category axis and the value axis are built once and then
+            // placed: x/y for a time axis or a line, y/x for horizontal bars.
+            const catAxis = {
+              grid: { display: false },
+              border: { color: c.rule },
+              title: { display: !!event.label_axis, text: event.label_axis || '', color: c.ink2 },
+              ticks: {
+                color: c.ink2,
+                autoSkip: !horizontal,
+                maxTicksLimit: horizontal ? undefined : 12,
+                maxRotation: horizontal ? 0 : 45,
+                minRotation: 0,
+                // Payee and project names run long enough to collide with
+                // each other and with the axis title even when rotated. A
+                // horizontal bar has room for more of the name.
+                callback: function(v) {
+                  const l = String(this.getLabelForValue(v));
+                  const max = horizontal ? 34 : 18;
+                  return l.length > max ? l.slice(0, max - 1) + '…' : l;
+                },
+              },
+            };
+            const valAxis = {
+              title: { display: false }, beginAtZero: true, grid: { color: c.rule }, border: { display: false },
+              ticks: { color: c.ink2, callback: function(v) {
+                // Count measures (e.g. "employees", "agencies") are plain
+                // numbers, not dollars — only prefix $ for currency.
+                const money = event.value_kind !== 'count';
+                const p = money ? '$' : '';
+                if (Math.abs(v) >= 1e9) return p + (v/1e9).toFixed(1) + 'B';
+                if (Math.abs(v) >= 1e6) return p + (v/1e6).toFixed(1) + 'M';
+                if (Math.abs(v) >= 1e3) return p + (v/1e3).toFixed(money ? 0 : 1) + 'K';
+                return p + v.toLocaleString();
+              }},
             };
             return new Chart(canvas, {
               type: event.chart_type,
@@ -2160,6 +2203,7 @@ async function streamAnswer(question, opts = {}) {
                 }]
               },
               options: {
+                indexAxis: horizontal ? 'y' : 'x',
                 responsive: true,
                 // No grow-in animation: the chart is revealed only once it is
                 // drawn, so an animation would just put a half-height chart on
@@ -2176,37 +2220,8 @@ async function streamAnswer(question, opts = {}) {
                     },
                   },
                 },
-                scales: event.chart_type === 'pie' ? {} : {
-                  x: {
-                    grid: { display: false },
-                    border: { color: c.rule },
-                    title: { display: !!event.label_axis, text: event.label_axis || '', color: c.ink2 },
-                    ticks: {
-                      color: c.ink2,
-                      autoSkip: true,
-                      maxTicksLimit: 12,
-                      maxRotation: 45,
-                      minRotation: 0,
-                      // Payee and project names run long enough to collide with
-                      // each other and with the axis title even when rotated.
-                      callback: function(v) {
-                        const l = String(this.getLabelForValue(v));
-                        return l.length > 18 ? l.slice(0, 17) + '…' : l;
-                      },
-                    },
-                  },
-                  y: { title: { display: false }, beginAtZero: true, grid: { color: c.rule }, border: { display: false },
-                    ticks: { color: c.ink2, callback: function(v) {
-                    // Count measures (e.g. "employees", "agencies") are plain
-                    // numbers, not dollars — only prefix $ for currency.
-                    const money = event.value_kind !== 'count';
-                    const p = money ? '$' : '';
-                    if (Math.abs(v) >= 1e9) return p + (v/1e9).toFixed(1) + 'B';
-                    if (Math.abs(v) >= 1e6) return p + (v/1e6).toFixed(1) + 'M';
-                    if (Math.abs(v) >= 1e3) return p + (v/1e3).toFixed(money ? 0 : 1) + 'K';
-                    return p + v.toLocaleString();
-                  }}},
-                },
+                scales: event.chart_type === 'pie' ? {}
+                  : horizontal ? { x: valAxis, y: catAxis } : { x: catAxis, y: valAxis },
               }
             });
           };
