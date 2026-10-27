@@ -224,8 +224,9 @@ def test_dynamo_backend_round_trips_a_record_with_ttl(dynamo):
 
 
 def test_dynamo_backend_keeps_records_for_good_by_default(dynamo):
-    """2jj.5 (2026-10-27): no retention. With ttl_days unset nothing carries a
-    `ttl` attribute, so the table's TTL never expires a record or a rating."""
+    """2jj.5 (2026-10-27): no retention. With ttl_days unset no record carries
+    a `ttl` attribute, so the table's TTL never expires one; only a rating stub
+    with no record behind it does (a guessed id must not persist for good)."""
     store = ix.DynamoInteractions(TABLE, client=dynamo)
     assert store.ttl_s == 0
     rec = _record(ix.new_answer_id(now=1_700_000_000.0))
@@ -234,8 +235,10 @@ def test_dynamo_backend_keeps_records_for_good_by_default(dynamo):
     assert store.rate({"answer_id": stub, "stars": 2, "reasons": [], "comment": ""}, now=1_700_000_002.0)
     assert store.rate({"answer_id": rec["answer_id"], "stars": 4, "reasons": [], "comment": ""},
                       now=1_700_000_003.0)
-    items = dynamo.scan(TableName=TABLE)["Items"]
-    assert len(items) == 2 and not any("ttl" in it for it in items)
+    items = {it["answer_id"]["S"]: it for it in dynamo.scan(TableName=TABLE)["Items"]}
+    assert len(items) == 2
+    assert "ttl" not in items[rec["answer_id"]]                  # a rating never puts a TTL on a record
+    assert int(items[stub]["ttl"]["N"]) == 1_700_000_001 + ix.STUB_TTL_DAYS * 86400   # a stub always expires
     assert sorted(r["stars"] for r in store.query_day("2023-11-14")) == [2, 4]
 
 

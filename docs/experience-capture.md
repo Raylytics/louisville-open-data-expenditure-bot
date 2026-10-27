@@ -47,7 +47,11 @@ interpretation always survive (`interactions.trim_events`).
 good** (decision 2026-10-27, `louisville-open-data-2jj.5`): no `ttl`
 attribute is written, so the table's TTL never touches them. Setting
 `INTERACTION_TTL_DAYS=<n>` expires records (and rating stubs) after n days
-instead. At ~8.5 KB a record, a year of a few hundred questions a day is
+instead. A rating whose answer has no record behind it (the record write
+failed, or the id was guessed inside the 30-day rating window) lands as a
+stub that always expires (`interactions.STUB_TTL_DAYS`, 30), so guessed ids
+cannot pile up; a rating on a real record never adds a TTL to it. At ~8.5 KB
+a record, a year of a few hundred questions a day is
 under 1 GB, about $0.25/month of DynamoDB storage. The JSONL file has no
 retention either. The table is `RETAIN` on stack deletion (records are not
 rebuildable, unlike `lou-state`). The table sits inside the Lambda permissions

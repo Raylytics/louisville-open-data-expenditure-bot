@@ -47,6 +47,7 @@ HISTORY_TURNS = 6
 HISTORY_CHARS = 1000
 COMMENT_CHARS = 500
 MAX_REASONS = 8
+STUB_TTL_DAYS = 30          # a rating with no record behind it expires; records never do by default
 REASON_CHARS = 40
 
 _ANSWER_ID = re.compile(r"^[0-9a-f]{9,12}-[0-9a-f]{8}$")
@@ -372,13 +373,18 @@ class DynamoInteractions(_Recorder):
             return False
 
     def rate(self, rating: dict, now: float | None = None) -> bool:
-        """Upsert the rating onto the answer's item. A missing item (the record
-        write failed, or the id is a guess) gets a stub carrying only the
-        rating — never a reason to lose a visitor's verdict, and kept (or
-        TTL'd) like everything else."""
+        """Upsert the rating onto the answer's item. A rating on an existing
+        record never touches the record's retention. A missing item (the
+        record write failed, or the id is a guess) gets a stub carrying only
+        the rating — never a reason to lose a visitor's verdict — but a stub
+        always expires (STUB_TTL_DAYS, or the records' own TTL when set):
+        the endpoint rate-limits ratings and refuses old or future ids, yet
+        guessed ids inside that window must not pile up in a table that
+        otherwise keeps everything for good."""
         now = time.time() if now is None else now
         try:
             pk, sk, ts_ms = _keys(rating["answer_id"])
+            key = {"pk": _s(pk), "sk": _s(sk)}
             expr = ("SET stars = :stars, reasons = :reasons, #c = :comment, rated_at = :now, "
                     "answer_id = :aid, #d = :day")
             names = {"#c": "comment", "#d": "day"}
@@ -389,13 +395,16 @@ class DynamoInteractions(_Recorder):
                 ":now": _n(now), ":aid": _s(rating["answer_id"]),
                 ":day": _s(pk[len("day#"):]),
             }
-            if self.ttl_s:
-                expr += ", #t = if_not_exists(#t, :ttl)"
-                names["#t"] = "ttl"
-                values[":ttl"] = self._ttl(ts_ms)
-            self._c.update_item(TableName=self.table, Key={"pk": _s(pk), "sk": _s(sk)},
-                                UpdateExpression=expr, ExpressionAttributeNames=names,
-                                ExpressionAttributeValues=values)
+            try:
+                self._c.update_item(TableName=self.table, Key=key, UpdateExpression=expr,
+                                    ConditionExpression="attribute_exists(pk)",
+                                    ExpressionAttributeNames=names, ExpressionAttributeValues=values)
+            except self._c.exceptions.ConditionalCheckFailedException:
+                stub_ttl = self.ttl_s or STUB_TTL_DAYS * 86400
+                self._c.update_item(TableName=self.table, Key=key,
+                                    UpdateExpression=expr + ", #t = :ttl",
+                                    ExpressionAttributeNames={**names, "#t": "ttl"},
+                                    ExpressionAttributeValues={**values, ":ttl": _n(ts_ms / 1000 + stub_ttl)})
             self.writes += 1
             return True
         except Exception as e:  # noqa: BLE001
