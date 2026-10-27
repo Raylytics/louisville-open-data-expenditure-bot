@@ -1492,14 +1492,27 @@ RATING_MAX_AGE_S = int(os.environ.get("INTERACTION_TTL_DAYS", "180")) * 86400
 RATING_MAX_BODY = 16_000
 
 
+async def _bounded_json(request: Request, limit: int):
+    """The request body as JSON, read as a stream and abandoned the moment it
+    passes `limit` — a Content-Length header is a claim, not a bound (it can
+    be missing, chunked, or lie), so the cap is enforced on the bytes read.
+    Returns (body, None) or (None, response)."""
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf.extend(chunk)
+        if len(buf) > limit:
+            return None, JSONResponse({"error": "That rating is too large."}, status_code=413)
+    try:
+        return json.loads(bytes(buf)), None
+    except (ValueError, UnicodeDecodeError):
+        return None, JSONResponse({"error": "Invalid request."}, status_code=400)
+
+
 @app.post("/api/feedback")
 async def feedback(request: Request):
-    if int(request.headers.get("content-length") or 0) > RATING_MAX_BODY:
-        return JSONResponse({"error": "That rating is too large."}, status_code=413)
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse({"error": "Invalid request."}, status_code=400)
+    body, denied = await _bounded_json(request, RATING_MAX_BODY)
+    if denied is not None:
+        return denied
     rating = interactions.clean_rating(body)
     if rating is None:
         return JSONResponse({"error": "A rating needs the answer's id and 1 to 5 stars."}, status_code=400)

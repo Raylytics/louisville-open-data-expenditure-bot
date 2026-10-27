@@ -1203,11 +1203,23 @@ def test_a_stale_or_future_answer_id_is_refused(client):
 
 
 def test_a_bad_body_and_an_oversized_body_are_refused(client):
+    """The cap is enforced on the bytes actually read, not on Content-Length
+    (which can be absent, chunked, or a lie)."""
     import interactions
     r = client.post("/api/feedback", content=b"not json", headers={"content-type": "application/json"})
     assert r.status_code == 400
     r = _rate(client, answer_id=interactions.new_answer_id(), stars=3, comment="x" * 20_000)
     assert r.status_code == 413
+    # A body streamed without a usable Content-Length is bounded all the same.
+    big = json.dumps({"answer_id": interactions.new_answer_id(), "stars": 3, "comment": "x" * 20_000}).encode()
+    def chunks():
+        for i in range(0, len(big), 4096):
+            yield big[i:i + 4096]
+    r = client.post("/api/feedback", content=chunks(), headers={"content-type": "application/json"})
+    assert r.status_code == 413
+    r = client.post("/api/feedback", content=b"{}", headers={"content-type": "application/json",
+                                                              "content-length": "2"})
+    assert r.status_code == 400          # a well-formed but empty rating, not a crash
     assert _ratings(client) == []
 
 
