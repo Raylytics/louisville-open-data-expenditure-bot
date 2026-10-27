@@ -106,5 +106,5 @@ judge disagreements, p95 per stage and provider, vocabulary gaps for
 
 `branding.privacy_note` (city pack, default from `/api/config`) renders under
 the question box: *"Questions and ratings are stored to improve Lou. Please do
-not type personal information."* Wording is the owner's call; retention was
-decided 2026-10-27 (keep for good, `louisville-open-data-2jj.5`).
+not type personal information."* Wording approved and retention decided
+(keep for good) by the owner on 2026-10-27 (`louisville-open-data-2jj.5`).
