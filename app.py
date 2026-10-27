@@ -1483,6 +1483,43 @@ def _sse_message(event_type: str, content: str) -> StreamingResponse:
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+# ── Ratings (five stars; docs/experience-capture.md) ────────────────────────
+# A rating refers to an answer_id the stream handed out. Ids older than the
+# records' retention, or from the future, are refused, so a stray id cannot
+# seed items nothing will ever join. The client IP feeds the limiter only and
+# is never stored (interactions.py is the contract).
+RATING_MAX_AGE_S = int(os.environ.get("INTERACTION_TTL_DAYS", "180")) * 86400
+RATING_MAX_BODY = 16_000
+
+
+@app.post("/api/feedback")
+async def feedback(request: Request):
+    if int(request.headers.get("content-length") or 0) > RATING_MAX_BODY:
+        return JSONResponse({"error": "That rating is too large."}, status_code=413)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid request."}, status_code=400)
+    rating = interactions.clean_rating(body)
+    if rating is None:
+        return JSONResponse({"error": "A rating needs the answer's id and 1 to 5 stars."}, status_code=400)
+    age = time.time() - interactions.parse_answer_id(rating["answer_id"]) / 1000
+    if age < -300 or age > RATING_MAX_AGE_S:
+        return JSONResponse({"error": "That answer can no longer be rated."}, status_code=400)
+    # Its own bucket, so rating answers never spends the question allowance.
+    if not check_ip_rate_limit("fb:" + _client_ip(request)):
+        return JSONResponse({"error": "Too many ratings in a short time. Please wait a minute."},
+                            status_code=429)
+    if INTERACTIONS is None:
+        return JSONResponse({"error": "Ratings are not enabled on this deployment."}, status_code=503)
+    if not INTERACTIONS.rate(rating):
+        return JSONResponse({"error": "Could not save the rating right now. Please try again later."},
+                            status_code=503)
+    log.info("Rating: %s stars for %s%s", rating["stars"], rating["answer_id"],
+             f" ({', '.join(rating['reasons'])})" if rating["reasons"] else "")
+    return {"stored": True, "answer_id": rating["answer_id"], "stars": rating["stars"]}
+
+
 def _answer_frame(answer_id: str, cached: bool) -> str:
     """The first frame of every /api/ask response: the id a rating refers to.
     Built outside send() on purpose — it is never cached, so each replay of a

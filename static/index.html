@@ -181,6 +181,22 @@
   }
   .link-btn:hover { color: var(--ink); }
 
+  /* Five-star rating under an answer (docs/experience-capture.md). One click
+     stores the stars; chips and a note are optional extras after it. */
+  .rating { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: 14px; color: var(--ink-2); }
+  .stars { display: inline-flex; }
+  .star { min-width: 36px; min-height: 44px; padding: 0 4px; border: 0; background: transparent; font-size: 22px; line-height: 1; color: var(--rule); cursor: pointer; }
+  .star.on { color: var(--accent); }
+  .star:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .rating-status { min-width: 64px; }
+  .rating-more { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; }
+  .rating-more[hidden] { display: none; }
+  .rating-reasons { display: flex; flex-wrap: wrap; gap: 6px; }
+  .reason { min-height: 36px; padding: 4px 12px; border: 1px solid var(--rule); border-radius: 999px; background: transparent; color: var(--ink-2); font: inherit; font-size: 13px; cursor: pointer; }
+  .reason.on { border-color: var(--accent); color: var(--accent); }
+  .rating-note { display: flex; gap: 8px; align-items: center; }
+  .rating-note input { flex: 1; min-width: 0; min-height: 40px; padding: 0 10px; border: 1px solid var(--rule); background: transparent; color: var(--ink); font: inherit; font-size: 14px; }
+
   .mono-label {
     font-size: 12px;
     letter-spacing: 0.08em;
@@ -1669,6 +1685,110 @@ function updateWorkMeta(card) {
   card.workMeta.textContent = parts.join(' · ');
 }
 
+// Five-star rating (docs/experience-capture.md). The first click stores the
+// stars at once; chips and a note re-send the same rating (the server upserts,
+// so the latest wins). Nothing about the person travels with it: the answer's
+// id, the tab token, the stars, the chips, the note.
+const RATING_REASONS = [
+  ['wrong-number', 'Wrong number'], ['wrong-period', 'Wrong time period'],
+  ['not-answered', "Didn't answer the question"], ['chart-off', 'Chart is off'],
+  ['slow', 'Too slow'], ['confusing', 'Hard to follow'], ['great', 'Great explanation'],
+];
+
+async function postRating(payload) {
+  const body = JSON.stringify(payload);
+  const resp = await fetch('/api/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await sigv4BodyHeader(body)) },
+    body,
+  });
+  if (!resp.ok) {
+    let msg = 'Could not save the rating.';
+    try { const d = await resp.json(); if (d && d.error) msg = d.error; } catch { /* keep the generic message */ }
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
+function renderRating(card) {
+  const row = el('div', 'rating');
+  const stars = el('div', 'stars');
+  stars.setAttribute('role', 'radiogroup');
+  stars.setAttribute('aria-label', 'Rate this answer from 1 to 5 stars');
+  const status = el('span', 'rating-status');
+  status.setAttribute('aria-live', 'polite');
+  const state = { stars: 0, reasons: new Set(), comment: '' };
+  const btns = [];
+  const paint = (n) => btns.forEach((b, i) => b.classList.toggle('on', i < n));
+  for (let n = 1; n <= 5; n++) {
+    const b = el('button', 'star', '★');
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', 'false');
+    b.setAttribute('aria-label', `${n} star${n > 1 ? 's' : ''}`);
+    b.addEventListener('mouseenter', () => paint(n));
+    b.addEventListener('mouseleave', () => paint(state.stars));
+    b.addEventListener('focus', () => paint(n));
+    b.addEventListener('blur', () => paint(state.stars));
+    b.addEventListener('click', () => {
+      state.stars = n;
+      paint(n);
+      btns.forEach((x, i) => x.setAttribute('aria-checked', String(i + 1 === n)));
+      more.hidden = false;
+      send();
+    });
+    btns.push(b);
+    stars.appendChild(b);
+  }
+
+  // Revealed after the first click: reason chips and a short note.
+  const more = el('div', 'rating-more');
+  more.hidden = true;
+  const chips = el('div', 'rating-reasons');
+  for (const [token, text] of RATING_REASONS) {
+    const c = el('button', 'reason', text);
+    c.type = 'button';
+    c.setAttribute('aria-pressed', 'false');
+    c.addEventListener('click', () => {
+      const on = !state.reasons.has(token);
+      if (on) state.reasons.add(token); else state.reasons.delete(token);
+      c.classList.toggle('on', on);
+      c.setAttribute('aria-pressed', String(on));
+      send();
+    });
+    chips.appendChild(c);
+  }
+  const noteWrap = el('div', 'rating-note');
+  const note = el('input');
+  note.type = 'text';
+  note.maxLength = 500;
+  note.placeholder = 'Anything to add? Optional, and please no personal details';
+  note.setAttribute('aria-label', 'Note about this answer');
+  const sendBtn = el('button', 'link-btn', 'Send note');
+  sendBtn.type = 'button';
+  sendBtn.addEventListener('click', () => { state.comment = note.value.trim(); send(); });
+  note.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendBtn.click(); } });
+  noteWrap.append(note, sendBtn);
+  more.append(chips, noteWrap);
+
+  let inflight = 0;
+  async function send() {
+    const seq = ++inflight;
+    status.textContent = 'Saving…';
+    try {
+      await postRating({ answer_id: card.answerId, session_id: SESSION_ID, stars: state.stars,
+                         reasons: [...state.reasons], comment: state.comment });
+      if (seq === inflight) status.textContent = 'Thanks!';
+    } catch (e) {
+      if (seq === inflight) status.textContent = e.message || 'Could not save the rating.';
+    }
+  }
+
+  row.append(el('span', 'rating-label', 'Rate this answer'), stars, status, more);
+  // Under the action row and the data view, above "How Lou got this answer".
+  card.work.parentNode.insertBefore(row, card.work);
+}
+
 // Build the report-a-bad-answer email, prefilled with whatever conversation
 // detail this answer produced. `results` always arrives from the backend
 // (humanized unless ?dev=1); `sql` and `debug` too.
@@ -2523,6 +2643,9 @@ async function streamAnswer(question, opts = {}) {
       card.msgGroup.appendChild(reportBtn);
     }
   }
+  // The rating needs the server's id for this answer (the `answer` frame);
+  // the short-circuit errors carry none and get no stars.
+  if (card.answerId) renderRating(card);
   // NOTE: isStreaming / resetAskButton / questionEl.focus() are reset in the
   // finally above (which runs on every exit path), not here — see that comment.
 }

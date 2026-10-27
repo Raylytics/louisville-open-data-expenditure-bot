@@ -65,12 +65,24 @@ frames*, is untouched. The frontend keeps it on the card (`card.answerId`)
 for the rating widget. The short-circuit responses (empty question, rate
 limited, bad body) carry no `answer` frame and are not recorded.
 
-## Ratings (Phase 2)
+## Ratings
 
-Five stars, optional reason chips, optional short comment, posted to
-`POST /api/feedback` with the `answer_id` and `session_id`. Validation and
-caps live in `interactions.clean_rating`: stars 1-5, up to 8 reasons of 40
-lower-case token chars, a 500-char comment.
+Five stars under every answer that carried an `answer` frame
+(`renderRating` in `static/index.html`). The first click stores the stars at
+once; reason chips (`wrong-number`, `wrong-period`, `not-answered`,
+`chart-off`, `slow`, `confusing`, `great`) and a short note appear after it
+and re-send the same rating, which the server upserts, so the latest verdict
+wins. The payload is the `answer_id`, the tab's `session_id`, `stars`,
+`reasons`, `comment`, and nothing else; it is posted to `POST /api/feedback`
+with the SigV4 body hash CloudFront OAC requires.
+
+The endpoint (`app.feedback`) validates through `interactions.clean_rating`
+(stars 1-5, up to 8 reasons of 40 lower-case token chars, a 500-char
+comment), refuses ids older than the retention or from the future, caps the
+body at 16 KB, and rate-limits in its own per-IP bucket (`fb:` prefix) so
+rating never spends the question allowance. The IP feeds the limiter only.
+A store failure or recording being off answers 503 with a plain message; the
+widget shows it instead of a false "Thanks".
 
 ## Review (Phase 3)
 

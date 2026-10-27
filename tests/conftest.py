@@ -4,8 +4,17 @@ clear reason instead of erroring at collection, while every pure-function and
 in-memory-DuckDB test still runs."""
 import glob
 import os
+import tempfile
 
 import pytest
+
+# Interaction records (interactions.py) are written by every test that goes
+# through /api/ask. Point them at a throwaway file BEFORE app.py is imported
+# (from_env() reads this at import), so a test run never appends fixtures to
+# the developer's real data/interactions.jsonl. Tests that need to read the
+# records swap in their own recorder (tests/test_ask_endpoint.py).
+os.environ.setdefault("INTERACTIONS_FILE",
+                      os.path.join(tempfile.mkdtemp(prefix="lou-test-interactions-"), "interactions.jsonl"))
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

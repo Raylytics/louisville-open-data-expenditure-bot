@@ -1145,3 +1145,95 @@ def test_recording_off_means_no_recorder_and_no_frame_change(client, monkeypatch
 def test_health_reports_the_interaction_store(client):
     h = client.get("/api/health").json()
     assert h["interactions"]["backend"] == "file" and h["interactions"]["status"] == "ok"
+
+
+# ── POST /api/feedback: the five-star rating (louisville-open-data-2jj.2) ────
+
+def _rate(client, **body):
+    return client.post("/api/feedback", json=body)
+
+
+def _ratings(client_app):
+    return [r for r in _records(client_app) if r["kind"] == "rating"]
+
+
+def test_a_rating_is_stored_against_the_answer_with_nothing_identifying(client, monkeypatch):
+    import app
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
+    monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
+    aid = _events(_post(client, "rate me", session_id="abcdefgh12345678"))[0]["answer_id"]
+
+    r = _rate(client, answer_id=aid, session_id="abcdefgh12345678", stars=4,
+              reasons=["Wrong number", "great"], comment="  close enough  ",
+              headers={"x-forwarded-for": "1.2.3.4"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"stored": True, "answer_id": aid, "stars": 4}
+    [rating] = _ratings(client)
+    assert rating["answer_id"] == aid and rating["stars"] == 4
+    assert rating["reasons"] == ["wrongnumber", "great"] and rating["comment"] == "close enough"
+    assert rating["session_id"] == "abcdefgh12345678" and rating["rated_at"] > 0
+    assert not ({"ip", "client_ip", "user_agent", "headers", "cookie"} & set(rating))
+    # Re-rating the same answer is an upsert: the latest verdict wins on read.
+    assert _rate(client, answer_id=aid, stars=2).status_code == 200
+    day = app.INTERACTIONS.query_day(_records(client)[0]["day"])
+    assert [d["stars"] for d in day if d["answer_id"] == aid] == [2]
+
+
+@pytest.mark.parametrize("body", [
+    {}, {"stars": 5}, {"answer_id": "not-an-id", "stars": 5},
+    {"answer_id": "18b7c6c8c00-0123abcd", "stars": 0},
+    {"answer_id": "18b7c6c8c00-0123abcd", "stars": 6},
+    {"answer_id": "18b7c6c8c00-0123abcd", "stars": "lots"},
+])
+def test_a_malformed_rating_is_refused(client, body):
+    r = _rate(client, **body)
+    assert r.status_code == 400 and "error" in r.json()
+    assert _ratings(client) == []
+
+
+def test_a_stale_or_future_answer_id_is_refused(client):
+    import time
+    import interactions
+    stale = interactions.new_answer_id(now=time.time() - 400 * 86400)
+    future = interactions.new_answer_id(now=time.time() + 86400)
+    assert _rate(client, answer_id=stale, stars=5).status_code == 400
+    assert _rate(client, answer_id=future, stars=5).status_code == 400
+    assert _ratings(client) == []
+
+
+def test_a_bad_body_and_an_oversized_body_are_refused(client):
+    import interactions
+    r = client.post("/api/feedback", content=b"not json", headers={"content-type": "application/json"})
+    assert r.status_code == 400
+    r = _rate(client, answer_id=interactions.new_answer_id(), stars=3, comment="x" * 20_000)
+    assert r.status_code == 413
+    assert _ratings(client) == []
+
+
+def test_ratings_have_their_own_rate_limit_bucket(client, monkeypatch):
+    import app
+    import interactions
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
+    monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
+    aid = interactions.new_answer_id()
+    for _ in range(app.IP_RPM_LIMIT):
+        assert _rate(client, answer_id=aid, stars=5).status_code == 200
+    assert _rate(client, answer_id=aid, stars=5).status_code == 429
+    # ...and spending it has not touched the question allowance.
+    assert "error" not in _types(_events(_post(client, "still allowed")))
+    assert len(_ratings(client)) == app.IP_RPM_LIMIT
+
+
+def test_ratings_report_an_unavailable_store_honestly(client, monkeypatch, tmp_path):
+    import app
+    import interactions
+    aid = interactions.new_answer_id()
+    monkeypatch.setattr(app, "INTERACTIONS", None)
+    assert _rate(client, answer_id=aid, stars=5).status_code == 503
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file, not a directory")
+    monkeypatch.setattr(app, "INTERACTIONS", interactions.FileInteractions(str(blocked / "ix.jsonl")))
+    r = _rate(client, answer_id=aid, stars=5)
+    assert r.status_code == 503 and "try again" in r.json()["error"]

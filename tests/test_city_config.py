@@ -397,3 +397,41 @@ def test_stream_teardown_lives_in_finally_not_after_try():
     assert "isStreaming = false;" in finally_block
     assert "resetAskButton();" in finally_block
     assert "clearProcessing();" in finally_block and "clearWaiting();" in finally_block
+
+
+# ── experience capture in the page (louisville-open-data-2jj) ───────────────
+
+def test_frontend_sends_the_tab_token_and_keeps_the_answer_id():
+    """The question body carries the per-tab session token (minted client
+    side, sessionStorage, never a cookie), and the `answer` frame's id is kept
+    on the card for the rating. Neither names a person."""
+    html = open(os.path.join(REPO, "static", "index.html")).read()
+    assert "session_id: SESSION_ID" in html
+    assert "sessionStorage.getItem('lou-session')" in html
+    assert "crypto.getRandomValues" in html
+    assert "document.cookie" not in html, "no cookies: CloudFront forwards none and the record must not carry one"
+    assert "event.type === 'answer'" in html and "card.answerId = event.answer_id" in html
+    assert 'id="privacy-note"' in html and "cfg.privacy_note" in html
+
+
+def test_frontend_rates_with_five_stars_through_the_signed_feedback_post():
+    html = open(os.path.join(REPO, "static", "index.html")).read()
+    assert "function renderRating(card)" in html
+    assert "for (let n = 1; n <= 5; n++)" in html
+    assert "fetch('/api/feedback'" in html
+    # Behind CloudFront OAC a POST body needs the SigV4 body hash, exactly as
+    # /api/ask sends it (tests/test_sigv4_body_hash.py).
+    post = html[html.index("async function postRating"):html.index("function renderRating")]
+    assert "sigv4BodyHeader(body)" in post
+    # The payload is the id, the tab token, stars, chips, note — nothing else.
+    send = html[html.index("async function send()"):html.index("row.append(el('span', 'rating-label'")]
+    assert "answer_id: card.answerId, session_id: SESSION_ID, stars: state.stars" in send
+    assert "reasons: [...state.reasons], comment: state.comment" in send
+    assert "if (card.answerId) renderRating(card);" in html
+    # Every chip token survives the server's normalisation (interactions.clean_rating).
+    import re
+    import interactions
+    tokens = re.findall(r"\['([a-z-]+)', '", html[html.index("const RATING_REASONS"):html.index("async function postRating")])
+    assert len(tokens) >= 5
+    aid = interactions.new_answer_id()
+    assert interactions.clean_rating({"answer_id": aid, "stars": 3, "reasons": tokens})["reasons"] == tokens
