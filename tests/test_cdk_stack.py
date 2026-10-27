@@ -165,13 +165,42 @@ def test_cloudfront_uses_oac_no_cache_no_compress_no_host(resources):
 
 # ── state + data ────────────────────────────────────────────────────────────
 
+def _table(resources, name):
+    found = [r["Properties"] for r in resources.values()
+             if r["Type"] == "AWS::DynamoDB::Table" and r["Properties"].get("TableName") == name]
+    assert len(found) == 1, f"expected one table {name}, got {len(found)}"
+    return found[0]
+
+
 def test_state_table_matches_state_store_contract(resources):
-    t = _only(resources, "AWS::DynamoDB::Table")
+    t = _table(resources, "lou-state")
     assert t["TableName"] == "lou-state"
     assert t["KeySchema"] == [{"AttributeName": "pk", "KeyType": "HASH"}]
     assert t["AttributeDefinitions"] == [{"AttributeName": "pk", "AttributeType": "S"}]
     assert t["BillingMode"] == "PAY_PER_REQUEST"
     assert t["TimeToLiveSpecification"] == {"AttributeName": "ttl", "Enabled": True}
+
+
+def test_interactions_table_matches_interactions_contract(resources):
+    """interactions.py: day-keyed pk + time-ordered sk, TTL on `ttl`, kept on
+    stack deletion (records are not rebuildable), named inside the boundary's
+    lou-* grant, and handed to the function by INTERACTIONS_TABLE — without
+    that env var the app records nothing."""
+    t = _table(resources, "lou-interactions")
+    assert t["KeySchema"] == [{"AttributeName": "pk", "KeyType": "HASH"},
+                              {"AttributeName": "sk", "KeyType": "RANGE"}]
+    assert t["BillingMode"] == "PAY_PER_REQUEST"
+    assert t["TimeToLiveSpecification"] == {"AttributeName": "ttl", "Enabled": True}
+    res = next(r for r in resources.values()
+               if r["Type"] == "AWS::DynamoDB::Table" and r["Properties"]["TableName"] == "lou-interactions")
+    assert res.get("DeletionPolicy") == "Retain"
+    fn = _only(resources, "AWS::Lambda::Function")
+    assert fn["Environment"]["Variables"]["INTERACTIONS_TABLE"] == "lou-interactions"
+    # The runtime grant covers it: the same statement as the state table.
+    policies = [r["Properties"] for r in resources.values() if r["Type"] == "AWS::IAM::Policy"]
+    sts = [st for p in policies for st in p["PolicyDocument"]["Statement"] if st.get("Sid") == "StateTable"]
+    assert len(sts) == 1
+    assert len(sts[0]["Resource"]) == 2
 
 
 def test_data_bucket_follows_the_naming_rule_and_is_private(resources):

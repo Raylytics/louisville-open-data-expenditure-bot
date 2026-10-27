@@ -39,6 +39,9 @@ branding:
     extracted from Louisville Metro Open Data, and shows its work.
   input_placeholder: Ask about spending, salaries, contracts or capital projects
   input_aria_label: Ask a question about Louisville Metro data
+  # Under the question box. Questions and ratings are recorded (interactions.py)
+  # with no IP, user agent or identity; the note asks visitors not to add any.
+  privacy_note: Questions and ratings are stored to improve Lou. Please do not type personal information.
   # Attribution on every answer's source line (plain text + link).
   source_name: Louisville Metro Open Data
   source_url: https://data.louisvilleky.gov/datasets/

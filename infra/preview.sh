@@ -54,7 +54,7 @@ up() {
   docker run -d --rm --name lou-preview-dynamodb --network "$NET" amazon/dynamodb-local:latest \
     -jar DynamoDBLocal.jar -inMemory -sharedDb >/dev/null
   docker run --rm --network "$NET" -e AWS_ACCESS_KEY_ID=local -e AWS_SECRET_ACCESS_KEY=local -e AWS_DEFAULT_REGION=us-east-1 \
-    "$IMG" python -c "import boto3, state_store; c=boto3.client('dynamodb', endpoint_url='http://lou-preview-dynamodb:8000'); state_store.ensure_table(c, 'lou-state'); print('table lou-state ready')"
+    "$IMG" python -c "import boto3, state_store; c=boto3.client('dynamodb', endpoint_url='http://lou-preview-dynamodb:8000'); state_store.ensure_table(c, 'lou-state'); import interactions; interactions.ensure_table(c, 'lou-interactions'); print('tables lou-state, lou-interactions ready')"
   echo "== the app, as Lambda runs it: uid 1000, read-only, /tmp only"
   # The commit the image was built from (+ "-dirty" for uncommitted changes):
   # `ok` refuses unless it is HEAD, so a container from an earlier commit can
@@ -63,7 +63,7 @@ up() {
   docker run -d --rm --name lou-preview-app --label "lou.sha=$built" --network "$NET" -p "127.0.0.1:$PORT:8000" \
     --user 1000:1000 --read-only --tmpfs /tmp:rw,size=1g -m 1769m \
     --env-file .env \
-    -e STATE_BACKEND=dynamodb -e STATE_TABLE=lou-state -e DYNAMODB_ENDPOINT_URL=http://lou-preview-dynamodb:8000 \
+    -e STATE_BACKEND=dynamodb -e STATE_TABLE=lou-state -e INTERACTIONS_TABLE=lou-interactions -e DYNAMODB_ENDPOINT_URL=http://lou-preview-dynamodb:8000 \
     -e AWS_ACCESS_KEY_ID=local -e AWS_SECRET_ACCESS_KEY=local -e AWS_REGION=us-east-1 \
     -e CLIENT_IP_SOURCE=peer -e ADMIN_TOKEN=preview \
     "$IMG" >/dev/null

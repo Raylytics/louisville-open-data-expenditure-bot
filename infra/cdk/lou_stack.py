@@ -57,6 +57,7 @@ from constructs import Construct
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FUNCTION_NAME = "lou-bot"
 TABLE_NAME = "lou-state"
+INTERACTIONS_TABLE_NAME = "lou-interactions"
 # AWS/WAFV2 publishes the WebACL dimension as the ACL's VisibilityConfig
 # MetricName, NOT its name — the alarm and the ACL must share this string.
 WAF_METRIC_NAME = "lou-edge"
@@ -93,6 +94,20 @@ class LouStack(cdk.Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             time_to_live_attribute="ttl",
             removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+
+        # Interaction records (interactions.py): one item per answer, rated
+        # in place, day-keyed so the review pass reads a day with one Query.
+        # Not rebuildable — RETAIN, unlike the state table. No PII inside
+        # (no IP, UA or identity: the module docstring is the contract).
+        interactions_table = dynamodb.Table(
+            self, "Interactions",
+            table_name=INTERACTIONS_TABLE_NAME,
+            partition_key=dynamodb.Attribute(name="pk", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="sk", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            time_to_live_attribute="ttl",
+            removal_policy=cdk.RemovalPolicy.RETAIN,
         )
 
         # ── data refresh inputs ─────────────────────────────────────────────
@@ -149,7 +164,7 @@ class LouStack(cdk.Stack):
             # which also grants stream actions the boundary does not.
             actions=["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
                      "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchWriteItem"],
-            resources=[table.table_arn],
+            resources=[table.table_arn, interactions_table.table_arn],
         ))
 
         # ── logs ────────────────────────────────────────────────────────────
@@ -190,6 +205,7 @@ class LouStack(cdk.Stack):
                 # LWA settings) is baked into Dockerfile.lambda.
                 "STATE_BACKEND": "dynamodb",
                 "STATE_TABLE": table.table_name,
+                "INTERACTIONS_TABLE": INTERACTIONS_TABLE_NAME,   # interactions.py; unset = recording off
                 "CLIENT_IP_SOURCE": "cloudfront",     # behind OAC; see app._client_ip
                 "SSM_PARAMETER_PATH": ssm_path,       # OPENROUTER_API_KEY, CEREBRAS_PAID_API_KEY, ADMIN_TOKEN
             },

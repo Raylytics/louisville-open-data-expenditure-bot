@@ -983,6 +983,7 @@
     <!-- Outside the form: as a flex item beside the input it took ~half the row
          and squeezed the question box to ~200px on desktop. -->
     <p class="disclaimer">Proof of concept; expect hiccups. AI-generated, so check the SQL before you rely on a number.</p>
+    <p class="disclaimer" id="privacy-note">Questions and ratings are stored to improve Lou. Please do not type personal information.</p>
   </div>
 </div>
 
@@ -992,6 +993,19 @@ const startersEl = document.getElementById('starters');
 const questionEl = document.getElementById('question');
 const submitBtn = document.getElementById('submit-btn');
 const inputBar = document.getElementById('input-bar');
+
+// A random per-tab token sent with each question so one sitting's answers can
+// be read back in order (interactions.py). It names no one: minted here, kept
+// in sessionStorage for this tab only, never set by the server. Where storage
+// is blocked (private mode) it lasts one page load instead.
+const SESSION_ID = (() => {
+  const mint = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+  try {
+    let s = sessionStorage.getItem('lou-session');
+    if (!s || !/^[A-Za-z0-9_-]{8,64}$/.test(s)) { s = mint(); sessionStorage.setItem('lou-session', s); }
+    return s;
+  } catch (e) { return mint(); }
+})();
 let BOT_NAME = 'Lou';  // overridden by the city pack's branding
 // Where the data comes from, named on every answer's source line. Empty until
 // the pack's branding arrives, so no deployment shows another city's portal.
@@ -1947,7 +1961,7 @@ async function streamAnswer(question, opts = {}) {
   };
 
   try {
-    const body = JSON.stringify({ question, dev_mode: devMode, history: historyToSend });
+    const body = JSON.stringify({ question, dev_mode: devMode, history: historyToSend, session_id: SESSION_ID });
     const resp = await fetch('/api/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await sigv4BodyHeader(body)) },
@@ -2020,6 +2034,14 @@ async function streamAnswer(question, opts = {}) {
         if (visibleContent) {
           receivedAnyEvent = true;
           clearWaiting();
+        }
+
+        // The server's id for this answer (fresh on a cached replay too): what
+        // a rating refers to. Nothing to draw.
+        if (event.type === 'answer') {
+          card.answerId = event.answer_id || null;
+          card.answerCached = !!event.cached;
+          continue;
         }
 
         if (event.type === 'reasoning') {
@@ -2536,6 +2558,7 @@ async function applyBranding() {
     if (input && cfg.input_aria_label !== undefined) {
       input.setAttribute('aria-label', cfg.input_aria_label);
     }
+    set(document.getElementById('privacy-note'), 'textContent', cfg.privacy_note);
     const btn = document.getElementById('submit-btn');
     if (btn && !isStreaming) btn.textContent = `Ask ${BOT_NAME}`;
     if (Array.isArray(cfg.starter_groups)) {

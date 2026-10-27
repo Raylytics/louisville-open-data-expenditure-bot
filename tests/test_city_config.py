@@ -148,7 +148,7 @@ def test_branding_covers_every_overridable_frontend_string():
     cfg = load_city_config(LOUISVILLE)
     for key in ("bot_name", "tab_title", "subtitle", "hero_heading", "hero_blurb",
                 "input_placeholder", "input_aria_label", "about_html", "starter_groups",
-                "source_name", "source_url"):
+                "source_name", "source_url", "privacy_note"):
         assert cfg.branding.get(key), f"branding missing {key}"
 
 
@@ -177,7 +177,7 @@ def test_default_starter_groups_match_the_pack():
 
 FRONTEND_KEYS = ("bot_name", "tab_title", "subtitle", "hero_heading", "hero_blurb",
                  "input_placeholder", "input_aria_label", "about_html", "starter_groups",
-                 "source_name", "source_url")
+                 "source_name", "source_url", "privacy_note")
 
 
 def _get_config():

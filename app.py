@@ -99,6 +99,7 @@ _load_secrets_from_ssm()
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import state_store
+import interactions
 
 import claude_provider
 from analytics_agent import (
@@ -309,6 +310,10 @@ if CLIENT_IP_SOURCE not in ("peer", "cloudfront"):
 # Shared state for Lambda (rate limit, cache, counters in DynamoDB) — None on
 # the self-hosted deploy, where the module dicts + JSON files below are used.
 STATE = state_store.from_env()
+
+# Interaction records (interactions.py): every answer kept as an experience,
+# for the five-star rating and the review pass. None when recording is off.
+INTERACTIONS = interactions.from_env()
 
 
 _viewer_address_warned = False
@@ -1011,6 +1016,7 @@ async def health():
         "status": status,
         "degraded_reason": degraded_reason,
         "state_backend": backend,
+        "interactions": INTERACTIONS.status() if INTERACTIONS else {"backend": "off", "status": "off"},
         "tables": stats,
         # "model" is the model actually in use; if a provider deprecation
         # triggered a runtime fallback, model != model_configured and
@@ -1060,6 +1066,10 @@ async def get_config():
         "affiliated with or endorsed by the city."
     ))
     b.setdefault("starter_groups", [])
+    # Under the question box: questions and ratings are recorded (interactions.py)
+    # and nothing identifying is, so the one thing to ask is that nobody types it.
+    b.setdefault("privacy_note", f"Questions and ratings are stored to improve {b['bot_name']}. "
+                                 "Please do not type personal information.")
     # Attribution on every answer's source line. No URL by default: a link
     # the pack did not declare could point anywhere.
     b.setdefault("source_name", f"{who}'s open data portal" if city else "the city's open data portal")
@@ -1473,6 +1483,36 @@ def _sse_message(event_type: str, content: str) -> StreamingResponse:
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+def _answer_frame(answer_id: str, cached: bool) -> str:
+    """The first frame of every /api/ask response: the id a rating refers to.
+    Built outside send() on purpose — it is never cached, so each replay of a
+    cached answer carries its own id, and EVENT_SCHEMA_VERSION (which guards
+    the SHAPE of cached frames) is untouched by it."""
+    return f"data: {json.dumps({'type': 'answer', 'answer_id': answer_id, 'cached': cached})}\n\n"
+
+
+def _frames_to_events(frames: list[str]) -> list[dict]:
+    """Cached SSE frames back into event dicts, for the interaction record."""
+    out = []
+    for f in frames:
+        try:
+            out.append(json.loads(f[len("data: "):]))
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+def _record_interaction(**fields) -> None:
+    """Best-effort and never on the answer's path to the client: the recorder
+    logs its own backend failures, and anything else lands here."""
+    if INTERACTIONS is None:
+        return
+    try:
+        INTERACTIONS.put(interactions.build_record(cache_version=CACHE_VERSION, **fields))
+    except Exception as e:  # noqa: BLE001
+        log.warning("Interaction record dropped (%s: %s)", type(e).__name__, e)
+
+
 @app.post("/api/ask")
 async def ask(request: Request):
     # Per-request tier record: usage is attributed to the provider that served
@@ -1485,6 +1525,8 @@ async def ask(request: Request):
     question = body.get("question", "").strip()
     dev_mode = body.get("dev_mode", False)
     history = body.get("history", [])  # list of {"role": "user"|"assistant", "content": "..."}
+    # The browser's per-tab token (interactions.py); '' when absent or malformed.
+    session_id = interactions.clean_session_id(body.get("session_id"))
     if not question:
         return _sse_message("error", "Please enter a question.")
 
@@ -1496,21 +1538,33 @@ async def ask(request: Request):
     # Serve from cache if question is cached
     cache_key = _cache_key(question)
     events = _cache_get(cache_key)
+    # One id per response, cached replay included: it heads the stream as an
+    # uncached `answer` frame and names the interaction record a rating
+    # refers to (interactions.py).
+    answer_id = interactions.new_answer_id()
     if events is not None:
         log.info("Cache hit: %s", question[:50])
         def cached_stream():
+            yield _answer_frame(answer_id, cached=True)
             for event in events:
                 yield event
+        _record_interaction(answer_id=answer_id, session_id=session_id, question=question,
+                            history=history, events=_frames_to_events(events), cache_hit=True,
+                            cache_key=cache_key, outcome="ok", dev_mode=dev_mode)
         return StreamingResponse(cached_stream(), media_type="text/event-stream")
 
     # Track whether this response should be cached
     should_cache = not dev_mode and not history
+    # Every frame of this answer, cacheable or not, for the interaction record.
+    all_events: list[dict] = []
 
     def event_stream():
         cache_events = []
 
         def send(event_type: str, data: dict):
-            event = f"data: {json.dumps({'type': event_type, **data})}\n\n"
+            payload = {'type': event_type, **data}
+            all_events.append(dict(payload))
+            event = f"data: {json.dumps(payload)}\n\n"
             if should_cache:
                 cache_events.append(event)
             return event
@@ -2226,16 +2280,30 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
         before/between events would close the connection silently and leave
         the client's typing indicator spinning forever."""
         gen = event_stream()
+        ended = "ok"
         try:
+            yield _answer_frame(answer_id, cached=False)
             for event in gen:
                 yield event
         except GeneratorExit:
+            # The client went away mid-answer: recorded as abandoned below.
+            ended = "abandoned"
             gen.close()
             raise
         except Exception as e:
             log.exception("Unhandled error in /api/ask stream: %s", e)
             track_error("unhandled", str(e)[:200])
-            yield f"data: {json.dumps({'type': 'error', 'content': f'Something went wrong on the server ({type(e).__name__}). Please try again in a moment.'})}\n\n"
+            err = {'type': 'error', 'content': f'Something went wrong on the server ({type(e).__name__}). Please try again in a moment.'}
+            all_events.append(err)
+            yield f"data: {json.dumps(err)}\n\n"
+            all_events.append({'type': 'done'})
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        finally:
+            # The interaction record, however the stream ended (ok, error,
+            # incomplete, abandoned) — written once, after the last frame.
+            _record_interaction(answer_id=answer_id, session_id=session_id, question=question,
+                                history=history, events=all_events, cache_hit=False,
+                                cache_key=cache_key, outcome=interactions.outcome_of(all_events, ended),
+                                dev_mode=dev_mode)
 
     return StreamingResponse(safe_stream(), media_type="text/event-stream")

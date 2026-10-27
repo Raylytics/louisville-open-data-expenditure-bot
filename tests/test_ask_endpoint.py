@@ -79,6 +79,9 @@ def _fast_and_isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(app.time, "sleep", lambda *a, **k: None)
     monkeypatch.setattr(app, "CACHE_FILE", str(tmp_path / "cache.json"))
     monkeypatch.setattr(app, "STATS_FILE", str(tmp_path / "stats.json"))
+    # Interaction records go to a throwaway JSONL too, never the dev's real one.
+    import interactions
+    monkeypatch.setattr(app, "INTERACTIONS", interactions.FileInteractions(str(tmp_path / "interactions.jsonl")))
     # The background call is an LLM call too: never let a test reach one.
     monkeypatch.setattr(app, "generate_background", lambda *a, **k: ("NONE", {}, "paid"))
     app.ip_requests.clear()
@@ -1032,3 +1035,113 @@ def test_health_reports_the_cache_version(client):
     """deploy.sh compares this with the previewed image's value (4e9)."""
     import app
     assert client.get("/api/health").json()["cache_version"] == app.CACHE_VERSION != "unversioned"
+
+
+# ── Interaction records + the `answer` frame (louisville-open-data-2jj) ──────
+
+def _records(client_app):
+    """Every record the test's throwaway JSONL recorder has written."""
+    import app
+    path = app.INTERACTIONS.path
+    try:
+        with open(path) as f:
+            return [json.loads(ln) for ln in f if ln.strip()]
+    except FileNotFoundError:
+        return []
+
+
+def test_every_answer_opens_with_an_uncached_answer_frame_and_is_recorded(client, monkeypatch):
+    import app
+    import interactions
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
+    monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
+
+    events = _events(_post(client, "record me", session_id="abcdefgh12345678"))
+    assert events[0]["type"] == "answer" and events[0]["cached"] is False
+    aid = events[0]["answer_id"]
+    assert interactions.parse_answer_id(aid) is not None
+
+    [rec] = _records(client)
+    assert rec["kind"] == "interaction"
+    assert rec["answer_id"] == aid and rec["session_id"] == "abcdefgh12345678"
+    assert rec["question"] == "record me" and rec["outcome"] == "ok" and rec["cache_hit"] is False
+    assert rec["cache_version"] == app.CACHE_VERSION and rec["cache_key"] == app._cache_key("record me")
+    # The record holds the served frames (minus the uncached `answer` frame itself).
+    assert [e["type"] for e in rec["events"]] == _types(events)[1:]
+    assert any(s["id"] == "generate_sql" for s in rec["steps"]) and rec["total_ms"] >= 0
+    # Nothing identifying: the key set is closed, and no header reached it.
+    assert not ({"ip", "client_ip", "user_agent", "headers", "cookie"} & set(rec))
+
+
+def test_the_answer_frame_is_not_cached_and_a_replay_gets_a_fresh_id(client, monkeypatch):
+    import app
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
+    monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
+
+    first = _events(_post(client, "replay me"))
+    key = app._cache_key("replay me")
+    assert not any('"type": "answer"' in f for f in app.response_cache[key]), "the id must never be cached"
+    second = _events(_post(client, "replay me"))
+    assert second[0]["type"] == "answer" and second[0]["cached"] is True
+    assert second[0]["answer_id"] != first[0]["answer_id"]
+    assert _types(second) == _types(first)
+
+    live, view = _records(client)
+    assert view["answer_id"] == second[0]["answer_id"] and view["cache_hit"] is True
+    assert view["outcome"] == "ok" and view["cache_key"] == key
+    assert [e["type"] for e in view["events"]] == _types(second)[1:]
+
+
+def test_an_error_path_is_recorded_as_an_error(client, monkeypatch):
+    import app
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql("SELECT * FROM no_such_table"))
+    monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
+    events = _events(_post(client, "break me", dev_mode=True))
+    assert "error" in _types(events)
+    [rec] = _records(client)
+    assert rec["outcome"] == "error" and rec["dev_mode"] is True
+    assert any(e["type"] == "error" for e in rec["events"])
+
+
+def test_a_malformed_session_id_is_dropped_not_rejected(client, monkeypatch):
+    import app
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
+    monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
+    events = _events(_post(client, "no session", session_id="evan@example.com"))
+    assert "interpretation" in _types(events)
+    [rec] = _records(client)
+    assert rec["session_id"] == ""
+
+
+def test_recording_failures_never_reach_the_answer(client, monkeypatch, tmp_path):
+    import app
+    import interactions
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file, not a directory")
+    monkeypatch.setattr(app, "INTERACTIONS", interactions.FileInteractions(str(blocked / "ix.jsonl")))
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
+    monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
+    events = _events(_post(client, "still answered"))
+    assert "interpretation" in _types(events) and _types(events)[-1] == "done"
+    assert app.INTERACTIONS.status()["status"] == "degraded"
+
+
+def test_recording_off_means_no_recorder_and_no_frame_change(client, monkeypatch):
+    import app
+    monkeypatch.setattr(app, "INTERACTIONS", None)
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
+    monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
+    events = _events(_post(client, "unrecorded"))
+    assert events[0]["type"] == "answer"     # the id is part of the stream regardless
+    assert "interpretation" in _types(events)
+
+
+def test_health_reports_the_interaction_store(client):
+    h = client.get("/api/health").json()
+    assert h["interactions"]["backend"] == "file" and h["interactions"]["status"] == "ok"

@@ -29,3 +29,5 @@ infra/cdk/.cutover-state.json
 
 # beads tracker state is local-only (decision 2026-10-20): never commit the export
 .beads/
+# interaction records written by a local run (interactions.py)
+interactions.jsonl
