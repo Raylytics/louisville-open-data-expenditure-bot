@@ -223,6 +223,22 @@ def test_dynamo_backend_round_trips_a_record_with_ttl(dynamo):
     assert b["events"] == _events()
 
 
+def test_dynamo_backend_keeps_records_for_good_by_default(dynamo):
+    """2jj.5 (2026-10-27): no retention. With ttl_days unset nothing carries a
+    `ttl` attribute, so the table's TTL never expires a record or a rating."""
+    store = ix.DynamoInteractions(TABLE, client=dynamo)
+    assert store.ttl_s == 0
+    rec = _record(ix.new_answer_id(now=1_700_000_000.0))
+    assert store.put(rec)
+    stub = ix.new_answer_id(now=1_700_000_001.0)
+    assert store.rate({"answer_id": stub, "stars": 2, "reasons": [], "comment": ""}, now=1_700_000_002.0)
+    assert store.rate({"answer_id": rec["answer_id"], "stars": 4, "reasons": [], "comment": ""},
+                      now=1_700_000_003.0)
+    items = dynamo.scan(TableName=TABLE)["Items"]
+    assert len(items) == 2 and not any("ttl" in it for it in items)
+    assert sorted(r["stars"] for r in store.query_day("2023-11-14")) == [2, 4]
+
+
 def test_dynamo_backend_reads_a_day_in_order_and_pages(dynamo, monkeypatch):
     store = ix.DynamoInteractions(TABLE, client=dynamo)
     ids = [ix.new_answer_id(now=1_700_000_000.0 + i) for i in (3, 1, 2)]
@@ -294,6 +310,17 @@ def test_from_env_dynamodb_with_a_table(monkeypatch):
         store = ix.from_env()
     assert isinstance(store, ix.DynamoInteractions)
     assert store.table == "lou-interactions" and store.ttl_s == 7 * 86400
+
+
+def test_from_env_dynamodb_keeps_for_good_unless_told(monkeypatch):
+    os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
+    monkeypatch.setenv("STATE_BACKEND", "dynamodb")
+    monkeypatch.setenv("INTERACTIONS_TABLE", "lou-interactions")
+    monkeypatch.delenv("INTERACTION_TTL_DAYS", raising=False)
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    with mock_aws():
+        store = ix.from_env()
+    assert store.ttl_s == 0
 
 
 def test_from_env_local_is_a_file_under_stats_dir(monkeypatch, tmp_path):

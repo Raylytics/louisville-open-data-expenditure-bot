@@ -1484,11 +1484,13 @@ def _sse_message(event_type: str, content: str) -> StreamingResponse:
 
 
 # ── Ratings (five stars; docs/experience-capture.md) ────────────────────────
-# A rating refers to an answer_id the stream handed out. Ids older than the
-# records' retention, or from the future, are refused, so a stray id cannot
-# seed items nothing will ever join. The client IP feeds the limiter only and
+# A rating refers to an answer_id the stream handed out. Ids older than
+# RATING_MAX_AGE_DAYS (30: a tab left open for weeks still rates; a guessed
+# id from years back does not), or from the future, are refused, so a stray
+# id cannot seed items nothing will ever join. Records themselves have no
+# retention unless INTERACTION_TTL_DAYS is set (2jj.5: keep them). The client IP feeds the limiter only and
 # is never stored (interactions.py is the contract).
-RATING_MAX_AGE_S = int(os.environ.get("INTERACTION_TTL_DAYS", "180")) * 86400
+RATING_MAX_AGE_S = int(os.environ.get("RATING_MAX_AGE_DAYS", "30")) * 86400
 RATING_MAX_BODY = 16_000
 
 

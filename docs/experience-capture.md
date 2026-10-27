@@ -43,9 +43,13 @@ interpretation always survive (`interactions.trim_events`).
 | preview (`infra/preview.sh`) | the same table on DynamoDB Local | the script creates it |
 | self-hosted / dev | append-only JSONL, one line per record and one per rating | `$STATS_DIR/interactions.jsonl`, or `INTERACTIONS_FILE` |
 
-`RECORD_INTERACTIONS=0` turns recording off anywhere. Retention is
-`INTERACTION_TTL_DAYS` (default 180) on the TTL attribute; the JSONL file has
-no retention. The table is `RETAIN` on stack deletion (records are not
+`RECORD_INTERACTIONS=0` turns recording off anywhere. **Records are kept for
+good** (decision 2026-10-27, `louisville-open-data-2jj.5`): no `ttl`
+attribute is written, so the table's TTL never touches them. Setting
+`INTERACTION_TTL_DAYS=<n>` expires records (and rating stubs) after n days
+instead. At ~8.5 KB a record, a year of a few hundred questions a day is
+under 1 GB, about $0.25/month of DynamoDB storage. The JSONL file has no
+retention either. The table is `RETAIN` on stack deletion (records are not
 rebuildable, unlike `lou-state`). The table sits inside the Lambda permissions
 boundary's `lou-*` DynamoDB grant, which is why DynamoDB rather than S3: the
 boundary grants the runtime no S3 write, and changing it is a human IAM step
@@ -78,7 +82,8 @@ with the SigV4 body hash CloudFront OAC requires.
 
 The endpoint (`app.feedback`) validates through `interactions.clean_rating`
 (stars 1-5, up to 8 reasons of 40 lower-case token chars, a 500-char
-comment), refuses ids older than the retention or from the future, caps the
+comment), refuses ids older than `RATING_MAX_AGE_DAYS` (30) or from the
+future, caps the
 body at 16 KB, and rate-limits in its own per-IP bucket (`fb:` prefix) so
 rating never spends the question allowance. The IP feeds the limiter only.
 A store failure or recording being off answers 503 with a plain message; the
@@ -97,5 +102,5 @@ judge disagreements, p95 per stage and provider, vocabulary gaps for
 
 `branding.privacy_note` (city pack, default from `/api/config`) renders under
 the question box: *"Questions and ratings are stored to improve Lou. Please do
-not type personal information."* Wording and retention are the owner's call
-(`louisville-open-data-2jj.5`).
+not type personal information."* Wording is the owner's call; retention was
+decided 2026-10-27 (keep for good, `louisville-open-data-2jj.5`).

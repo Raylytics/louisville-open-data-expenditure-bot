@@ -322,7 +322,7 @@ class DynamoInteractions(_Recorder):
     backend = "dynamodb"
 
     def __init__(self, table: str, *, region: str | None = None, endpoint_url: str | None = None,
-                 ttl_days: int = 180, client=None):
+                 ttl_days: int = 0, client=None):
         super().__init__()
         if client is None:
             import boto3  # lazy: only the Lambda image carries boto3
@@ -333,7 +333,12 @@ class DynamoInteractions(_Recorder):
             )
         self._c = client
         self.table = table
-        self.ttl_s = ttl_days * 86400
+        # 0 (the default) keeps records for good: no `ttl` attribute is written,
+        # and DynamoDB's TTL only ever expires items that carry one.
+        self.ttl_s = max(0, int(ttl_days)) * 86400
+
+    def _ttl(self, ts_ms: int):
+        return _n(ts_ms / 1000 + self.ttl_s) if self.ttl_s else None
 
     def put(self, record: dict) -> bool:
         try:
@@ -356,8 +361,9 @@ class DynamoInteractions(_Recorder):
                 "events": _s(json.dumps(record.get("events", []), ensure_ascii=False)),
                 "trimmed": _bool(record.get("trimmed", False)),
                 "recorded_at": _n(record.get("recorded_at", time.time())),
-                "ttl": _n(ts_ms / 1000 + self.ttl_s),
             }
+            if self.ttl_s:
+                item["ttl"] = self._ttl(ts_ms)
             self._c.put_item(TableName=self.table, Item=item)
             self.writes += 1
             return True
@@ -368,25 +374,28 @@ class DynamoInteractions(_Recorder):
     def rate(self, rating: dict, now: float | None = None) -> bool:
         """Upsert the rating onto the answer's item. A missing item (the record
         write failed, or the id is a guess) gets a stub carrying only the
-        rating — never a reason to lose a visitor's verdict, and TTL'd like
-        everything else."""
+        rating — never a reason to lose a visitor's verdict, and kept (or
+        TTL'd) like everything else."""
         now = time.time() if now is None else now
         try:
             pk, sk, ts_ms = _keys(rating["answer_id"])
-            self._c.update_item(
-                TableName=self.table, Key={"pk": _s(pk), "sk": _s(sk)},
-                UpdateExpression=("SET stars = :stars, reasons = :reasons, #c = :comment, rated_at = :now, "
-                                  "answer_id = :aid, #d = :day, #t = if_not_exists(#t, :ttl)"),
-                ExpressionAttributeNames={"#c": "comment", "#d": "day", "#t": "ttl"},
-                ExpressionAttributeValues={
-                    ":stars": _n(rating["stars"]),
-                    ":reasons": {"L": [_s(r) for r in rating.get("reasons", [])]},
-                    ":comment": _s(rating.get("comment", "")),
-                    ":now": _n(now), ":aid": _s(rating["answer_id"]),
-                    ":day": _s(pk[len("day#"):]),
-                    ":ttl": _n(ts_ms / 1000 + self.ttl_s),
-                },
-            )
+            expr = ("SET stars = :stars, reasons = :reasons, #c = :comment, rated_at = :now, "
+                    "answer_id = :aid, #d = :day")
+            names = {"#c": "comment", "#d": "day"}
+            values = {
+                ":stars": _n(rating["stars"]),
+                ":reasons": {"L": [_s(r) for r in rating.get("reasons", [])]},
+                ":comment": _s(rating.get("comment", "")),
+                ":now": _n(now), ":aid": _s(rating["answer_id"]),
+                ":day": _s(pk[len("day#"):]),
+            }
+            if self.ttl_s:
+                expr += ", #t = if_not_exists(#t, :ttl)"
+                names["#t"] = "ttl"
+                values[":ttl"] = self._ttl(ts_ms)
+            self._c.update_item(TableName=self.table, Key={"pk": _s(pk), "sk": _s(sk)},
+                                UpdateExpression=expr, ExpressionAttributeNames=names,
+                                ExpressionAttributeValues=values)
             self.writes += 1
             return True
         except Exception as e:  # noqa: BLE001
@@ -430,7 +439,7 @@ def from_env():
     if os.environ.get("RECORD_INTERACTIONS", "1").strip().lower() in ("0", "false", "no", "off"):
         log.info("Interaction recording is OFF (RECORD_INTERACTIONS)")
         return None
-    ttl_days = int(os.environ.get("INTERACTION_TTL_DAYS", "180"))
+    ttl_days = int(os.environ.get("INTERACTION_TTL_DAYS", "0") or 0)   # 0 = keep for good
     backend = os.environ.get("STATE_BACKEND", "local").strip().lower()
     if backend == "dynamodb":
         table = os.environ.get("INTERACTIONS_TABLE", "").strip()
