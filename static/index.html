@@ -1771,17 +1771,29 @@ function renderRating(card) {
   noteWrap.append(note, sendBtn);
   more.append(chips, noteWrap);
 
-  let inflight = 0;
+  // One request in flight at a time, always carrying the latest state: a
+  // star, two chips and a note clicked in quick succession become at most a
+  // couple of POSTs, and the server can never see an older state after a
+  // newer one (roborev 6746).
+  let busy = false, dirty = false;
   async function send() {
-    const seq = ++inflight;
+    dirty = true;
+    if (busy) return;
+    busy = true;
     status.textContent = 'Saving…';
-    try {
-      await postRating({ answer_id: card.answerId, session_id: SESSION_ID, stars: state.stars,
-                         reasons: [...state.reasons], comment: state.comment });
-      if (seq === inflight) status.textContent = 'Thanks!';
-    } catch (e) {
-      if (seq === inflight) status.textContent = e.message || 'Could not save the rating.';
+    let outcome = 'Thanks!';
+    while (dirty) {
+      dirty = false;
+      try {
+        await postRating({ answer_id: card.answerId, session_id: SESSION_ID, stars: state.stars,
+                           reasons: [...state.reasons], comment: state.comment });
+        outcome = 'Thanks!';
+      } catch (e) {
+        outcome = e.message || 'Could not save the rating.';
+      }
     }
+    busy = false;
+    status.textContent = outcome;
   }
 
   row.append(el('span', 'rating-label', 'Rate this answer'), stars, status, more);

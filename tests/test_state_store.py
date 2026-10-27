@@ -291,3 +291,11 @@ def test_cache_hit_survives_eviction_between_read_and_touch(dynamo, monkeypatch)
         return real_update(**kw)
     monkeypatch.setattr(s._c, "update_item", delete_then_update)
     assert s.cache_get("v:q") == FRAMES, "a hit that lost the touch race is still a hit"
+
+
+def test_rate_allow_takes_a_per_bucket_limit(dynamo):
+    """Ratings (`fb:` keys) get their own, larger allowance than questions."""
+    s = _state(dynamo, rpm_limit=5)
+    now = 1_800_000_000.0
+    assert [s.rate_allow("fb:1.2.3.4", now, limit=8) for _ in range(9)] == [True] * 8 + [False]
+    assert s.rate_allow("1.2.3.4", now) is True          # a different bucket, the default cap

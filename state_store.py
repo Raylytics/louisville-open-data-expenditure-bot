@@ -182,11 +182,13 @@ class DynamoState:
 
     # ── rate limit ──────────────────────────────────────────────────────────
 
-    def rate_allow(self, ip: str, now: float | None = None) -> bool:
+    def rate_allow(self, ip: str, now: float | None = None, limit: int | None = None) -> bool:
         """True if this request is within the per-IP cap for the current
         one-minute window. One conditional atomic increment; correct across
-        any number of concurrent containers."""
+        any number of concurrent containers. `limit` overrides the question
+        cap for a bucket with its own allowance (ratings, `fb:` keys)."""
         now = time.time() if now is None else now
+        limit = self.rpm_limit if limit is None else limit
         bucket = int(now // 60)
         try:
             self._c.update_item(
@@ -194,7 +196,7 @@ class DynamoState:
                 UpdateExpression="ADD n :one SET #ttl = :ttl",
                 ConditionExpression="attribute_not_exists(n) OR n < :lim",
                 ExpressionAttributeNames={"#ttl": "ttl"},
-                ExpressionAttributeValues={":one": _n(1), ":lim": _n(self.rpm_limit),
+                ExpressionAttributeValues={":one": _n(1), ":lim": _n(limit),
                                            ":ttl": _n((bucket + 2) * 60)},
             )
             return True

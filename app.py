@@ -281,6 +281,10 @@ db_lock = threading.Lock()
 
 ip_requests: dict[str, list[float]] = {}
 IP_RPM_LIMIT = 5  # max requests per minute per IP
+# Ratings post on every star, chip and note (coalesced client-side, but a
+# visitor still rates several answers a minute); their own bucket and cap
+# (roborev 6746).
+FEEDBACK_RPM_LIMIT = 20
 
 
 # Peers whose forwarded client-IP headers we trust. In production the container
@@ -362,15 +366,17 @@ def _client_ip(request: Request) -> str:
     return peer
 
 
-def check_ip_rate_limit(ip: str) -> bool:
-    """Returns True if IP is within rate limit."""
+def check_ip_rate_limit(ip: str, limit: int | None = None) -> bool:
+    """Returns True if IP is within rate limit (`limit` per minute, the
+    question cap by default)."""
+    limit = IP_RPM_LIMIT if limit is None else limit
     if STATE:
-        return STATE.rate_allow(ip)
+        return STATE.rate_allow(ip, limit=limit)
     now = time.time()
     if ip not in ip_requests:
         ip_requests[ip] = []
     ip_requests[ip] = [t for t in ip_requests[ip] if now - t < 60]
-    if len(ip_requests[ip]) >= IP_RPM_LIMIT:
+    if len(ip_requests[ip]) >= limit:
         return False
     ip_requests[ip].append(now)
     # Sweep buckets that have fully aged out so a header-rotating client (or
@@ -1506,7 +1512,7 @@ async def _bounded_json(request: Request, limit: int):
             return None, JSONResponse({"error": "That rating is too large."}, status_code=413)
     try:
         return json.loads(bytes(buf)), None
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, RecursionError):   # RecursionError: a few thousand '[' (roborev 6747)
         return None, JSONResponse({"error": "Invalid request."}, status_code=400)
 
 
@@ -1522,7 +1528,7 @@ async def feedback(request: Request):
     if age < -300 or age > RATING_MAX_AGE_S:
         return JSONResponse({"error": "That answer can no longer be rated."}, status_code=400)
     # Its own bucket, so rating answers never spends the question allowance.
-    if not check_ip_rate_limit("fb:" + _client_ip(request)):
+    if not check_ip_rate_limit("fb:" + _client_ip(request), FEEDBACK_RPM_LIMIT):
         return JSONResponse({"error": "Too many ratings in a short time. Please wait a minute."},
                             status_code=429)
     if INTERACTIONS is None:

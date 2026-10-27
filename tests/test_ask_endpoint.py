@@ -1230,12 +1230,19 @@ def test_ratings_have_their_own_rate_limit_bucket(client, monkeypatch):
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
     aid = interactions.new_answer_id()
-    for _ in range(app.IP_RPM_LIMIT):
+    assert app.FEEDBACK_RPM_LIMIT > app.IP_RPM_LIMIT     # a star, chips and a note per answer, several answers a minute
+    for _ in range(app.FEEDBACK_RPM_LIMIT):
         assert _rate(client, answer_id=aid, stars=5).status_code == 200
     assert _rate(client, answer_id=aid, stars=5).status_code == 429
     # ...and spending it has not touched the question allowance.
     assert "error" not in _types(_events(_post(client, "still allowed")))
-    assert len(_ratings(client)) == app.IP_RPM_LIMIT
+    assert len(_ratings(client)) == app.FEEDBACK_RPM_LIMIT
+
+
+def test_a_deeply_nested_rating_body_is_a_400_not_a_500(client):
+    resp = client.post("/api/feedback", content=b"[" * 5000,
+                       headers={"Content-Type": "application/json"})
+    assert resp.status_code == 400
 
 
 def test_ratings_report_an_unavailable_store_honestly(client, monkeypatch, tmp_path):
