@@ -79,7 +79,7 @@ else entirely. Two defenses:
 In CDK, set the bucket name explicitly rather than letting it auto-generate:
 
 ```python
-bucket_name=f"lou-data-{Stack.of(self).account}-{Stack.of(self).region}"
+bucket_name = f"lou-data-{Stack.of(self).account}-{Stack.of(self).region}"
 ```
 
 ---
