@@ -1,5 +1,9 @@
 # Lou — an agentic analytics assistant for Louisville Metro's open data
 
+[![ci](https://github.com/jimbottle/louisville-open-data-expenditure-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/jimbottle/louisville-open-data-expenditure-bot/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/jimbottle/louisville-open-data-expenditure-bot)](https://github.com/jimbottle/louisville-open-data-expenditure-bot/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **Live:** https://louisville.raylytics.io
 
 Ask a plain-English question about Louisville Metro government spending —
@@ -250,20 +254,52 @@ canonical-model format are in `docs/`.
 
 ## Running it
 
-```bash
-pip install -r requirements.txt
-python refresh_data.py --pull-only      # fetch the open-data CSVs into data/
-python data_model.py --materialize data/lou.duckdb
-python rag.py ingest                    # optional: council legislation corpus
-
-export OPENROUTER_API_KEY=...           # or CEREBRAS_PAID_API_KEY
-PREBUILT_DB=data/lou.duckdb uvicorn app:app --port 8000
-```
+Requires [uv](https://docs.astral.sh/uv/); it installs the Python in
+`.python-version` (3.12, the version CI and the images run) and the locked
+dependencies.
 
 ```bash
-python -m pytest -q                     # ~850 tests; data-bound ones skip without data/
-python eval/run_eval.py --provider cerebras --label my-change   # real-model eval
+uv sync                                 # .venv from uv.lock, dev tools included
+uv run python refresh_data.py --pull-only   # the open-data CSVs into data/ — about 20 minutes, ~500 MB
+uv run python data_model.py --materialize data/lou.duckdb   # a few minutes; needs the complete pull
+uv run python rag.py ingest             # optional: council legislation corpus, ~1 minute
+
+cp .env.example .env                    # then set OPENROUTER_API_KEY or CEREBRAS_PAID_API_KEY
+PREBUILT_DB=data/lou.duckdb uv run uvicorn app:app --port 8000
 ```
+
+The data pull is the slow step: Socrata pages 1,000 rows at a time, roughly
+75 seconds per fiscal year across nineteen years. There is no sample-data
+shortcut; the materialize step refuses a partial pull rather than loading it.
+Everything that does not need the data (the whole test suite below) works
+straight after `uv sync`.
+
+```bash
+uv run pytest -q                        # ~1,000 tests; data-bound ones skip without data/
+uv run python eval/run_eval.py --provider cerebras --label my-change   # real-model eval
+```
+
+### Development
+
+```bash
+pre-commit install --hook-type pre-commit --hook-type commit-msg   # once per clone
+uv run ruff check . && uv run ruff format --check .                # what the hook and CI run
+uv run pytest -q
+```
+
+Tool versions are pinned once: Python in `.python-version`, packages in
+`uv.lock`, ruff and the other hooks in `.pre-commit-config.yaml`;
+`.github/workflows/ci.yml` runs the same set. Commits follow Conventional
+Commits and land through squash-merged PRs; the `Version control` section of
+[CLAUDE.md](CLAUDE.md) is the short form.
+
+### Releasing
+
+`scripts/release.sh X.Y.Z` on a clean, green `main` bumps `project.version`
+in `pyproject.toml`, prepends the release to [CHANGELOG.md](CHANGELOG.md)
+from the commits with git-cliff, commits `chore(release): vX.Y.Z` and pushes
+a signed tag; the `release` workflow creates the GitHub Release. Production
+deploys stay with the process in `CLAUDE.md` and `infra/cdk/README.md`.
 
 Production runs on AWS Lambda behind CloudFront (`infra/cdk`, deployed since
 2026-09-23); the publish process (preview, deploy, verify) is in `CLAUDE.md`
