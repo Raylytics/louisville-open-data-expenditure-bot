@@ -13,6 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from city_config import CityConfig  # noqa: E402
 from data_model import (  # noqa: E402
+    PartialDataError,
+    check_pull_complete,
     _build_summaries,
     _load_expenditures,
     _source_files,
@@ -288,3 +290,84 @@ def test_date_sanity_is_off_unless_configured():
         con, CityConfig({"data_quality": {"table": "expenditures", "amount_column": "extended_amount"}}, "/x")
     )
     assert con.execute("SELECT invoice_date FROM expenditures").fetchone()[0] is not None
+
+
+# ── check_pull_complete ──────────────────────────────────────────────────────
+# A pull interrupted part-way leaves a prefix of the yearly files; loading
+# that used to die inside DuckDB's type inference with "Could not convert
+# string 'RUSSO' to INT64" on invoice_number, 124 tests deep. Now it stops
+# first, with the fix in the message.
+
+
+def _yearly_cfg(lo=2018, hi=2027):
+    return CityConfig(
+        {"expenditures": {"sources": [{"id": "era", "files": "exp_{year}.csv", "years": [lo, hi]}]}},
+        ".",
+    )
+
+
+def _touch_years(d, years):
+    for y in years:
+        with open(os.path.join(d, f"exp_{y}.csv"), "w") as f:
+            f.write("a,b\n1,2\n")
+
+
+def test_pull_check_passes_on_an_empty_directory(tmp_path):
+    check_pull_complete(_yearly_cfg(), str(tmp_path))
+
+
+def test_pull_check_passes_on_a_complete_range(tmp_path):
+    _touch_years(tmp_path, range(2018, 2028))
+    check_pull_complete(_yearly_cfg(), str(tmp_path))
+
+
+def test_pull_check_tolerates_the_unpublished_newest_years(tmp_path):
+    _touch_years(tmp_path, range(2018, 2026))  # 2026 and 2027 not out yet
+    check_pull_complete(_yearly_cfg(), str(tmp_path))
+
+
+def test_pull_check_refuses_a_prefix_of_the_range(tmp_path):
+    _touch_years(tmp_path, [2018, 2019])  # the audit's shape: killed after 12 of 20 files
+    with pytest.raises(PartialDataError) as e:
+        check_pull_complete(_yearly_cfg(), str(tmp_path))
+    assert "2 of 10" in str(e.value) and "refresh_data.py --pull-only" in str(e.value)
+
+
+def test_pull_check_refuses_a_gap_or_missing_leading_years(tmp_path):
+    _touch_years(tmp_path, [2018, 2019, 2021, 2022, 2023, 2024, 2025, 2026, 2027])
+    with pytest.raises(PartialDataError, match="missing 2020"):
+        check_pull_complete(_yearly_cfg(), str(tmp_path))
+    for y in range(2018, 2020):
+        os.remove(tmp_path / f"exp_{y}.csv")
+    _touch_years(tmp_path, [2020])
+    with pytest.raises(PartialDataError, match="missing 2018, 2019"):
+        check_pull_complete(_yearly_cfg(), str(tmp_path))
+
+
+def test_pull_check_trusts_the_manifest_over_the_file_shape(tmp_path):
+    import json
+
+    _touch_years(tmp_path, [2018, 2019])
+    manifest = tmp_path / "pull-manifest.json"
+    manifest.write_text(json.dumps({"status": "in_progress", "expected": ["exp_2018", "exp_2019", "exp_2020"]}))
+    with pytest.raises(PartialDataError, match="did not finish"):
+        check_pull_complete(_yearly_cfg(), str(tmp_path))
+    # A finished pull is trusted even when the newest years are absent.
+    manifest.write_text(json.dumps({"status": "complete", "expected": ["exp_2018", "exp_2019"], "failed": []}))
+    check_pull_complete(_yearly_cfg(), str(tmp_path))
+
+
+def test_pull_check_can_be_waived_for_development(tmp_path, monkeypatch):
+    _touch_years(tmp_path, [2018])
+    monkeypatch.setenv("LOU_ALLOW_PARTIAL_DATA", "1")
+    check_pull_complete(_yearly_cfg(), str(tmp_path))
+
+
+def test_refresh_data_writes_the_manifest(tmp_path):
+    import refresh_data
+
+    refresh_data.write_pull_manifest(str(tmp_path), "in_progress", ["b", "a"])
+    import json
+
+    m = json.loads((tmp_path / "pull-manifest.json").read_text())
+    assert m["status"] == "in_progress" and m["expected"] == ["a", "b"] and m["failed"] == []

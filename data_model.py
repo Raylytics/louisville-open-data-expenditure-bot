@@ -101,6 +101,78 @@ def _table_exists(con, table: str) -> bool:
     return table in [t[0] for t in con.execute("SHOW TABLES").fetchall()]
 
 
+class PartialDataError(RuntimeError):
+    """The data directory holds an incomplete pull; building from it would
+    load a subset of the yearly files and fail deep inside DuckDB (its type
+    inference samples the files it has and then meets a value it did not
+    expect: "Could not convert string 'RUSSO' to INT64 ... invoice_number")
+    or, worse, succeed and serve totals that are missing years."""
+
+
+PULL_MANIFEST = "pull-manifest.json"
+ALLOW_PARTIAL_ENV = "LOU_ALLOW_PARTIAL_DATA"
+# Years at the end of a source's range that may be missing without the pull
+# counting as partial: the newest fiscal year is published mid-year, and the
+# range in city.yaml may run a year ahead of what the portal has.
+TRAILING_YEARS_ALLOWED = 2
+
+
+def check_pull_complete(cfg: CityConfig, data_dir: str) -> None:
+    """Raise PartialDataError when data_dir looks like an interrupted pull.
+
+    Two signals, in order: the manifest refresh_data.py writes (definitive:
+    "in_progress" means the pull did not finish), then, for directories
+    without one, the shape of each yearly source's files (a gap, missing
+    leading years, or more than TRAILING_YEARS_ALLOWED missing at the end).
+    A directory with no expenditure files at all is not partial: the tests
+    skip on that, and a fresh clone has nothing yet. LOU_ALLOW_PARTIAL_DATA=1
+    skips the check for development on a deliberately trimmed directory.
+    """
+    if os.environ.get(ALLOW_PARTIAL_ENV, "") not in ("", "0", "false"):
+        log.warning("%s is set: loading whatever is in %s, partial or not", ALLOW_PARTIAL_ENV, data_dir)
+        return
+
+    how_to_fix = (
+        "Finish the pull with `python refresh_data.py --pull-only` (about 20 minutes, ~500 MB), "
+        f"or set {ALLOW_PARTIAL_ENV}=1 to load what is there for development."
+    )
+
+    manifest_path = os.path.join(data_dir, PULL_MANIFEST)
+    if os.path.exists(manifest_path):
+        import json
+
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        if manifest.get("status") != "complete":
+            expected = manifest.get("expected", [])
+            present = [n for n in expected if os.path.exists(os.path.join(data_dir, f"{n}.csv"))]
+            raise PartialDataError(
+                f"{data_dir}: the data pull did not finish ({manifest.get('status', 'unknown')} since "
+                f"{manifest.get('updated', '?')}; {len(present)} of {len(expected)} files present). {how_to_fix}"
+            )
+        if manifest.get("failed"):
+            log.warning("%s: the last pull failed for %s", data_dir, ", ".join(manifest["failed"]))
+        return
+
+    for source in cfg.expenditures.get("sources", []):
+        if "years" not in source or "{year}" not in source.get("files", ""):
+            continue
+        lo, hi = source["years"]
+        years = list(range(lo, hi + 1))
+        present = [y for y in years if os.path.exists(os.path.join(data_dir, source["files"].format(year=y)))]
+        if not present:
+            continue
+        missing = [y for y in years if y not in present]
+        trailing = [y for y in missing if y > max(present)]
+        inside = [y for y in missing if y not in trailing]
+        if inside or len(trailing) > TRAILING_YEARS_ALLOWED:
+            raise PartialDataError(
+                f"{data_dir}: source {source.get('id', source['files'])!r} has {len(present)} of {len(years)} "
+                f"yearly files (missing {', '.join(str(y) for y in missing)}); this looks like an interrupted "
+                f"pull. {how_to_fix}"
+            )
+
+
 def _load_expenditures(con, cfg: CityConfig, data_dir: str) -> None:
     table = cfg.expenditures.get("table", "expenditures")
     loaded_years = []
@@ -363,6 +435,7 @@ def _ingest(con: duckdb.DuckDBPyConnection, cfg: CityConfig, data_dir: str) -> N
     (build_database), so the two can never drift into producing different
     databases.
     """
+    check_pull_complete(cfg, data_dir)
     _load_expenditures(con, cfg, data_dir)
     _trim_text_columns(con, [cfg.expenditures.get("table", "expenditures")])
     _apply_canonicalization(con, cfg)
@@ -2169,7 +2242,11 @@ def _main() -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     t0 = time.time()
-    path = build_database(args.materialize, args.data_dir)
+    try:
+        path = build_database(args.materialize, args.data_dir)
+    except PartialDataError as e:
+        print(f"FAILED: {e}", flush=True)
+        return 2
     build_s = time.time() - t0
 
     # Prove the artifact serves before calling the build good: an empty or

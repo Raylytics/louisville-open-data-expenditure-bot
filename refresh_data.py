@@ -83,10 +83,41 @@ def run(cmd, description=""):
     return True
 
 
+PULL_MANIFEST = "pull-manifest.json"
+
+
+def write_pull_manifest(data_dir, status, expected, failed=()):
+    """Record the pull's state next to the CSVs.
+
+    Written as "in_progress" before the first download and rewritten as
+    "complete" after the last, so data_model can refuse to build from a
+    directory whose pull was interrupted (a partial set of yearly files makes
+    DuckDB's type inference fail deep inside the load with an opaque
+    conversion error). Failed datasets are listed, not hidden.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    os.makedirs(data_dir, exist_ok=True)
+    with open(os.path.join(data_dir, PULL_MANIFEST), "w") as f:
+        json.dump(
+            {
+                "status": status,
+                "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "expected": sorted(expected),
+                "failed": sorted(failed),
+            },
+            f,
+            indent=2,
+        )
+
+
 def pull_datasets(data_dir):
     """Pull all expenditure and enrichment datasets."""
     pull_script = os.path.join(SCRIPT_DIR, "pull_arcgis.py")
     failed = []
+    expected = list(EXPENDITURE_DATASETS) + list(ENRICHMENT_DATASETS)
+    write_pull_manifest(data_dir, "in_progress", expected)
 
     print("\n" + "=" * 60)
     print("  PULLING EXPENDITURE DATASETS")
@@ -112,6 +143,7 @@ def pull_datasets(data_dir):
         if not ok:
             failed.append(name)
 
+    write_pull_manifest(data_dir, "complete", expected, failed)
     if failed:
         print(f"\nWARNING: {len(failed)} datasets failed to pull: {', '.join(failed)}")
     else:
