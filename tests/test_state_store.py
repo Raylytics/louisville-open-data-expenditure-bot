@@ -11,6 +11,7 @@ reason in app.py or the migration issues (69m, bb0, far):
     error summary has exactly the keys /api/health exposes today, and
     errors_last_hour is a rolling hour.
 """
+
 import json
 import os
 import time
@@ -41,13 +42,15 @@ def _state(client, **kw) -> ss.DynamoState:
 
 # ── rate limiter ────────────────────────────────────────────────────────────
 
+
 def test_rate_limit_holds_across_instances(dynamo):
     """Two DynamoState objects = two Lambda containers sharing one table. The
     cap is on the TABLE, so container B is blocked by container A's requests."""
     a, b = _state(dynamo, rpm_limit=5), _state(dynamo, rpm_limit=5)
     now = 1_800_000_000.0
-    allowed = [a.rate_allow("203.0.113.9", now) for _ in range(3)] + \
-              [b.rate_allow("203.0.113.9", now) for _ in range(2)]
+    allowed = [a.rate_allow("203.0.113.9", now) for _ in range(3)] + [
+        b.rate_allow("203.0.113.9", now) for _ in range(2)
+    ]
     assert allowed == [True] * 5
     assert a.rate_allow("203.0.113.9", now) is False
     assert b.rate_allow("203.0.113.9", now) is False
@@ -106,8 +109,8 @@ def test_cache_evicts_least_recently_used_not_oldest_inserted(dynamo):
     s.cache_put("v:starter", FRAMES, now=t)
     s.cache_put("v:q1", FRAMES, now=t + 1)
     s.cache_put("v:q2", FRAMES, now=t + 2)
-    assert s.cache_get("v:starter", now=t + 3) == FRAMES   # LRU touch
-    s.cache_put("v:q3", FRAMES, now=t + 4)                 # over the cap by one
+    assert s.cache_get("v:starter", now=t + 3) == FRAMES  # LRU touch
+    s.cache_put("v:q3", FRAMES, now=t + 4)  # over the cap by one
     assert set(s.cache_items()) == {"v:starter", "v:q2", "v:q3"}
     assert s.cache_get("v:q1") is None
 
@@ -160,9 +163,17 @@ def test_cache_entries_survive_a_scan_page_boundary(dynamo):
 # ── stats ───────────────────────────────────────────────────────────────────
 
 HEALTH_ERROR_KEYS = {
-    "total_errors", "errors_last_hour", "sql_gen_errors", "sql_exec_errors",
-    "interpretation_errors", "rate_limit_errors", "quota_errors", "last_quota_error",
-    "quota_error_recent", "last_error", "last_error_time",
+    "total_errors",
+    "errors_last_hour",
+    "sql_gen_errors",
+    "sql_exec_errors",
+    "interpretation_errors",
+    "rate_limit_errors",
+    "quota_errors",
+    "last_quota_error",
+    "quota_error_recent",
+    "last_error",
+    "last_error_time",
 }
 
 
@@ -223,8 +234,14 @@ def test_usage_counters_are_atomic_per_day_and_survive_recycle(dynamo):
     b.stats_usage(50, 5, today="2026-09-22")
     b.stats_usage(1, 1, today="2026-09-23")
     u = _state(dynamo).stats_usage_get(today="2026-09-22")
-    assert u == {"requests_today": 2, "tokens_today": 175, "prompt_tokens_today": 150,
-                 "completion_tokens_today": 25, "date": "2026-09-22", "by_provider": {}}
+    assert u == {
+        "requests_today": 2,
+        "tokens_today": 175,
+        "prompt_tokens_today": 150,
+        "completion_tokens_today": 25,
+        "date": "2026-09-22",
+        "by_provider": {},
+    }
     assert _state(dynamo).stats_usage_get(today="2026-09-24")["requests_today"] == 0
 
 
@@ -238,6 +255,7 @@ def test_provider_limits_round_trip(dynamo):
 
 
 # ── wiring ──────────────────────────────────────────────────────────────────
+
 
 def test_from_env_local_is_none_and_dynamodb_needs_a_table(monkeypatch):
     monkeypatch.delenv("STATE_BACKEND", raising=False)
@@ -259,15 +277,16 @@ def test_ensure_table_is_idempotent_and_enables_ttl(dynamo):
 
 # ── availability over bookkeeping ───────────────────────────────────────────
 
+
 def test_cache_and_stats_degrade_when_dynamodb_is_unreachable(dynamo, caplog):
     s = _state(dynamo)
     s.table = "no-such-table"
     assert s.cache_get("v:q") is None
-    s.cache_put("v:q", FRAMES)                 # no raise
+    s.cache_put("v:q", FRAMES)  # no raise
     assert s.cache_delete("v:q") is False
     assert s.cache_clear() == 0
     assert s.cache_items() == {} and s.cache_len() == 0
-    s.stats_error("sql_gen", "x")               # no raise
+    s.stats_error("sql_gen", "x")  # no raise
     s.stats_usage(1, 1)
     s.stats_limits_set({"rpm": 1})
     assert set(s.stats_error_summary()) == HEALTH_ERROR_KEYS
@@ -278,17 +297,24 @@ def test_cache_and_stats_degrade_when_dynamodb_is_unreachable(dynamo, caplog):
     st = s.backend_status()
     assert st["status"] == "degraded" and st["errors_total"] >= 10 and "ResourceNotFoundException" in st["last_error"]
     assert s.backend_status(now=time.time() + 3600)["status"] == "ok", "an old error ages out"
-    assert _state(dynamo).backend_status() == {"backend": "dynamodb", "status": "ok", "errors_total": 0, "last_error": None}
+    assert _state(dynamo).backend_status() == {
+        "backend": "dynamodb",
+        "status": "ok",
+        "errors_total": 0,
+        "last_error": None,
+    }
 
 
 def test_cache_hit_survives_eviction_between_read_and_touch(dynamo, monkeypatch):
     s = _state(dynamo)
     s.cache_put("v:q", FRAMES)
     real_update = s._c.update_item
+
     def delete_then_update(**kw):
         if "touched" in kw.get("UpdateExpression", ""):
             s._c.delete_item(TableName=TABLE, Key=kw["Key"])
         return real_update(**kw)
+
     monkeypatch.setattr(s._c, "update_item", delete_then_update)
     assert s.cache_get("v:q") == FRAMES, "a hit that lost the touch race is still a hit"
 
@@ -298,4 +324,4 @@ def test_rate_allow_takes_a_per_bucket_limit(dynamo):
     s = _state(dynamo, rpm_limit=5)
     now = 1_800_000_000.0
     assert [s.rate_allow("fb:1.2.3.4", now, limit=8) for _ in range(9)] == [True] * 8 + [False]
-    assert s.rate_allow("1.2.3.4", now) is True          # a different bucket, the default cap
+    assert s.rate_allow("1.2.3.4", now) is True  # a different bucket, the default cap

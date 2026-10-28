@@ -1,47 +1,56 @@
 """General background for explanatory questions (louisville-open-data-03r):
 which questions get one, and the mechanical checks that withhold a note."""
+
 import pytest
 
 from analytics_agent import is_explanatory, validate_background
 
 
-@pytest.mark.parametrize("q,expected", [
-    ("why are there so many zero value roles?", True),
-    ("Why did LMPD spending jump in 2024?", True),
-    ("How come parks spending fell?", True),
-    ("Explain the Fire Settlement job code", True),
-    ("What does 'is_data_artifact' mean?", True),
-    ("What is the reason for the FY2023 dip?", True),
-    ("How does the capital budget work?", True),
-    ("What are the highest paid positions in Louisville Metro government?", False),
-    ("How much does the mayor make?", False),
-    ("Give me a year-over-year breakdown of LMPD spending", False),
-    ("", False),
-])
+@pytest.mark.parametrize(
+    "q,expected",
+    [
+        ("why are there so many zero value roles?", True),
+        ("Why did LMPD spending jump in 2024?", True),
+        ("How come parks spending fell?", True),
+        ("Explain the Fire Settlement job code", True),
+        ("What does 'is_data_artifact' mean?", True),
+        ("What is the reason for the FY2023 dip?", True),
+        ("How does the capital budget work?", True),
+        ("What are the highest paid positions in Louisville Metro government?", False),
+        ("How much does the mayor make?", False),
+        ("Give me a year-over-year breakdown of LMPD spending", False),
+        ("", False),
+    ],
+)
 def test_is_explanatory(q, expected):
     assert is_explanatory(q) is expected
 
 
-GOOD = ("Public payroll extracts often keep records for people who left during the "
-        "year or who hold unpaid roles such as board seats, so a job title can appear "
-        "with no pay attached.")
+GOOD = (
+    "Public payroll extracts often keep records for people who left during the "
+    "year or who hold unpaid roles such as board seats, so a job title can appear "
+    "with no pay attached."
+)
 
 
 def test_a_general_note_passes():
     assert validate_background(GOOD, ["Louisville"]) == (GOOD, None)
 
 
-@pytest.mark.parametrize("text,reason", [
-    ("NONE", "none"),
-    ("none.", "none"),
-    ("", "none"),
-    ("Settlements in 2024 are common.", "contained figures"),
-    ("Such roles often pay $0.", "contained figures"),
-    ("About 5 percent of rows are adjustments.", "contained figures"),
-    ("Roughly half is typical, 50% or so.", "contained figures"),
-    ("In Louisville these are settlement codes.", "named the city"),
-    ("x" * 1201, "too long"),
-])
+@pytest.mark.parametrize(
+    "text,reason",
+    [
+        ("NONE", "none"),
+        ("none.", "none"),
+        ("", "none"),
+        ("Settlements in 2024 are common.", "contained figures"),
+        ("Such roles often pay $0.", "contained figures"),
+        ("About 5 percent of rows are adjustments.", "contained figures"),
+        ("Roughly half is typical, 50% or so.", "contained figures"),
+        ("In Louisville these are settlement codes.", "named the city"),
+        ("x" * 1201, "too long"),
+    ],
+)
 def test_notes_that_break_a_rule_are_withheld(text, reason):
     assert validate_background(text, ["Louisville"]) == (None, reason)
 
@@ -54,6 +63,7 @@ def test_state_code_matches_whole_words_only():
 
 def test_pack_blocked_names_reach_the_validator():
     import app
+
     names = app._city_names()
     for n in ("Louisville", "KY", "Kentucky", "Jefferson County", "LMPD"):
         assert n in names
@@ -68,9 +78,18 @@ class _FakeCompletions:
         b = self.behaviour
         if isinstance(b, Exception):
             raise b
-        class _Msg: content = b
-        class _Choice: message = _Msg(); finish_reason = "stop"
-        class _Resp: choices = [_Choice()]; usage = None
+
+        class _Msg:
+            content = b
+
+        class _Choice:
+            message = _Msg()
+            finish_reason = "stop"
+
+        class _Resp:
+            choices = [_Choice()]
+            usage = None
+
         return _Resp()
 
 
@@ -86,6 +105,7 @@ class _FakeClient:
 
 def test_generate_background_is_one_try_per_provider_paid_first():
     from analytics_agent import generate_background
+
     paid = _FakeClient(RuntimeError("402"))
     free = _FakeClient("Payroll systems often keep unpaid roles.")
     text, usage, tier = generate_background([(paid, "m1", "paid"), (free, "m2", "openrouter")], "why?", "a")
@@ -97,32 +117,35 @@ def test_generate_background_is_one_try_per_provider_paid_first():
 
 def test_generate_background_gives_up_when_the_budget_is_spent():
     from analytics_agent import generate_background
+
     with pytest.raises(Exception):
         generate_background([(_FakeClient("x"), "m", "paid")], "why?", "a", budget=0.5)
-
 
 
 # ── Deterministic caveats (2026-09-25 judged runs) ───────────────────────────
 from analytics_agent import IRREGULARITY_NOTE, is_irregularity
 
 
-@pytest.mark.parametrize("q,expected", [
-    ("Are there any patterns that suggest potential contract splitting?", True),
-    ("Is there evidence of fraud in fleet purchases?", True),
-    ("Any wasteful spending in parks?", True),
-    ("Show me suspicious payments", True),
-    ("Signs of bid-rigging on paving contracts?", True),
-    ("How much did the city pay Waste Management of Kentucky?", False),
-    ("What is spent on solid waste collection?", False),
-    ("How much goes to substance abuse programs?", False),
-    ("Which vendors receive payments from the most different agencies?", False),
-    # roborev 4855
-    ("Were any funds misused?", True),
-    ("Any splitting of contracts in Parks?", True),
-    ("Are contracts being split to stay under limits?", True),
-    ("Was the paving bid rigged?", True),
-    ("How much did the city pay Riggs Construction?", False),
-])
+@pytest.mark.parametrize(
+    "q,expected",
+    [
+        ("Are there any patterns that suggest potential contract splitting?", True),
+        ("Is there evidence of fraud in fleet purchases?", True),
+        ("Any wasteful spending in parks?", True),
+        ("Show me suspicious payments", True),
+        ("Signs of bid-rigging on paving contracts?", True),
+        ("How much did the city pay Waste Management of Kentucky?", False),
+        ("What is spent on solid waste collection?", False),
+        ("How much goes to substance abuse programs?", False),
+        ("Which vendors receive payments from the most different agencies?", False),
+        # roborev 4855
+        ("Were any funds misused?", True),
+        ("Any splitting of contracts in Parks?", True),
+        ("Are contracts being split to stay under limits?", True),
+        ("Was the paving bid rigged?", True),
+        ("How much did the city pay Riggs Construction?", False),
+    ],
+)
 def test_is_irregularity(q, expected):
     assert is_irregularity(q) is expected
 
@@ -134,12 +157,14 @@ def test_irregularity_note_is_neutral_and_has_no_figures():
 
 def test_tables_read_ignores_string_literals():
     from data_model import tables_read
+
     sql = "SELECT 'from salary_data' AS x FROM summary_grant_funding g JOIN expenditures e ON 1=1"
     assert tables_read(sql) == ["summary_grant_funding", "expenditures"]
 
 
 def test_data_notes_follow_the_tables_the_query_reads():
     import app
+
     grant = app._data_notes("SELECT fund, SUM(total_amount) FROM summary_grant_funding GROUP BY fund")
     assert len(grant) == 1 and "not grant awards or money received" in grant[0]
     pay = app._data_notes("SELECT * FROM salary_data")
@@ -150,16 +175,19 @@ def test_data_notes_follow_the_tables_the_query_reads():
     assert app._data_notes("SELECT 1") == []
 
 
-
 def test_every_summary_built_from_expenditures_carries_a_table_note():
     """The payroll data fact tells the model the page states the caveat, so a
     summary table without a note would lose it silently (roborev 4855)."""
     import re
     import yaml
     from pathlib import Path
+
     pack = yaml.safe_load((Path(__file__).resolve().parent.parent / "cities" / "louisville" / "city.yaml").read_text())
     notes = pack["table_notes"]
-    missing = [s["table"] for s in pack["summaries"]
-               if "expenditures" in {t.lower() for t in re.findall(r"\b(?:FROM|JOIN)\s+([A-Za-z_]\w*)", s["sql"], re.I)}
-               and s["table"] not in notes]
+    missing = [
+        s["table"]
+        for s in pack["summaries"]
+        if "expenditures" in {t.lower() for t in re.findall(r"\b(?:FROM|JOIN)\s+([A-Za-z_]\w*)", s["sql"], re.I)}
+        and s["table"] not in notes
+    ]
     assert not missing, f"summary tables built from expenditures with no table_notes entry: {missing}"

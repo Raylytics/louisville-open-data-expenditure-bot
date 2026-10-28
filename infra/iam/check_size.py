@@ -11,6 +11,7 @@ Run by render.sh so the failure surfaces before `aws iam create-policy` returns
 
 Usage: check_size.py <rendered-dir>
 """
+
 import glob
 import json
 import os
@@ -43,13 +44,15 @@ def main(argv: list) -> int:
         # Trust policies are attached inline and are not managed policies, but
         # they are far smaller than the limit anyway, so one check covers all.
         if n > LIMIT:
-            print(f"  ERROR {name}: {n} chars, over the IAM {LIMIT} limit by "
-                  f"{n - LIMIT}. Whitespace is not counted, so reformatting will "
-                  f"not help — move statements into another policy.", file=sys.stderr)
+            print(
+                f"  ERROR {name}: {n} chars, over the IAM {LIMIT} limit by "
+                f"{n - LIMIT}. Whitespace is not counted, so reformatting will "
+                f"not help — move statements into another policy.",
+                file=sys.stderr,
+            )
             failed = True
         elif n > WARN_AT:
-            print(f"  WARN  {name}: {n} chars, approaching the IAM {LIMIT} limit "
-                  f"({LIMIT - n} spare)", file=sys.stderr)
+            print(f"  WARN  {name}: {n} chars, approaching the IAM {LIMIT} limit ({LIMIT - n} spare)", file=sys.stderr)
 
     return 1 if failed else 0
 

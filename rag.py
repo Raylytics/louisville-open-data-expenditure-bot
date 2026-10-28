@@ -71,8 +71,7 @@ def _repaired_url(url: str, matter_id) -> str:
     from the stored URL so this needs no config, and a corpus written by the
     fixed ingest passes through untouched."""
     if url and "/LegislationDetail.aspx" in url:
-        return _matter_url(url.split("/LegislationDetail.aspx")[0] + "/Gateway.aspx",
-                           matter_id)
+        return _matter_url(url.split("/LegislationDetail.aspx")[0] + "/Gateway.aspx", matter_id)
     return url
 
 
@@ -140,17 +139,19 @@ def ingest(db: str = None, since: str = None, cfg=None) -> int:
                 text = _clean(m.get("MatterTitle") or m.get("MatterName") or "")
                 if not text:
                     continue
-                rows.append((
-                    m["MatterId"],
-                    m.get("MatterFile"),
-                    m.get("MatterTypeName"),
-                    m.get("MatterStatusName"),
-                    (m.get("MatterIntroDate") or "")[:10] or None,
-                    (m.get("MatterPassedDate") or "")[:10] or None,
-                    m.get("MatterEnactmentNumber"),
-                    text,
-                    _matter_url(WEB, m["MatterId"]),
-                ))
+                rows.append(
+                    (
+                        m["MatterId"],
+                        m.get("MatterFile"),
+                        m.get("MatterTypeName"),
+                        m.get("MatterStatusName"),
+                        (m.get("MatterIntroDate") or "")[:10] or None,
+                        (m.get("MatterPassedDate") or "")[:10] or None,
+                        m.get("MatterEnactmentNumber"),
+                        text,
+                        _matter_url(WEB, m["MatterId"]),
+                    )
+                )
             if len(batch) < PAGE_SIZE:
                 break
             skip += PAGE_SIZE
@@ -236,17 +237,21 @@ def _load_fts(con) -> None:
     with _FTS_INSTALL_LOCK:
         since = time.monotonic() - _fts_install_failed_at
         if _fts_install_failed_at and since < _FTS_RETRY_AFTER:
-            log.warning("DuckDB FTS extension unavailable (install failed %.0fs "
-                        "ago, retrying in %.0fs); answering without documents",
-                        since, _FTS_RETRY_AFTER - since)
+            log.warning(
+                "DuckDB FTS extension unavailable (install failed %.0fs "
+                "ago, retrying in %.0fs); answering without documents",
+                since,
+                _FTS_RETRY_AFTER - since,
+            )
             raise duckdb.Error("fts extension unavailable; install recently failed")
         try:
             con.execute("INSTALL fts; LOAD fts;")
         except duckdb.Error:
             _fts_install_failed_at = time.monotonic()
-            log.warning("DuckDB FTS extension could not be installed; document "
-                        "retrieval is disabled for the next %.0fs",
-                        _FTS_RETRY_AFTER)
+            log.warning(
+                "DuckDB FTS extension could not be installed; document retrieval is disabled for the next %.0fs",
+                _FTS_RETRY_AFTER,
+            )
             raise
         _fts_install_failed_at = 0.0
 
@@ -260,7 +265,8 @@ def retrieve(question: str, k: int = 3, db_path: str = DEFAULT_DB, min_score: fl
     con = duckdb.connect(db_path, read_only=True)
     try:
         _load_fts(con)
-        hits = con.execute("""
+        hits = con.execute(
+            """
             SELECT file_no, matter_type, status, intro_date, passed_date, enactment_no,
                    text, url, doc_id,
                    fts_main_documents.match_bm25(doc_id, ?) AS score
@@ -268,11 +274,23 @@ def retrieve(question: str, k: int = 3, db_path: str = DEFAULT_DB, min_score: fl
             WHERE score IS NOT NULL AND score >= ?
             ORDER BY score DESC
             LIMIT ?
-        """, [question, min_score, k]).fetchall()
+        """,
+            [question, min_score, k],
+        ).fetchall()
     finally:
         con.close()
-    cols = ["file_no", "matter_type", "status", "intro_date", "passed_date",
-            "enactment_no", "text", "url", "doc_id", "score"]
+    cols = [
+        "file_no",
+        "matter_type",
+        "status",
+        "intro_date",
+        "passed_date",
+        "enactment_no",
+        "text",
+        "url",
+        "doc_id",
+        "score",
+    ]
     out = []
     for h in hits:
         d = dict(zip(cols, h))
@@ -318,8 +336,7 @@ def main(argv=None):
     common.add_argument("--city", help="city.yaml whose rag block defines the corpus")
     common.add_argument("--db", help="corpus path (default: the pack's, under DATA_DIR)")
 
-    parser = argparse.ArgumentParser(description="City-document RAG",
-                                     parents=[common])
+    parser = argparse.ArgumentParser(description="City-document RAG", parents=[common])
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_ing = sub.add_parser("ingest", parents=[common])
     p_ing.add_argument("--since")
@@ -331,6 +348,7 @@ def main(argv=None):
     cfg = None
     if args.city:
         from city_config import load_city_config
+
         cfg = load_city_config(args.city)
     settings = corpus_settings(cfg)
     # db_path(), not settings["db"] — the pack declares a bare filename that
@@ -342,8 +360,7 @@ def main(argv=None):
     if args.cmd == "ingest":
         ingest(target, args.since, cfg=cfg)
     else:
-        hits = retrieve(args.question, k=args.k or settings["k"],
-                        db_path=target, min_score=settings["min_score"])
+        hits = retrieve(args.question, k=args.k or settings["k"], db_path=target, min_score=settings["min_score"])
         if not hits:
             print("(no hits above threshold)")
         for h in hits:

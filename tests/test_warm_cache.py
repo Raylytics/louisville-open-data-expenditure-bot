@@ -22,16 +22,21 @@ class _Resp:
 
 
 def _patch(monkeypatch, payload):
-    monkeypatch.setattr(warm_cache, "requests",
-                        type("R", (), {"get": staticmethod(lambda *a, **k: _Resp(payload))}))
+    monkeypatch.setattr(warm_cache, "requests", type("R", (), {"get": staticmethod(lambda *a, **k: _Resp(payload))}))
 
 
 def test_only_current_version_entries_count(monkeypatch):
-    _patch(monkeypatch, {"cache_version": "v2", "entries": {
-        "v2:live question": {"has_interpretation": True},
-        "v1:live question": {"has_interpretation": True},   # stale duplicate
-        "v1:old question": {"has_interpretation": True},    # stale only
-    }})
+    _patch(
+        monkeypatch,
+        {
+            "cache_version": "v2",
+            "entries": {
+                "v2:live question": {"has_interpretation": True},
+                "v1:live question": {"has_interpretation": True},  # stale duplicate
+                "v1:old question": {"has_interpretation": True},  # stale only
+            },
+        },
+    )
     entries = warm_cache.fetch_entries("http://x")
     assert entries == {"live question": {"has_interpretation": True}}
     # a stale-only question must look UNCACHED so the warm loop re-warms it
@@ -40,10 +45,16 @@ def test_only_current_version_entries_count(monkeypatch):
 
 def test_stale_duplicate_does_not_shadow_current(monkeypatch):
     # the stale entry is listed last; version filtering must still pick v2's
-    _patch(monkeypatch, {"cache_version": "v2", "entries": {
-        "v2:q": {"events": 10},
-        "v1:q": {"events": 999},
-    }})
+    _patch(
+        monkeypatch,
+        {
+            "cache_version": "v2",
+            "entries": {
+                "v2:q": {"events": 10},
+                "v1:q": {"events": 999},
+            },
+        },
+    )
     assert warm_cache.fetch_entries("http://x")["q"]["events"] == 10
 
 
@@ -61,6 +72,7 @@ def test_starter_questions_cover_every_pack_chip():
     """warm_cache must warm every starter chip the pack defines, so a chip edit
     in city.yaml can't leave a starter question cold (louisville-open-data-a23)."""
     from city_config import load_city_config
+
     groups = (load_city_config().branding or {}).get("starter_groups", [])
     chip_qs = {c[1].strip().lower() for g in groups for c in g.get("chips", []) if len(c) == 2}
     warmed = {q.strip().lower() for q in warm_cache.STARTER_QUESTIONS}
@@ -74,9 +86,8 @@ def test_extra_questions_do_not_duplicate_pack_chips():
     so the assertion in the coverage test above would be tautological). Checks
     the inputs, not the deduped output."""
     from city_config import load_city_config
+
     groups = (load_city_config().branding or {}).get("starter_groups", [])
     chip_qs = {c[1].strip().lower() for g in groups for c in g.get("chips", []) if len(c) == 2}
     extras = {q.strip().lower() for q in warm_cache.EXTRA_QUESTIONS}
-    assert not (chip_qs & extras), (
-        f"EXTRA_QUESTIONS duplicates pack chips: {chip_qs & extras}"
-    )
+    assert not (chip_qs & extras), f"EXTRA_QUESTIONS duplicates pack chips: {chip_qs & extras}"

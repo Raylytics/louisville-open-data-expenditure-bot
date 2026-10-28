@@ -6,6 +6,7 @@ from the name is authoritative, CNAME rows are not CAA rows — and a stored
 certificate in FAILED status is discarded and re-requested instead of having
 its dead validation record printed.
 """
+
 import os
 import subprocess
 from pathlib import Path
@@ -16,13 +17,13 @@ SCRIPT = Path(__file__).resolve().parent.parent / "infra" / "cdk" / "cutover.sh"
 
 # `dig +noall +answer -t CAA <name>` output is driven by env: CAA_<label> holds
 # the answer lines for that exact name (empty = NXDOMAIN/no answer).
-DIG_STUB = r'''#!/bin/sh
+DIG_STUB = r"""#!/bin/sh
 echo "dig $*" >>"$CALLS"
 name=""; for a in "$@"; do name=$a; done
 key=$(printf '%s' "$name" | tr '.-' '__')
 eval "printf '%s\n' \"\${CAA_$key:-}\""
-'''
-AWS_STUB = r'''#!/bin/sh
+"""
+AWS_STUB = r"""#!/bin/sh
 echo "aws $*" >>"$CALLS"
 case "$*" in
   *"describe-certificate"*"Certificate.[Status,FailureReason]"*)
@@ -35,29 +36,42 @@ case "$*" in
   *"ResourceRecord.[Name,Value]"*) printf '_abc.louisville.raylytics.io.\t_xyz.acm-validations.aws.' ;;
   *) echo "" ;;
 esac
-'''
+"""
 
 
 @pytest.fixture
 def harness(tmp_path):
-    bin_ = tmp_path / "bin"; bin_.mkdir()
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
     for name, body in (("dig", DIG_STUB), ("aws", AWS_STUB)):
-        p = bin_ / name; p.write_text(body); p.chmod(0o755)
+        p = bin_ / name
+        p.write_text(body)
+        p.chmod(0o755)
     calls = tmp_path / "calls"
     state = tmp_path / "state.json"
 
     def run(step, env=None):
         calls.write_text("")
-        e = dict(os.environ, PATH=f"{bin_}:{os.environ['PATH']}", CALLS=str(calls),
-                 LOU_CUTOVER_STATE=str(state), **(env or {}))
+        e = dict(
+            os.environ,
+            PATH=f"{bin_}:{os.environ['PATH']}",
+            CALLS=str(calls),
+            LOU_CUTOVER_STATE=str(state),
+            **(env or {}),
+        )
         proc = subprocess.run(["/bin/bash", str(SCRIPT), step], env=e, capture_output=True, text=True, timeout=60)
         return proc, calls.read_text()
+
     run.state = state
     return run
 
 
-APEX_ALLOWS = 'raylytics.io.\t300\tIN\tCAA\t0 issue "amazon.com"\nraylytics.io.\t300\tIN\tCAA\t0 issue "letsencrypt.org"'
-APEX_DENIES = 'raylytics.io.\t300\tIN\tCAA\t0 issue "letsencrypt.org"\nraylytics.io.\t300\tIN\tCAA\t0 issue "digicert.com"'
+APEX_ALLOWS = (
+    'raylytics.io.\t300\tIN\tCAA\t0 issue "amazon.com"\nraylytics.io.\t300\tIN\tCAA\t0 issue "letsencrypt.org"'
+)
+APEX_DENIES = (
+    'raylytics.io.\t300\tIN\tCAA\t0 issue "letsencrypt.org"\nraylytics.io.\t300\tIN\tCAA\t0 issue "digicert.com"'
+)
 
 
 def test_caa_passes_when_the_apex_allows_amazon(harness):
@@ -87,7 +101,7 @@ def test_caa_uses_the_first_set_walking_up_not_a_union(harness):
 def test_caa_ignores_cname_rows_and_passes_with_no_caa_anywhere(harness):
     """After cutover the hostname is a DNS-only CNAME to CloudFront; dig's
     answer section then carries a CNAME row, which is not a CAA record."""
-    cname = 'louisville.raylytics.io.\t300\tIN\tCNAME\td123.cloudfront.net.'
+    cname = "louisville.raylytics.io.\t300\tIN\tCNAME\td123.cloudfront.net."
     proc, _ = harness("caa-check", env={"CAA_louisville_raylytics_io": cname})
     assert proc.returncode == 0, proc.stdout
     assert "no records" in proc.stdout and "cloudfront" not in proc.stdout.split("no records")[0]
@@ -100,8 +114,9 @@ def test_caa_issue_semicolon_denies_everyone(harness):
 
 def test_cert_discards_a_failed_stored_certificate_and_requests_anew(harness):
     harness.state.write_text('{"certificate_arn": "arn:aws:acm:us-east-1:012146975534:certificate/dead"}')
-    proc, calls = harness("cert", env={"CERT_STATUS": "FAILED", "CERT_REASON": "CAA_ERROR",
-                                       "CAA_raylytics_io": APEX_ALLOWS})
+    proc, calls = harness(
+        "cert", env={"CERT_STATUS": "FAILED", "CERT_REASON": "CAA_ERROR", "CAA_raylytics_io": APEX_ALLOWS}
+    )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "is FAILED (CAA_ERROR); requesting anew" in proc.stdout
     assert "request-certificate" in calls

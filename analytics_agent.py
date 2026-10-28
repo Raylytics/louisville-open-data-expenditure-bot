@@ -88,7 +88,6 @@ def get_last_tier_used() -> str:
     return _last_tier_used
 
 
-
 def is_quota_error(e: Exception) -> bool:
     """Billing exhaustion on the LLM account — only paying more money fixes it.
 
@@ -119,10 +118,7 @@ PRIMARY_RECHECK_SECONDS = 900
 
 def _primary_is_unusable() -> bool:
     """True while the primary is known to be unusable (within the recheck window)."""
-    return (
-        _primary_unusable_at is not None
-        and (time.time() - _primary_unusable_at) < PRIMARY_RECHECK_SECONDS
-    )
+    return _primary_unusable_at is not None and (time.time() - _primary_unusable_at) < PRIMARY_RECHECK_SECONDS
 
 
 def _mark_primary_unusable(unusable: bool = True) -> None:
@@ -154,8 +150,7 @@ class EmptyCompletionError(RuntimeError):
 # The wordings OpenAI-compatible providers use for a prompt that overflows the
 # model's window (code context_length_exceeded, "maximum context length is …",
 # "context window", "too many tokens").
-_CONTEXT_OVERFLOW = re.compile(
-    r"context[_ ]?(?:window|length)|maximum context|too many tokens", re.I)
+_CONTEXT_OVERFLOW = re.compile(r"context[_ ]?(?:window|length)|maximum context|too many tokens", re.I)
 
 
 def _is_auth_error(e: Exception) -> bool:
@@ -194,6 +189,7 @@ def _iter_with_stall_guard(stream, stall_seconds: float | None = None):
         yield from stream
         return
     import queue as _queue
+
     q: "_queue.Queue" = _queue.Queue()
 
     def _reader():
@@ -213,8 +209,7 @@ def _iter_with_stall_guard(stream, stall_seconds: float | None = None):
                 stream.close()
             except Exception:
                 pass
-            raise StreamStalledError(
-                f"LLM stream produced nothing for {stall:.0f}s; abandoning it")
+            raise StreamStalledError(f"LLM stream produced nothing for {stall:.0f}s; abandoning it")
         if kind == "item":
             yield val
         elif kind == "done":
@@ -236,8 +231,7 @@ def is_provider_error(e: Exception) -> bool:
     """
     if isinstance(e, openai.RateLimitError):
         return False
-    if isinstance(e, (openai.BadRequestError, openai.ConflictError,
-                      openai.UnprocessableEntityError)):
+    if isinstance(e, (openai.BadRequestError, openai.ConflictError, openai.UnprocessableEntityError)):
         # 400/409/422 are OUR request being wrong (a malformed payload), not
         # the provider being down: the same request fails the same way on the
         # fallback, so crossing over burns a paid call and logs a "provider
@@ -245,25 +239,30 @@ def is_provider_error(e: Exception) -> bool:
         # about the MODEL's window, and primary and fallback are different
         # models — the same request can fit the fallback's window, so that
         # 400 is allowed to cross.
-        return bool(isinstance(e, openai.BadRequestError)
-                    and _CONTEXT_OVERFLOW.search(str(e)))
+        return bool(isinstance(e, openai.BadRequestError) and _CONTEXT_OVERFLOW.search(str(e)))
     if isinstance(e, openai.NotFoundError):
         # Only a genuine model_not_found belongs to the resolution path. An
         # upstream 404 ("Provider returned error", code 404, seen live
         # 2026-08-31 from OpenRouter/Nvidia) is the provider being broken,
         # and must cross to the fallback like any other provider failure.
         return not _is_model_not_found(e)
-    if isinstance(e, (openai.APIConnectionError, openai.APITimeoutError,
-                      openai.InternalServerError, openai.AuthenticationError,
-                      openai.PermissionDeniedError)):
+    if isinstance(
+        e,
+        (
+            openai.APIConnectionError,
+            openai.APITimeoutError,
+            openai.InternalServerError,
+            openai.AuthenticationError,
+            openai.PermissionDeniedError,
+        ),
+    ):
         return True
     # The SDK raises plain APIError for in-stream error payloads and other
     # provider-shaped failures; quota-ish ones were classified before this.
     return isinstance(e, openai.APIError)
 
 
-def _call_with_retry(fn, on_retry=None, fallback_fn=None, provenance=None,
-                     use_latch=True, tiers=None):
+def _call_with_retry(fn, on_retry=None, fallback_fn=None, provenance=None, use_latch=True, tiers=None):
     """Run an LLM call, falling over to the fallback provider when the primary can't serve.
 
     One classification point, deliberately: an earlier version special-cased the
@@ -337,9 +336,12 @@ def _call_with_retry(fn, on_retry=None, fallback_fn=None, provenance=None,
             # keeps failing until a human rotates it.
             if (exhausted or empty or provider_down or attempt > 1) and fallback_fn and not fallback_tried:
                 fallback_tried = True
-                log.info("Primary unavailable (%s), using fallback provider",
-                         "exhausted" if exhausted else ("empty reply" if empty else (
-                             "provider error" if provider_down else "rate limited")))
+                log.info(
+                    "Primary unavailable (%s), using fallback provider",
+                    "exhausted"
+                    if exhausted
+                    else ("empty reply" if empty else ("provider error" if provider_down else "rate limited")),
+                )
                 if on_retry:
                     on_retry(attempt, MAX_RETRIES, 0)
                 try:
@@ -364,8 +366,11 @@ def _call_with_retry(fn, on_retry=None, fallback_fn=None, provenance=None,
                     # Ordinary rate limit with attempts left: keep walking the ladder.
 
             if exhausted or empty or provider_down:
-                log.error("Primary cannot serve (%s) and no fallback answered: %s",
-                          "exhausted" if exhausted else ("empty reply" if empty else "provider error"), e)
+                log.error(
+                    "Primary cannot serve (%s) and no fallback answered: %s",
+                    "exhausted" if exhausted else ("empty reply" if empty else "provider error"),
+                    e,
+                )
                 raise
 
             if attempt == MAX_RETRIES:
@@ -373,7 +378,7 @@ def _call_with_retry(fn, on_retry=None, fallback_fn=None, provenance=None,
                 raise
 
             delay = RETRY_BASE_DELAY
-            match = re.search(r'retry in ([\d.]+)s', str(e))
+            match = re.search(r"retry in ([\d.]+)s", str(e))
             if match:
                 delay = min(float(match.group(1)) + 1, 60)
             log.info("Rate limited (attempt %d/%d), retrying in %.0fs", attempt, MAX_RETRIES, delay)
@@ -411,8 +416,7 @@ MAX_DISPLAY_ROWS = 50
 # TRUNCATION_NOTE so the pair is hashed together.
 TRUNCATION_COUNTS = "this table has {rows} rows"
 TRUNCATION_COUNTS_WITH_TOTALS = (
-    "this table has {rows} rows, of which {entities} are data rows and the "
-    "rest are totals/subtotals"
+    "this table has {rows} rows, of which {entities} are data rows and the rest are totals/subtotals"
 )
 
 # Emitted whenever a total was relocated, at EVERY table size — not only when
@@ -460,7 +464,7 @@ DEFAULT_OPENROUTER_MODEL_FALLBACKS = [
     "openai/gpt-oss-20b:free",
 ]
 
-_active_model = None          # replacement model once a fallback has engaged
+_active_model = None  # replacement model once a fallback has engaged
 _model_fallback_event = None  # {"from", "to", "time"} of the last fallback
 _fallback_lock = threading.Lock()  # SSE requests run on threadpool threads
 
@@ -512,10 +516,7 @@ CATALOGUE_RETRY_SECONDS = 60
 
 
 def _catalogue_is_cooling_down() -> bool:
-    return (
-        _catalogue_unavailable_at is not None
-        and (time.time() - _catalogue_unavailable_at) < CATALOGUE_RETRY_SECONDS
-    )
+    return _catalogue_unavailable_at is not None and (time.time() - _catalogue_unavailable_at) < CATALOGUE_RETRY_SECONDS
 
 
 def _mark_catalogue_unavailable(unavailable: bool = True) -> None:
@@ -576,8 +577,16 @@ def _record_model_fallback(from_model: str, to_model: str) -> None:
     log.error("MODEL FALLBACK: '%s' no longer exists at provider; now using '%s'", from_model, to_model)
 
 
-def _call_with_model_fallback(make_call, client, model, on_retry=None, fallback_client=None,
-                              fallback_model=None, swapped=False, prefer_claude=True):
+def _call_with_model_fallback(
+    make_call,
+    client,
+    model,
+    on_retry=None,
+    fallback_client=None,
+    fallback_model=None,
+    swapped=False,
+    prefer_claude=True,
+):
     """Run an LLM call, surviving provider model deprecation.
 
     make_call(client, model) must return a zero-arg callable. On a
@@ -620,14 +629,14 @@ def _call_with_model_fallback(make_call, client, model, on_retry=None, fallback_
         fallback_fn = make_call(fallback_client, fb_model) if fallback_client else None
         tiers = ("paid", get_primary_tier())
         try:
-            return _call_with_retry(make_call(client, model), on_retry=on_retry,
-                                    fallback_fn=fallback_fn, use_latch=False, tiers=tiers)
+            return _call_with_retry(
+                make_call(client, model), on_retry=on_retry, fallback_fn=fallback_fn, use_latch=False, tiers=tiers
+            )
         except openai.NotFoundError as e:
             if not _is_model_not_found(e) or not fallback_fn:
                 raise
             log.warning("Swapped-call model '%s' not found at its provider; using the default primary", model)
-            return _call_with_retry(fallback_fn, on_retry=on_retry, use_latch=False,
-                                    tiers=(get_primary_tier(), "paid"))
+            return _call_with_retry(fallback_fn, on_retry=on_retry, use_latch=False, tiers=(get_primary_tier(), "paid"))
     model = get_active_model(model)
     fb_model = fallback_model or model
     fallback_fn = make_call(fallback_client, fb_model) if fallback_client else None
@@ -650,8 +659,10 @@ def _call_with_model_fallback(make_call, client, model, on_retry=None, fallback_
             # Only when there IS a fallback: with none, the listing is the only
             # route to an answer (a Cerebras-only deployment whose MODEL was
             # deprecated), so paying the timeout beats failing outright.
-            log.info("Skipping model re-resolution: the catalogue listing failed within the last %ds",
-                     CATALOGUE_RETRY_SECONDS)
+            log.info(
+                "Skipping model re-resolution: the catalogue listing failed within the last %ds",
+                CATALOGUE_RETRY_SECONDS,
+            )
             replacement, catalogue_read = None, False
         else:
             try:
@@ -707,15 +718,18 @@ def _call_with_model_fallback(make_call, client, model, on_retry=None, fallback_
             # fallback keeps its own pinned model.
             fallback_fn = make_call(fallback_client, replacement)
         provenance = {}
-        result = _call_with_retry(make_call(client, replacement), on_retry=on_retry,
-                                  fallback_fn=fallback_fn, provenance=provenance)
+        result = _call_with_retry(
+            make_call(client, replacement), on_retry=on_retry, fallback_fn=fallback_fn, provenance=provenance
+        )
         # Record only when the REPLACEMENT served THIS call. If the other
         # provider's fallback rescued it, the replacement is unproven — pinning
         # it process-wide would put a failing round trip in front of every later
         # question and advertise it in /api/health. Read from the per-call dict,
         # not a global: a concurrent request would answer for the wrong call.
         if provenance.get("used_fallback"):
-            log.warning("Replacement model '%s' did not serve the call (fallback provider did); not recording it", replacement)
+            log.warning(
+                "Replacement model '%s' did not serve the call (fallback provider did); not recording it", replacement
+            )
         else:
             _record_model_fallback(model, replacement)
         return result
@@ -746,17 +760,13 @@ def build_schema_description(con: duckdb.DuckDBPyConnection, table: str) -> str:
                 vals = [str(r[0]) for r in distincts]
                 if vals:
                     line += f"  — e.g. {', '.join(repr(v) for v in vals[:5])}"
-                    total_distinct = con.execute(
-                        f"SELECT COUNT(DISTINCT {col_name}) FROM {table}"
-                    ).fetchone()[0]
+                    total_distinct = con.execute(f"SELECT COUNT(DISTINCT {col_name}) FROM {table}").fetchone()[0]
                     line += f"  [{total_distinct} distinct]"
             except Exception:
                 pass
         elif "INT" in col_type.upper() or "DOUBLE" in col_type.upper() or "FLOAT" in col_type.upper():
             try:
-                stats = con.execute(
-                    f"SELECT MIN({col_name}), MAX({col_name}), AVG({col_name}) FROM {table}"
-                ).fetchone()
+                stats = con.execute(f"SELECT MIN({col_name}), MAX({col_name}), AVG({col_name}) FROM {table}").fetchone()
                 line += f"  — range: {stats[0]} to {stats[1]}, avg: {stats[2]:.2f}"
             except Exception:
                 pass
@@ -852,9 +862,9 @@ def build_interpret_prompt(schema_desc: str, extra_facts=None) -> str:
 
         ## Schema context
         {schema_desc}""") + (
-        "\n\n## Facts about this city's data (enforce these)\n"
-        + "\n".join(f"- {f}" for f in extra_facts)
-        if extra_facts else ""
+        "\n\n## Facts about this city's data (enforce these)\n" + "\n".join(f"- {f}" for f in extra_facts)
+        if extra_facts
+        else ""
     )
 
 
@@ -913,7 +923,17 @@ def _message_text(response) -> str:
     return text
 
 
-def generate_sql(client: openai.OpenAI, model: str, system_prompt: str, question: str, on_retry=None, history: list = None, context: str = None, fallback_client: openai.OpenAI = None, fallback_model: str = None) -> tuple[str, dict, object]:
+def generate_sql(
+    client: openai.OpenAI,
+    model: str,
+    system_prompt: str,
+    question: str,
+    on_retry=None,
+    history: list = None,
+    context: str = None,
+    fallback_client: openai.OpenAI = None,
+    fallback_model: str = None,
+) -> tuple[str, dict, object]:
     """Ask the model to generate SQL. Returns (sql, usage_dict, raw_response).
 
     context: per-question material appended to the user turn — the vocabulary
@@ -921,6 +941,7 @@ def generate_sql(client: openai.OpenAI, model: str, system_prompt: str, question
     the system prompt, because it changes with every question and the system
     prompt's hash is the response-cache version.
     """
+
     def _make_call(c, m):
         def _call():
             messages = [{"role": "system", "content": system_prompt}]
@@ -938,8 +959,12 @@ def generate_sql(client: openai.OpenAI, model: str, system_prompt: str, question
             )
             _message_text(raw.parse())  # empty reply -> fail over, not "reword it"
             return raw
+
         return _call
-    raw = _call_with_model_fallback(_make_call, client, model, on_retry=on_retry, fallback_client=fallback_client, fallback_model=fallback_model)
+
+    raw = _call_with_model_fallback(
+        _make_call, client, model, on_retry=on_retry, fallback_client=fallback_client, fallback_model=fallback_model
+    )
     response = raw.parse()
     usage = {}
     if hasattr(response, "usage") and response.usage:
@@ -956,6 +981,7 @@ def interpret_results(
 ) -> str:
     """Ask the model to interpret SQL results in plain English."""
     user_msg = f"Question: {question}\n\nSQL executed:\n{sql}\n\nResults:\n{results}"
+
     def _make_call(c, m):
         def _call():
             resp = c.chat.completions.create(
@@ -969,13 +995,25 @@ def interpret_results(
             )
             _message_text(resp)  # empty reply -> fail over, not "reword it"
             return resp
+
         return _call
+
     response = _call_with_model_fallback(_make_call, client, model)
     return _message_text(response).strip()
 
 
 def interpret_results_stream(
-    client: openai.OpenAI, model: str, system_prompt: str, question: str, sql: str, results: str, on_retry=None, history: list = None, fallback_client: openai.OpenAI = None, documents: str = "", fallback_model: str = None,
+    client: openai.OpenAI,
+    model: str,
+    system_prompt: str,
+    question: str,
+    sql: str,
+    results: str,
+    on_retry=None,
+    history: list = None,
+    fallback_client: openai.OpenAI = None,
+    documents: str = "",
+    fallback_model: str = None,
     prefer_claude: bool = True,
 ):
     """Stream interpretation chunks as a generator.
@@ -987,6 +1025,7 @@ def interpret_results_stream(
     user_msg = f"Question: {question}\n\nSQL executed:\n{sql}\n\nResults:\n{results}"
     if documents:
         user_msg += f"\n\n{documents}"
+
     def _make_call(c, m):
         def _call():
             messages = [{"role": "system", "content": system_prompt}]
@@ -1000,9 +1039,18 @@ def interpret_results_stream(
                 max_tokens=4096,
                 stream=True,
             )
+
         return _call
-    stream = _call_with_model_fallback(_make_call, client, model, on_retry=on_retry, fallback_client=fallback_client, fallback_model=fallback_model,
-                                       prefer_claude=prefer_claude)
+
+    stream = _call_with_model_fallback(
+        _make_call,
+        client,
+        model,
+        on_retry=on_retry,
+        fallback_client=fallback_client,
+        fallback_model=fallback_model,
+        prefer_claude=prefer_claude,
+    )
     for chunk in _iter_with_stall_guard(stream):
         if chunk.choices and chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
@@ -1059,7 +1107,20 @@ REFINE_SYSTEM_PROMPT = textwrap.dedent("""\
     Return ONLY the rewritten answer, nothing else.""")
 
 
-def refine_interpretation_stream(client, model, question, sql, results, draft, on_retry=None, fallback_client=None, extra_facts=None, documents="", fallback_model=None, swapped=False):
+def refine_interpretation_stream(
+    client,
+    model,
+    question,
+    sql,
+    results,
+    draft,
+    on_retry=None,
+    fallback_client=None,
+    extra_facts=None,
+    documents="",
+    fallback_model=None,
+    swapped=False,
+):
     """Stream a refined (plain-language, consistency- and accuracy-checked)
     rewrite of a draft interpretation.
 
@@ -1080,14 +1141,14 @@ def refine_interpretation_stream(client, model, question, sql, results, draft, o
     """
     system_prompt = REFINE_SYSTEM_PROMPT
     if extra_facts:
-        system_prompt += "\n\n## Facts about this city's data (enforce these)\n" + \
-            "\n".join(f"- {f}" for f in extra_facts)
+        system_prompt += "\n\n## Facts about this city's data (enforce these)\n" + "\n".join(
+            f"- {f}" for f in extra_facts
+        )
     user_msg = (
         f"QUESTION: {question}\n\nSQL EXECUTED:\n{sql}\n\n"
-        f"RESULTS:\n{results}\n\n"
-        + (f"{documents}\n\n" if documents else "")
-        + f"DRAFT ANSWER:\n{draft}"
+        f"RESULTS:\n{results}\n\n" + (f"{documents}\n\n" if documents else "") + f"DRAFT ANSWER:\n{draft}"
     )
+
     def _make_call(c, m):
         def _call():
             return c.chat.completions.create(
@@ -1100,8 +1161,18 @@ def refine_interpretation_stream(client, model, question, sql, results, draft, o
                 max_tokens=4096,
                 stream=True,
             )
+
         return _call
-    stream = _call_with_model_fallback(_make_call, client, model, on_retry=on_retry, fallback_client=fallback_client, fallback_model=fallback_model, swapped=swapped)
+
+    stream = _call_with_model_fallback(
+        _make_call,
+        client,
+        model,
+        on_retry=on_retry,
+        fallback_client=fallback_client,
+        fallback_model=fallback_model,
+        swapped=swapped,
+    )
     for chunk in _iter_with_stall_guard(stream):
         if chunk.choices and chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
@@ -1137,7 +1208,8 @@ BACKGROUND_SYSTEM_PROMPT = textwrap.dedent("""\
 _EXPLANATORY = re.compile(
     r"\bwhy\b|\bhow come\b|\bexplain\b|\bwhat (?:does|do)\b.{0,80}\bmean\b"
     r"|\bwhat(?:'s| is| are) the (?:reason|reasons|purpose)\b|\bhow (?:does|do)\b.{0,80}\bwork\b",
-    re.I)
+    re.I,
+)
 
 
 _IRREGULARITY = re.compile(
@@ -1148,7 +1220,9 @@ _IRREGULARITY = re.compile(
     # rigg(ed|ing), not rigg\w*: a payee named Riggs is not a question about
     # wrongdoing.
     r"|wasteful|wasted|kickbacks?|favoritism|bid[- ]rigging|rigg(?:ed|ing)|suspicious|irregular\w*"
-    r"|misus\w*|embezzl\w*|corrupt\w*|collusion)\b", re.I)
+    r"|misus\w*|embezzl\w*|corrupt\w*|collusion)\b",
+    re.I,
+)
 
 # Shown verbatim (an `info` notice) under any answer to a question probing for
 # wrongdoing. Deterministic on purpose: the judged 2026-09-25 runs showed the
@@ -1200,8 +1274,7 @@ def validate_background(text: str, city_names=()) -> tuple[str | None, str | Non
 BACKGROUND_TIMEOUT = float(os.environ.get("BACKGROUND_TIMEOUT_SECONDS", "15") or 15)
 
 
-def generate_background(attempts, question: str, answer: str,
-                        budget: float = None) -> tuple[str, dict, str]:
+def generate_background(attempts, question: str, answer: str, budget: float = None) -> tuple[str, dict, str]:
     """(raw note, usage, tier) from the first provider that answers in time.
 
     attempts: [(client, model, tier), ...] in order — the caller puts the paid
@@ -1209,8 +1282,9 @@ def generate_background(attempts, question: str, answer: str,
     daily allowance. One try each, no retries, all inside `budget` seconds.
     Validate the note (validate_background) before showing it."""
     deadline = time.monotonic() + (BACKGROUND_TIMEOUT if budget is None else budget)
-    user_msg = (f"Question: {question}\n\n"
-                f"The data answer, for context only (do not restate it):\n{(answer or '')[:1500]}")
+    user_msg = (
+        f"Question: {question}\n\nThe data answer, for context only (do not restate it):\n{(answer or '')[:1500]}"
+    )
     last = None
     for c, m, tier in attempts:
         if c is None:
@@ -1221,27 +1295,33 @@ def generate_background(attempts, question: str, answer: str,
         try:
             resp = c.with_options(timeout=left, max_retries=0).chat.completions.create(
                 model=m,
-                messages=[{"role": "system", "content": BACKGROUND_SYSTEM_PROMPT},
-                          {"role": "user", "content": user_msg}],
+                messages=[
+                    {"role": "system", "content": BACKGROUND_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_msg},
+                ],
                 temperature=0.2,
                 # Room for a reasoning model's hidden reasoning before its
                 # few sentences of content (see the MODEL notes in CLAUDE.md).
                 max_tokens=1200,
             )
             text = _message_text(resp).strip()
-        except Exception as e:          # next provider, if any time is left
+        except Exception as e:  # next provider, if any time is left
             last = e
             continue
         usage = {}
         if getattr(resp, "usage", None):
-            usage = {"prompt_tokens": resp.usage.prompt_tokens or 0,
-                     "completion_tokens": resp.usage.completion_tokens or 0,
-                     "total_tokens": resp.usage.total_tokens or 0}
+            usage = {
+                "prompt_tokens": resp.usage.prompt_tokens or 0,
+                "completion_tokens": resp.usage.completion_tokens or 0,
+                "total_tokens": resp.usage.total_tokens or 0,
+            }
         return text, usage, tier
     raise last or TimeoutError("background budget spent before any provider answered")
 
 
-def refine_events_with_fallback(refine_iter, draft, send, transform=None, on_fail=None, timeout=90, counter=None, sink=None):
+def refine_events_with_fallback(
+    refine_iter, draft, send, transform=None, on_fail=None, timeout=90, counter=None, sink=None
+):
     """Yield SSE events for the refine pass with the no-lost-answer invariant:
     if the refiner fails before producing anything, the draft is served
     verbatim; if it fails mid-stream, a visible truncation note is appended
@@ -1288,8 +1368,8 @@ def refine_events_with_fallback(refine_iter, draft, send, transform=None, on_fai
 
 
 BLOCKED_SQL = re.compile(
-    r'\b(COPY|EXPORT|ATTACH|DETACH|LOAD|INSTALL|CREATE\s+MACRO|DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|'
-    r'read_csv|read_parquet|read_json|read_csv_auto|write_csv|httpfs|postgres_scan|sqlite_scan)\b',
+    r"\b(COPY|EXPORT|ATTACH|DETACH|LOAD|INSTALL|CREATE\s+MACRO|DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|"
+    r"read_csv|read_parquet|read_json|read_csv_auto|write_csv|httpfs|postgres_scan|sqlite_scan)\b",
     re.IGNORECASE,
 )
 
@@ -1301,14 +1381,14 @@ def fix_sql(sql: str) -> str:
     # Replace raw column names with canonical versions
     # Only replace when used as a column reference (after SELECT, GROUP BY, WHERE, ORDER BY, JOIN ON)
     # Use word boundary matching to avoid replacing inside strings
-    if re.search(r'\bGROUP BY\b.*\bagency\b', fixed, re.IGNORECASE | re.DOTALL):
-        if 'agency_canonical' not in fixed.lower():
-            fixed = re.sub(r'\bagency\b(?!\s*_canonical)', 'agency_canonical', fixed)
+    if re.search(r"\bGROUP BY\b.*\bagency\b", fixed, re.IGNORECASE | re.DOTALL):
+        if "agency_canonical" not in fixed.lower():
+            fixed = re.sub(r"\bagency\b(?!\s*_canonical)", "agency_canonical", fixed)
             log.info("SQL fix: replaced 'agency' with 'agency_canonical'")
 
-    if re.search(r'\bGROUP BY\b.*\bpayee\b', fixed, re.IGNORECASE | re.DOTALL):
-        if 'payee_canonical' not in fixed.lower():
-            fixed = re.sub(r'\bpayee\b(?!\s*_canonical)', 'payee_canonical', fixed)
+    if re.search(r"\bGROUP BY\b.*\bpayee\b", fixed, re.IGNORECASE | re.DOTALL):
+        if "payee_canonical" not in fixed.lower():
+            fixed = re.sub(r"\bpayee\b(?!\s*_canonical)", "payee_canonical", fixed)
             log.info("SQL fix: replaced 'payee' with 'payee_canonical'")
 
     return fixed
@@ -1324,8 +1404,8 @@ def execute_sql_safe(con: duckdb.DuckDBPyConnection, sql: str) -> tuple[pd.DataF
     # Ordered here rather than at render time so the table, the chart and the
     # text the model interprets all see the same rows in the same order — the
     # summary should lead with the largest figure too.
-    from data_model import (order_for_display, infer_chart, drop_total_rows,
-                            move_totals_to_end)
+    from data_model import order_for_display, infer_chart, drop_total_rows, move_totals_to_end
+
     result_df = order_for_display(result_df, sql)
 
     # A ROLLUP total holds the largest number, so a DESC ranking hands it row
@@ -1362,13 +1442,15 @@ def execute_sql_safe(con: duckdb.DuckDBPyConnection, sql: str) -> tuple[pd.DataF
                     entities = n_real
         except Exception:
             pass
-        counts = (TRUNCATION_COUNTS_WITH_TOTALS.format(
-                      rows=f"{len(result_df):,}", entities=f"{entities:,}")
-                  if entities is not None else
-                  TRUNCATION_COUNTS.format(rows=f"{len(result_df):,}"))
+        counts = (
+            TRUNCATION_COUNTS_WITH_TOTALS.format(rows=f"{len(result_df):,}", entities=f"{entities:,}")
+            if entities is not None
+            else TRUNCATION_COUNTS.format(rows=f"{len(result_df):,}")
+        )
         half = MAX_DISPLAY_ROWS // 2
         result_str += "\n\n" + TRUNCATION_NOTE.format(
-            counts=counts, half=half, omitted=f"{len(result_df) - MAX_DISPLAY_ROWS:,}")
+            counts=counts, half=half, omitted=f"{len(result_df) - MAX_DISPLAY_ROWS:,}"
+        )
     # Unconditional, because the reorder is: gating this on truncation left the
     # common ROLLUP shape rearranged with nothing said about it. Appended after
     # the truncation note so "[TRUNCATED" stays the first bracketed line.
@@ -1423,8 +1505,12 @@ def provider_of(tier: str) -> str:
 
 def tier_label(tier: str) -> str:
     """Human label for the debug lines: which provider AND whether it costs money."""
-    return {"openrouter": "free (OpenRouter)", "paid": "paid (Cerebras)",
-            "free": "free (Cerebras)", claude_provider.TIER: "paid (Claude)"}.get(tier, tier)
+    return {
+        "openrouter": "free (OpenRouter)",
+        "paid": "paid (Cerebras)",
+        "free": "free (Cerebras)",
+        claude_provider.TIER: "paid (Claude)",
+    }.get(tier, tier)
 
 
 def get_preferred_tier() -> str:
@@ -1458,13 +1544,18 @@ def get_openrouter_limits(ttl: float = 6 * 3600, fail_ttl: float = 600) -> dict 
     value = None
     try:
         import httpx
+
         base = os.environ.get("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL).rstrip("/")
         r = httpx.get(f"{base}/key", headers={"Authorization": f"Bearer {key}"}, timeout=3.0)
         r.raise_for_status()
         data = r.json().get("data", {})
         free = bool(data.get("is_free_tier", True))
-        value = {"rpd": 50 if free else 1000, "rpm": OPENROUTER_FREE_RPM,
-                 "is_free_tier": free, "credits_used": data.get("usage")}
+        value = {
+            "rpd": 50 if free else 1000,
+            "rpm": OPENROUTER_FREE_RPM,
+            "is_free_tier": free,
+            "credits_used": data.get("usage"),
+        }
     except Exception as e:  # noqa: BLE001 — a display nicety, never an error
         log.info("OpenRouter key endpoint unavailable (%s); daily limit shown as unknown", type(e).__name__)
     cached["at"], cached["value"] = now, value
@@ -1505,6 +1596,7 @@ def _llm_timeout() -> float:
 def make_client(base_url: str = None, api_key: str = None) -> openai.OpenAI:
     """Create an OpenAI-compatible client. Disables built-in retries — we handle them in _call_with_retry."""
     import httpx
+
     headers = None
     if not api_key and not base_url and _openrouter_key():
         base_url = os.environ.get("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL)
@@ -1527,6 +1619,7 @@ def make_paid_client(base_url: str = None, api_key: str = None) -> openai.OpenAI
     failure (two 402s, two rate limits) with no chance of a different outcome.
     """
     import httpx
+
     paid_key = api_key or os.environ.get("CEREBRAS_PAID_API_KEY", "")
     if not paid_key or (api_key is None and paid_key == _cerebras_key() and not _openrouter_key()):
         return None
@@ -1609,6 +1702,7 @@ def main():
         try:
             from city_config import load_city_config
             from data_model import year_context
+
             cfg = load_city_config()
             # Same derivation the web app uses (one shared helper, so the two
             # can't drift) — but the CLI loads an arbitrary CSV into `data`,

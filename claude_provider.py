@@ -118,6 +118,7 @@ def live_models() -> list:
 def is_durable_failure(e: Exception) -> bool:
     """Fails the same way on every call until a human fixes the account."""
     import anthropic
+
     if isinstance(e, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
         return True
     if getattr(e, "status_code", None) == 402:
@@ -132,22 +133,28 @@ def is_durable_failure(e: Exception) -> bool:
 
 def _is_model_gone(e: Exception) -> bool:
     import anthropic
+
     return isinstance(e, anthropic.NotFoundError)
 
 
 def _is_timeout(e: Exception) -> bool:
     import anthropic
+
     return isinstance(e, anthropic.APITimeoutError)
 
 
 def _is_overloaded(e: Exception) -> bool:
     import anthropic
-    return (isinstance(e, anthropic.RateLimitError)
-            or getattr(e, "status_code", None) in (500, 502, 503, 529)
-            or isinstance(e, anthropic.APIConnectionError))
+
+    return (
+        isinstance(e, anthropic.RateLimitError)
+        or getattr(e, "status_code", None) in (500, 502, 503, 529)
+        or isinstance(e, anthropic.APIConnectionError)
+    )
 
 
 # ── Request/response translation ───────────────────────────────────────────
+
 
 def _split_messages(messages: list):
     """OpenAI chat messages -> (system blocks, Claude messages).
@@ -171,21 +178,25 @@ def _split_messages(messages: list):
         out.pop(0)
     system = None
     if system_parts:
-        system = [{"type": "text", "text": "\n\n".join(system_parts),
-                   "cache_control": {"type": "ephemeral"}}]
+        system = [{"type": "text", "text": "\n\n".join(system_parts), "cache_control": {"type": "ephemeral"}}]
     return system, out
 
 
 def _usage_ns(usage) -> SimpleNamespace:
     if usage is None:
         return SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-    prompt = ((getattr(usage, "input_tokens", 0) or 0)
-              + (getattr(usage, "cache_read_input_tokens", 0) or 0)
-              + (getattr(usage, "cache_creation_input_tokens", 0) or 0))
+    prompt = (
+        (getattr(usage, "input_tokens", 0) or 0)
+        + (getattr(usage, "cache_read_input_tokens", 0) or 0)
+        + (getattr(usage, "cache_creation_input_tokens", 0) or 0)
+    )
     completion = getattr(usage, "output_tokens", 0) or 0
-    return SimpleNamespace(prompt_tokens=prompt, completion_tokens=completion,
-                           total_tokens=prompt + completion,
-                           cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0)
+    return SimpleNamespace(
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        total_tokens=prompt + completion,
+        cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+    )
 
 
 def _check_stop(stop_reason, text: str) -> None:
@@ -199,8 +210,7 @@ def _to_openai_shape(message) -> SimpleNamespace:
     text = "".join(b.text for b in message.content if b.type == "text")
     _check_stop(message.stop_reason, text)
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=text),
-                                 finish_reason=message.stop_reason)],
+        choices=[SimpleNamespace(message=SimpleNamespace(content=text), finish_reason=message.stop_reason)],
         usage=_usage_ns(message.usage),
         model=message.model,
     )
@@ -241,10 +251,15 @@ def _log_call(model: str, headers, usage=None) -> None:
     """Per-call accounting line: which workspace was billed, and the request
     id Anthropic support asks for. Never the key."""
     headers = headers or {}
-    log.info("Claude call: model=%s request-id=%s workspace=%s usage=%s",
-             model, headers.get("request-id"), headers.get("anthropic-workspace-id"),
-             None if usage is None else dict(input=usage.prompt_tokens, cached=usage.cache_read_tokens,
-                                             output=usage.completion_tokens))
+    log.info(
+        "Claude call: model=%s request-id=%s workspace=%s usage=%s",
+        model,
+        headers.get("request-id"),
+        headers.get("anthropic-workspace-id"),
+        None
+        if usage is None
+        else dict(input=usage.prompt_tokens, cached=usage.cache_read_tokens, output=usage.completion_tokens),
+    )
 
 
 class _RawResponse:
@@ -265,8 +280,12 @@ class _Completions:
         del temperature  # rejected by current models; see module docstring
         sdk = self._owner._sdk
         system, msgs = _split_messages(messages)
-        params = dict(model=model, max_tokens=max(max_tokens or 0, MIN_MAX_TOKENS),
-                      messages=msgs, output_config={"effort": effort()})
+        params = dict(
+            model=model,
+            max_tokens=max(max_tokens or 0, MIN_MAX_TOKENS),
+            messages=msgs,
+            output_config={"effort": effort()},
+        )
         if system:
             params["system"] = system
         if stream:
@@ -285,8 +304,7 @@ class ClaudeClient:
     def __init__(self, sdk):
         self._sdk = sdk
         self.chat = SimpleNamespace(completions=_Completions(self, raw=False))
-        self.with_raw_response = SimpleNamespace(
-            chat=SimpleNamespace(completions=_Completions(self, raw=True)))
+        self.with_raw_response = SimpleNamespace(chat=SimpleNamespace(completions=_Completions(self, raw=True)))
 
     def with_options(self, **kw) -> "ClaudeClient":
         return ClaudeClient(self._sdk.with_options(**kw))
@@ -307,9 +325,10 @@ def get_client(timeout: float = 60.0):
     with _lock:
         if _client is None:
             import anthropic
-            _client = ClaudeClient(anthropic.Anthropic(
-                api_key=api_key(), max_retries=0,
-                timeout=anthropic.Timeout(timeout, connect=10.0)))
+
+            _client = ClaudeClient(
+                anthropic.Anthropic(api_key=api_key(), max_retries=0, timeout=anthropic.Timeout(timeout, connect=10.0))
+            )
         return _client
 
 
@@ -324,6 +343,7 @@ def call_first(make_call):
     if client is None or is_latched():
         return None
     import anthropic
+
     # Each attempt may wait up to budget() for a response (for a stream: for
     # headers and for each gap between events, which thinking keeps short).
     # A timeout stops Claude for this call at once, and the other failures
@@ -339,13 +359,11 @@ def call_first(make_call):
             return make_call(timed, model)(), model
         except Exception as e:  # noqa: BLE001 — every failure falls through
             if _is_timeout(e):
-                log.warning("Claude model '%s' timed out; skipping Claude for %ds",
-                            model, TIMEOUT_LATCH_SECONDS)
+                log.warning("Claude model '%s' timed out; skipping Claude for %ds", model, TIMEOUT_LATCH_SECONDS)
                 _latch(seconds=TIMEOUT_LATCH_SECONDS)
                 return None
             if is_durable_failure(e):
-                log.error("Claude unusable (%s: %s); skipping it for %ds",
-                          type(e).__name__, e, RECHECK_SECONDS)
+                log.error("Claude unusable (%s: %s); skipping it for %ds", type(e).__name__, e, RECHECK_SECONDS)
                 _latch()
                 return None
             if _is_model_gone(e):

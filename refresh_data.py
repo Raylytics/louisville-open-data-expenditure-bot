@@ -127,10 +127,14 @@ def build_profiles(data_dir, skip_sos=False, top=200):
     print("=" * 60)
 
     cmd = [
-        sys.executable, os.path.join(SCRIPT_DIR, "graph", "build_contractor_profiles.py"),
-        "--top", str(top),
-        "--data-dir", data_dir,
-        "--output", os.path.join(data_dir, "contractor_profiles.csv"),
+        sys.executable,
+        os.path.join(SCRIPT_DIR, "graph", "build_contractor_profiles.py"),
+        "--top",
+        str(top),
+        "--data-dir",
+        data_dir,
+        "--output",
+        os.path.join(data_dir, "contractor_profiles.csv"),
     ]
     if skip_sos:
         cmd.append("--skip-sos")
@@ -151,9 +155,12 @@ def scrape_officers(data_dir):
 
     return run(
         [
-            sys.executable, os.path.join(SCRIPT_DIR, "graph", "scrape_officers.py"),
-            "--input", profiles_path,
-            "--output", profiles_path,
+            sys.executable,
+            os.path.join(SCRIPT_DIR, "graph", "scrape_officers.py"),
+            "--input",
+            profiles_path,
+            "--output",
+            profiles_path,
         ],
         "Scraping current officers from KY SOS",
     )
@@ -171,13 +178,13 @@ def ingest_documents(data_dir):
     try:
         import rag
         from city_config import load_city_config
+
         cfg = load_city_config()
         n = rag.ingest(rag.db_path(cfg, data_dir), cfg=cfg)
         print(f"  {n:,} documents ingested")
         return True
     except Exception as e:
-        print(f"  Document ingest FAILED ({type(e).__name__}: {e}) — "
-              "answers will use the previous corpus")
+        print(f"  Document ingest FAILED ({type(e).__name__}: {e}) — answers will use the previous corpus")
         return False
 
 
@@ -189,10 +196,14 @@ def reload_graph(neo4j_uri, neo4j_password, data_dir):
 
     return run(
         [
-            sys.executable, os.path.join(SCRIPT_DIR, "graph", "load_graph.py"),
-            "--uri", neo4j_uri,
-            "--password", neo4j_password,
-            "--data-dir", data_dir,
+            sys.executable,
+            os.path.join(SCRIPT_DIR, "graph", "load_graph.py"),
+            "--uri",
+            neo4j_uri,
+            "--password",
+            neo4j_password,
+            "--data-dir",
+            data_dir,
         ],
         f"Loading graph into {neo4j_uri}",
     )
@@ -214,15 +225,18 @@ def clear_response_cache(data_dir):
     # Also try to clear via API if the bot is running.
     try:
         import requests
+
         # /api/cache is admin-gated; send the operator token from the env.
         token = os.environ.get("ADMIN_TOKEN", "")
         if not token:
             # Fail LOUD: the endpoint now rejects an un-tokened DELETE, so a
             # silent skip here would leave the live bot serving answers from the
             # OLD data with no warning.
-            print("  ⚠️  ADMIN_TOKEN not set — live bot cache NOT cleared via API. "
-                  "The running bot will keep serving stale answers until you set "
-                  "ADMIN_TOKEN and re-run, or restart the container.")
+            print(
+                "  ⚠️  ADMIN_TOKEN not set — live bot cache NOT cleared via API. "
+                "The running bot will keep serving stale answers until you set "
+                "ADMIN_TOKEN and re-run, or restart the container."
+            )
         else:
             # LOU_API_BASE: the running bot to invalidate. Default is the
             # self-hosted container beside this script; the scheduled AWS
@@ -230,13 +244,14 @@ def clear_response_cache(data_dir):
             # body would need the SigV4 hash header, and the endpoint treats
             # "no JSON body" as "clear everything".
             base = os.environ.get("LOU_API_BASE", "http://localhost:8000").rstrip("/")
-            resp = requests.delete(f"{base}/api/cache", timeout=15,
-                                   headers={"X-Admin-Token": token})
+            resp = requests.delete(f"{base}/api/cache", timeout=15, headers={"X-Admin-Token": token})
             if resp.status_code == 200:
                 print("  Live bot cache also cleared via API")
             else:
-                print(f"  ⚠️  Live bot cache NOT cleared — API returned "
-                      f"{resp.status_code} (check ADMIN_TOKEN). Stale answers may persist.")
+                print(
+                    f"  ⚠️  Live bot cache NOT cleared — API returned "
+                    f"{resp.status_code} (check ADMIN_TOKEN). Stale answers may persist."
+                )
     except Exception:
         print("  Bot not running — cache file cleared, will take effect on next start")
 

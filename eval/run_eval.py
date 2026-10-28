@@ -161,11 +161,16 @@ def _check_sql(case: dict, served_df, reference_rows: list, events: list) -> tup
             return False, f"only {len(served_df)} rows (min {case['min_rows']})"
         if hit is None:
             near = min(cells, key=lambda c: abs(c - ref)) if cells else None
-            return False, f"reference {ref:,.2f} not in served cells (closest {near:,.2f})" if near is not None else f"reference {ref:,.2f}; served has no numeric cells"
+            return (
+                False,
+                f"reference {ref:,.2f} not in served cells (closest {near:,.2f})"
+                if near is not None
+                else f"reference {ref:,.2f}; served has no numeric cells",
+            )
         return True, f"{hit:,.2f} ≈ {ref:,.2f}"
     if kind == "top_labels":
         want = [str(r[0]) for r in reference_rows]
-        got = _first_text_column(served_df)[:len(want)]
+        got = _first_text_column(served_df)[: len(want)]
         if case.get("ordered", True):
             ok = got == want
         else:
@@ -196,8 +201,12 @@ def _check_answer(case: dict, reference_rows: list, answer: str, sql_ok: bool) -
         ref = float(reference_rows[0][0])
         if not _answer_states(ref, answer):
             problems.append(f"does not state {ref:,.2f}")
-    if kind == "contains" and case.get("answer_scalar", True) and reference_rows and \
-            isinstance(reference_rows[0][0], (int, float)):
+    if (
+        kind == "contains"
+        and case.get("answer_scalar", True)
+        and reference_rows
+        and isinstance(reference_rows[0][0], (int, float))
+    ):
         ref = float(reference_rows[0][0])
         if not _answer_states(ref, answer):
             problems.append(f"does not state {ref:,.2f}")
@@ -262,8 +271,7 @@ def run(cases: list, label: str, provider: str, out_dir: str) -> dict:
                 # "{last_complete_year}" follows the loaded data, as the SQL
                 # prompt's own default does: a hardcoded year goes stale the
                 # moment a refresh completes another fiscal year.
-                ref_sql = ref_sql.replace(
-                    "{last_complete_year}", str(app.YEAR_CONTEXT["values"]["last_complete_year"]))
+                ref_sql = ref_sql.replace("{last_complete_year}", str(app.YEAR_CONTEXT["values"]["last_complete_year"]))
                 with app.db_lock:
                     reference_rows = app.con.execute(ref_sql).fetchall()
                 s_ok, s_note = _check_sql(case, served_df, reference_rows, events)
@@ -275,19 +283,31 @@ def run(cases: list, label: str, provider: str, out_dir: str) -> dict:
                 if s_ok and a_ok:
                     break
             r = {
-                "id": case["id"], "tags": case.get("tags", []), "question": case["question"],
-                "sql_ok": sql_ok, "sql_note": sql_note, "answer_ok": ans_ok, "answer_note": ans_note,
-                "seconds": round(elapsed, 1), "repair_tried": repair_tried, "repaired": repaired,
-                "served_sql": sqls[-1] if sqls else None, "first_sql": sqls[0] if sqls else None,
+                "id": case["id"],
+                "tags": case.get("tags", []),
+                "question": case["question"],
+                "sql_ok": sql_ok,
+                "sql_note": sql_note,
+                "answer_ok": ans_ok,
+                "answer_note": ans_note,
+                "seconds": round(elapsed, 1),
+                "repair_tried": repair_tried,
+                "repaired": repaired,
+                "served_sql": sqls[-1] if sqls else None,
+                "first_sql": sqls[0] if sqls else None,
                 "answer": answer.strip(),
             }
             results.append(r)
             flag = "PASS" if sql_ok and ans_ok else ("SQL-ONLY" if sql_ok else "FAIL")
             fix = " (repaired)" if repaired else (" (repair tried)" if repair_tried else "")
-            print(f"[{flag:8s}] {case['id']:28s} {elapsed:5.1f}s{fix}\n"
-                  f"           sql: {sql_note}\n           answer: {ans_note}")
+            print(
+                f"[{flag:8s}] {case['id']:28s} {elapsed:5.1f}s{fix}\n"
+                f"           sql: {sql_note}\n           answer: {ans_note}"
+            )
     summary = {
-        "label": label, "model": model, "provider": get_preferred_tier(),
+        "label": label,
+        "model": model,
+        "provider": get_preferred_tier(),
         "when": dt.datetime.now().isoformat(timespec="seconds"),
         "cases": len(results),
         "sql_pass": sum(r["sql_ok"] for r in results),
@@ -300,10 +320,12 @@ def run(cases: list, label: str, provider: str, out_dir: str) -> dict:
         "results": results,
     }
     _write(summary, out_dir)
-    print(f"\n{summary['both_pass']}/{summary['cases']} pass "
-          f"(sql {summary['sql_pass']}, answer {summary['answer_pass']}); "
-          f"{summary['repairs']} repaired of {summary['repair_tries']} tried; "
-          f"mean {summary['mean_seconds']}s/question; model {model}")
+    print(
+        f"\n{summary['both_pass']}/{summary['cases']} pass "
+        f"(sql {summary['sql_pass']}, answer {summary['answer_pass']}); "
+        f"{summary['repairs']} repaired of {summary['repair_tries']} tried; "
+        f"mean {summary['mean_seconds']}s/question; model {model}"
+    )
     return summary
 
 
@@ -331,12 +353,24 @@ def _write(summary: dict, out_dir: str) -> None:
             note += f" · answer: {r['answer_note']}"
         if r["repaired"]:
             note += " · repaired"
-        lines.append(f"| {r['id']} | {', '.join(r['tags'])} | {'✅' if r['sql_ok'] else '❌'} | "
-                     f"{'✅' if r['answer_ok'] else '❌'} | {r['seconds']} | {note.replace('|', '/')} |")
+        lines.append(
+            f"| {r['id']} | {', '.join(r['tags'])} | {'✅' if r['sql_ok'] else '❌'} | "
+            f"{'✅' if r['answer_ok'] else '❌'} | {r['seconds']} | {note.replace('|', '/')} |"
+        )
     lines += ["", "## Answers", ""]
     for r in summary["results"]:
-        lines += [f"### {r['id']}", "", f"> {r['question']}", "",
-                  "```sql", r["served_sql"] or "(none)", "```", "", r["answer"] or "(no answer)", ""]
+        lines += [
+            f"### {r['id']}",
+            "",
+            f"> {r['question']}",
+            "",
+            "```sql",
+            r["served_sql"] or "(none)",
+            "```",
+            "",
+            r["answer"] or "(no answer)",
+            "",
+        ]
     with open(base + ".md", "w") as f:
         f.write("\n".join(lines))
     print(f"\nwrote {base}.md")

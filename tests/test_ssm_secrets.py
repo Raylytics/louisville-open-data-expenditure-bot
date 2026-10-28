@@ -4,6 +4,7 @@ Secrets are SecureStrings under SSM_PARAMETER_PATH and must land in os.environ
 before ADMIN_TOKEN and the LLM clients read it; an explicit env var wins; the
 values are never logged; without the variable the loader is a no-op.
 """
+
 import logging
 import os
 
@@ -18,6 +19,7 @@ def loader(monkeypatch):
     os.environ.setdefault("AWS_ACCESS_KEY_ID", "testing")
     os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "testing")
     import app
+
     return app._load_secrets_from_ssm
 
 
@@ -50,7 +52,8 @@ def test_loads_secure_strings_into_env_without_logging_values(loader, monkeypatc
 def test_explicit_env_wins_over_the_parameter(loader, monkeypatch):
     with mock_aws():
         boto3.client("ssm", region_name="us-east-1").put_parameter(
-            Name="/lou/test/ADMIN_TOKEN", Value="from-ssm", Type="SecureString")
+            Name="/lou/test/ADMIN_TOKEN", Value="from-ssm", Type="SecureString"
+        )
         monkeypatch.setenv("SSM_PARAMETER_PATH", "/lou/test")
         monkeypatch.setenv("ADMIN_TOKEN", "from-env")
         assert loader() == 0

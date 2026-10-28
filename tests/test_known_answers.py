@@ -41,6 +41,7 @@ def _app_source() -> str:
 
 # ── Agency spend ──────────────────────────────────────────────────────────────
 
+
 def test_top_agency_is_public_works(con):
     r = con.execute("SELECT agency FROM summary_agency_spend LIMIT 1").fetchone()
     assert r[0] == "Public Works & Assets"
@@ -53,11 +54,11 @@ def test_top_agency_spend_over_1b(con):
 
 # ── Annual spend ──────────────────────────────────────────────────────────────
 
+
 def test_fiscal_years_contiguous_from_2008(con):
     """One row per fiscal year, FY2008 through the newest loaded year, no gaps
     (FY2027 was added 2026-09-25)."""
-    n, lo, hi = con.execute(
-        "SELECT COUNT(*), MIN(fiscal_year), MAX(fiscal_year) FROM summary_annual_spend").fetchone()
+    n, lo, hi = con.execute("SELECT COUNT(*), MIN(fiscal_year), MAX(fiscal_year) FROM summary_annual_spend").fetchone()
     assert lo == 2008 and hi >= 2027
     assert n == hi - lo + 1
 
@@ -66,7 +67,8 @@ def test_annual_spend_range(con):
     """Complete years only: the newest (in-progress) year is a partial total."""
     r = con.execute(
         "SELECT MIN(total_spend), MAX(total_spend) FROM summary_annual_spend "
-        "WHERE fiscal_year < (SELECT MAX(fiscal_year) FROM summary_annual_spend)").fetchone()
+        "WHERE fiscal_year < (SELECT MAX(fiscal_year) FROM summary_annual_spend)"
+    ).fetchone()
     assert r[0] > 200_000_000  # lowest year > $200M
     assert r[1] < 700_000_000  # highest year < $700M
 
@@ -79,13 +81,12 @@ def test_peak_spending_year_is_2025(con):
 def test_newest_year_is_partial_year(con):
     """The newest fiscal year is still in progress, so its total must trail the
     last complete year."""
-    rows = con.execute(
-        "SELECT total_spend FROM summary_annual_spend ORDER BY fiscal_year DESC LIMIT 2"
-    ).fetchall()
+    rows = con.execute("SELECT total_spend FROM summary_annual_spend ORDER BY fiscal_year DESC LIMIT 2").fetchall()
     assert rows[0][0] < rows[1][0]
 
 
 # ── Largest payments / data artifacts ─────────────────────────────────────────
+
 
 def test_largest_payment_not_susteen(con):
     """SUSTEEN's $224M entry is a data artifact and must not surface in largest payments."""
@@ -114,6 +115,7 @@ def test_offsetting_rows_flagged(con):
 
 # ── Salaries ──────────────────────────────────────────────────────────────────
 
+
 def test_top_salary_is_police_chief(con):
     r = con.execute("SELECT job_title FROM summary_top_salaries LIMIT 1").fetchone()
     assert r[0] == "Police Chief"
@@ -125,11 +127,10 @@ def test_summary_top_salaries_year_matches_the_prompt_rule(con):
     year), which agree only when CalYears are contiguous — a gap would leave
     the model querying a year the materialized table never covered."""
     from data_model import year_context
+
     yc = year_context(con, fy_start_month=7)
     assert yc["salary"] is not None, "Louisville data should yield salary guidance"
-    table_year = con.execute(
-        "SELECT DISTINCT calendar_year FROM summary_top_salaries"
-    ).fetchall()
+    table_year = con.execute("SELECT DISTINCT calendar_year FROM summary_top_salaries").fetchall()
     assert len(table_year) == 1
     assert table_year[0][0] == yc["salary"]["last_complete_year"]
 
@@ -147,8 +148,7 @@ def test_top_salaries_magnitudes_and_scope(con):
     # (highest CalYear actually LOADED below the newest) — a computed MAX-1
     # would re-pin the assumption those two deliberately dropped.
     expected_year = con.execute(
-        "SELECT MAX(CalYear) FROM salary_data "
-        "WHERE CalYear < (SELECT MAX(CalYear) FROM salary_data)"
+        "SELECT MAX(CalYear) FROM salary_data WHERE CalYear < (SELECT MAX(CalYear) FROM salary_data)"
     ).fetchone()[0]
     # Guard against a vacuous pass: with a single loaded CalYear the summary
     # materializes empty and every assertion below would silently skip.
@@ -174,17 +174,21 @@ def test_top_salaries_magnitudes_and_scope(con):
 # A grand-total bar equals every other bar combined, doubling the axis. Real
 # payees are named "TOTAL ..." though, so both directions are pinned here.
 
+
 def _chart_df(pairs):
     return pd.DataFrame({"label": [p[0] for p in pairs], "value": [p[1] for p in pairs]})
 
 
-@pytest.mark.parametrize("label", [
-    "TOTAL - ALL GRANT FUNDS",   # the ROLLUP label the grant prompt mandates
-    "Total - Everything",        # lowercase / different suffix
-    "TOTAL",                     # bare total
-    "GRAND TOTAL",
-    "TOTAL ALL YEARS",
-])
+@pytest.mark.parametrize(
+    "label",
+    [
+        "TOTAL - ALL GRANT FUNDS",  # the ROLLUP label the grant prompt mandates
+        "Total - Everything",  # lowercase / different suffix
+        "TOTAL",  # bare total
+        "GRAND TOTAL",
+        "TOTAL ALL YEARS",
+    ],
+)
 def test_drop_total_rows_removes_total_labels(label):
     df = _chart_df([(label, 100.0), ("Alpha", 60.0), ("Beta", 40.0)])
     out = drop_total_rows(df, "label", "value")
@@ -210,12 +214,14 @@ def test_drop_total_rows_shape_match_does_not_inflate_baseline():
     # candidate must measure against the REMAINING rows. With the baseline
     # bug (grand computed over all rows) SUBTOTAL's `others` would be 150 and
     # it would survive; measured correctly it is 50 and gets dropped.
-    df = _chart_df([
-        ("TOTAL - ALL GRANT FUNDS", 100.0),
-        ("SUBTOTAL", 50.0),
-        ("Alpha", 30.0),
-        ("Beta", 20.0),
-    ])
+    df = _chart_df(
+        [
+            ("TOTAL - ALL GRANT FUNDS", 100.0),
+            ("SUBTOTAL", 50.0),
+            ("Alpha", 30.0),
+            ("Beta", 20.0),
+        ]
+    )
     out = drop_total_rows(df, "label", "value")
     assert out["label"].tolist() == ["Alpha", "Beta"]
 
@@ -227,12 +233,15 @@ def test_drop_total_rows_keeps_real_payee_in_mixed_sign_chart():
     assert "TOTAL TOOL SUPPLY INC" in drop_total_rows(df, "label", "value")["label"].tolist()
 
 
-@pytest.mark.parametrize("payee", [
-    "TOTAL TOOL SUPPLY INC",
-    "TOTAL ACCESS GROUP INC",
-    "TOTAL RENOVATIONS",
-    "TOTAL TRUCK PARTS INC",
-])
+@pytest.mark.parametrize(
+    "payee",
+    [
+        "TOTAL TOOL SUPPLY INC",
+        "TOTAL ACCESS GROUP INC",
+        "TOTAL RENOVATIONS",
+        "TOTAL TRUCK PARTS INC",
+    ],
+)
 def test_drop_total_rows_keeps_real_vendors_named_total(payee):
     df = _chart_df([(payee, 90.0), ("Alpha", 60.0), ("Beta", 40.0)])
     out = drop_total_rows(df, "label", "value")
@@ -340,20 +349,22 @@ def test_tech_topic_query_matches_prompt_and_returns_both_views(con):
 
 def test_prompt_topic_values_exist_in_the_data(con):
     """Agency/category literals named in the Topic Vocabulary must be real."""
-    for agency in ["Metro Technology Services", "Louisville Metro Police Department",
-                   "Louisville Fire", "Parks & Recreation", "Public Works & Assets"]:
-        n = con.execute(
-            "SELECT COUNT(*) FROM expenditures WHERE agency_canonical = ?", [agency]
-        ).fetchone()[0]
+    for agency in [
+        "Metro Technology Services",
+        "Louisville Metro Police Department",
+        "Louisville Fire",
+        "Parks & Recreation",
+        "Public Works & Assets",
+    ]:
+        n = con.execute("SELECT COUNT(*) FROM expenditures WHERE agency_canonical = ?", [agency]).fetchone()[0]
         assert n > 0, f"prompt names agency {agency!r} which has no rows"
     for cat in ["Computer Software", "Cloud Computing Services", "Software Maintenance"]:
-        n = con.execute(
-            "SELECT COUNT(*) FROM expenditures WHERE spend_category = ?", [cat]
-        ).fetchone()[0]
+        n = con.execute("SELECT COUNT(*) FROM expenditures WHERE spend_category = ?", [cat]).fetchone()[0]
         assert n > 0, f"prompt names spend_category {cat!r} which has no rows"
 
 
 # ── Expenditure types ─────────────────────────────────────────────────────────
+
 
 def test_expenditure_types_exist(con):
     r = con.execute("SELECT DISTINCT expenditure_type FROM summary_expenditure_type").fetchall()
@@ -363,10 +374,14 @@ def test_expenditure_types_exist(con):
 
 # ── Canonicalization ──────────────────────────────────────────────────────────
 
+
 def test_canonical_columns_exist(con):
-    cols = {c[0] for c in con.execute(
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'expenditures'"
-    ).fetchall()}
+    cols = {
+        c[0]
+        for c in con.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'expenditures'"
+        ).fetchall()
+    }
     assert {"agency_canonical", "payee_canonical"}.issubset(cols)
 
 
@@ -378,9 +393,7 @@ def test_agency_normalization_no_duplicates(con):
 
 def test_agency_canonicalization_collapses_variants(con):
     """Canonicalization must collapse the raw agency-name variants into fewer names."""
-    r = con.execute(
-        "SELECT COUNT(DISTINCT agency_canonical), COUNT(DISTINCT agency) FROM expenditures"
-    ).fetchone()
+    r = con.execute("SELECT COUNT(DISTINCT agency_canonical), COUNT(DISTINCT agency) FROM expenditures").fetchone()
     assert r[0] < r[1]
 
 
@@ -395,31 +408,28 @@ def test_payee_canonicalization_lge(con):
 
 def test_payee_canonicalization_cdw(con):
     """All CDW GOVT variants map to CDW LLC."""
-    rows = con.execute(
-        "SELECT DISTINCT payee_canonical FROM expenditures WHERE UPPER(payee) LIKE 'CDW%'"
-    ).fetchall()
+    rows = con.execute("SELECT DISTINCT payee_canonical FROM expenditures WHERE UPPER(payee) LIKE 'CDW%'").fetchall()
     assert [r[0] for r in rows] == ["CDW LLC"]
 
 
 # ── Contractors ───────────────────────────────────────────────────────────────
 
+
 def test_top_contractors_have_agents_and_spend(con):
     """summary_top_contractors is pre-filtered to rows with a registered agent and a spend total."""
     r = con.execute(
-        "SELECT COUNT(*) FROM summary_top_contractors "
-        "WHERE sos_registered_agent IS NULL OR total_spend IS NULL"
+        "SELECT COUNT(*) FROM summary_top_contractors WHERE sos_registered_agent IS NULL OR total_spend IS NULL"
     ).fetchone()
     assert r[0] == 0
 
 
 def test_top_contractor_is_lge(con):
-    r = con.execute(
-        "SELECT payee FROM summary_top_contractors ORDER BY total_spend DESC LIMIT 1"
-    ).fetchone()
+    r = con.execute("SELECT payee FROM summary_top_contractors ORDER BY total_spend DESC LIMIT 1").fetchone()
     assert r[0] == "Louisville Gas & Electric Company"
 
 
 # ── Compact schema (feeds the LLM system prompt) ──────────────────────────────
+
 
 def test_compact_schema_excludes_internal_tables(con):
     schema = get_compact_schema_description(con)
@@ -444,24 +454,30 @@ def test_compact_schema_enumerates_only_low_cardinality(con):
 
 def test_compact_schema_smaller_than_full(con):
     from data_model import get_full_schema_description
+
     assert len(get_compact_schema_description(con)) < len(get_full_schema_description(con))
 
 
 # ── Chart inference (infer_chart) ─────────────────────────────────────────────
 # Pure-function tests pinning the axis/type selection against regression.
 
+
 def test_chart_constant_year_topn_is_not_a_line():
     """The bug: a 'top 5 in 2025' result carries a constant fiscal_year column.
     It must chart the entity that varies, not draw a line across identical years."""
-    df = pd.DataFrame({
-        "fiscal_year": [2025] * 5,
-        "agency": list("ABCDE"),
-        "total_extended_spend": [8.3, 4.5, 2.9, 1.9, 1.4],
-    })
-    sql = ("SELECT fiscal_year, agency, SUM(x) AS total_extended_spend FROM expenditures "
-           "WHERE fiscal_year = 2025 GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 5")
+    df = pd.DataFrame(
+        {
+            "fiscal_year": [2025] * 5,
+            "agency": list("ABCDE"),
+            "total_extended_spend": [8.3, 4.5, 2.9, 1.9, 1.4],
+        }
+    )
+    sql = (
+        "SELECT fiscal_year, agency, SUM(x) AS total_extended_spend FROM expenditures "
+        "WHERE fiscal_year = 2025 GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 5"
+    )
     chart_type, label_col, value_col = infer_chart(df, sql)
-    assert label_col == "agency"                 # varying dimension, not constant year
+    assert label_col == "agency"  # varying dimension, not constant year
     assert value_col == "total_extended_spend"
     # A top-5 is a slice of a larger whole, so it is bars, not a pie of five
     # slices that pretend the other agencies do not exist.
@@ -473,30 +489,49 @@ def test_chart_a_complete_partition_of_a_few_positive_parts_is_a_pie():
     three to six positive slices, a categorical axis — the one shape a pie
     tells honestly."""
     from data_model import is_share_of_whole
-    df = pd.DataFrame({"expenditure_type": ["Operating", "Capital", "Debt Service"],
-                       "total_spend": [8.1e8, 1.9e8, 0.6e8]})
-    sql = ("SELECT expenditure_type, ROUND(SUM(extended_amount), 2) AS total_spend "
-           "FROM expenditures WHERE fiscal_year = 2025 GROUP BY 1 ORDER BY 2 DESC")
+
+    df = pd.DataFrame(
+        {"expenditure_type": ["Operating", "Capital", "Debt Service"], "total_spend": [8.1e8, 1.9e8, 0.6e8]}
+    )
+    sql = (
+        "SELECT expenditure_type, ROUND(SUM(extended_amount), 2) AS total_spend "
+        "FROM expenditures WHERE fiscal_year = 2025 GROUP BY 1 ORDER BY 2 DESC"
+    )
     assert is_share_of_whole(df, "expenditure_type", "total_spend", sql)
     assert infer_chart(df, sql)[0] == "pie"
     # A ROLLUP total is not a slice: it is set aside before counting, and the
     # remaining rows still qualify.
-    with_total = pd.concat([df, pd.DataFrame({"expenditure_type": ["TOTAL"],
-                                              "total_spend": [8.6e8]})], ignore_index=True)
+    with_total = pd.concat(
+        [df, pd.DataFrame({"expenditure_type": ["TOTAL"], "total_spend": [8.6e8]})], ignore_index=True
+    )
     assert infer_chart(with_total, sql)[0] == "pie"
     # A ROLLUP total has a NULL label: set aside when the SQL says ROLLUP,
     # or when its value is the sum of the parts; either way still a pie.
-    null_total = pd.concat([df, pd.DataFrame({"expenditure_type": [None],
-                                              "total_spend": [10.6e8]})], ignore_index=True)
+    null_total = pd.concat([df, pd.DataFrame({"expenditure_type": [None], "total_spend": [10.6e8]})], ignore_index=True)
     assert infer_chart(null_total, sql.replace("GROUP BY 1", "GROUP BY ROLLUP(1)"))[0] == "pie"
     assert infer_chart(null_total, sql)[0] == "pie"
 
 
-@pytest.mark.parametrize("case", ["limit", "no_sql", "two_rows", "seven_rows",
-                                  "negative", "zero", "time_axis", "limit_in_cte",
-                                  "where_in_label", "where_eq_label", "having",
-                                  "rollup_null_total", "null_group", "repeated_labels",
-                                  "rollup_with_real_null_group"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "limit",
+        "no_sql",
+        "two_rows",
+        "seven_rows",
+        "negative",
+        "zero",
+        "time_axis",
+        "limit_in_cte",
+        "where_in_label",
+        "where_eq_label",
+        "having",
+        "rollup_null_total",
+        "null_group",
+        "repeated_labels",
+        "rollup_with_real_null_group",
+    ],
+)
 def test_chart_pie_is_refused_whenever_the_slices_are_not_one_whole(case):
     """Each case was a pie under the old 'five rows or fewer' rule and is a
     bar now. A bar is correct for every one of them; a pie is wrong for each."""
@@ -522,15 +557,21 @@ def test_chart_pie_is_refused_whenever_the_slices_are_not_one_whole(case):
         labels = ["FY2022", "FY2023", "FY2024", "FY2025"]
         sql = f"SELECT {col}, SUM(x) AS total_spend FROM expenditures GROUP BY 1 ORDER BY 1"
     elif case == "limit_in_cte":
-        sql = ("WITH top AS (SELECT agency_canonical FROM summary_agency_spend "
-               "ORDER BY total_spend DESC LIMIT 4) " + sql + " WHERE agency_canonical IN (SELECT * FROM top)")
+        sql = (
+            "WITH top AS (SELECT agency_canonical FROM summary_agency_spend "
+            "ORDER BY total_spend DESC LIMIT 4) " + sql + " WHERE agency_canonical IN (SELECT * FROM top)"
+        )
     elif case == "where_in_label":
         # "Compare Police, Fire, Parks and Public Works": four of eighty.
-        sql = (f"SELECT {col}, SUM(x) AS total_spend FROM expenditures WHERE {col} IN "
-               "('Parks', 'Police', 'Fire', 'Public Works') GROUP BY 1 ORDER BY 2 DESC")
+        sql = (
+            f"SELECT {col}, SUM(x) AS total_spend FROM expenditures WHERE {col} IN "
+            "('Parks', 'Police', 'Fire', 'Public Works') GROUP BY 1 ORDER BY 2 DESC"
+        )
     elif case == "where_eq_label":
-        sql = (f"SELECT e.{col}, SUM(x) AS total_spend FROM expenditures e WHERE fiscal_year = 2025 "
-               f"AND e.{col} LIKE 'P%' GROUP BY 1 ORDER BY 2 DESC")
+        sql = (
+            f"SELECT e.{col}, SUM(x) AS total_spend FROM expenditures e WHERE fiscal_year = 2025 "
+            f"AND e.{col} LIKE 'P%' GROUP BY 1 ORDER BY 2 DESC"
+        )
     elif case == "having":
         sql += " HAVING SUM(x) > 1000000"
     elif case == "rollup_null_total":
@@ -562,8 +603,11 @@ def test_a_where_on_another_column_keeps_the_pie():
     """A fiscal-year filter narrows the population, not the partition: every
     expenditure type of that year is still shown, so it is still a whole."""
     from data_model import sql_filters_label
-    sql = ("SELECT expenditure_type, SUM(x) AS total_spend FROM expenditures "
-           "WHERE fiscal_year = 2025 AND is_data_artifact = FALSE GROUP BY 1 ORDER BY 2 DESC")
+
+    sql = (
+        "SELECT expenditure_type, SUM(x) AS total_spend FROM expenditures "
+        "WHERE fiscal_year = 2025 AND is_data_artifact = FALSE GROUP BY 1 ORDER BY 2 DESC"
+    )
     assert not sql_filters_label(sql, "expenditure_type")
     assert sql_filters_label(sql, "fiscal_year")
     # `type` must not match inside `expenditure_type`, in either direction.
@@ -573,11 +617,15 @@ def test_a_where_on_another_column_keeps_the_pie():
     assert not sql_filters_label("SELECT fund FROM t WHERE note = 'fund' GROUP BY 1", "fund")
     # A WHERE inside a CTE or derived table ends at its closing paren; it
     # must not run on into the outer SELECT list.
-    cte = ("WITH base AS (SELECT * FROM expenditures WHERE fiscal_year = 2025) "
-           "SELECT agency_canonical, SUM(x) AS total_spend FROM base GROUP BY 1 ORDER BY 2 DESC")
+    cte = (
+        "WITH base AS (SELECT * FROM expenditures WHERE fiscal_year = 2025) "
+        "SELECT agency_canonical, SUM(x) AS total_spend FROM base GROUP BY 1 ORDER BY 2 DESC"
+    )
     assert not sql_filters_label(cte, "agency_canonical")
-    derived = ("SELECT agency_canonical, SUM(x) AS total_spend FROM (SELECT * FROM expenditures "
-               "WHERE fiscal_year = 2025) e GROUP BY 1")
+    derived = (
+        "SELECT agency_canonical, SUM(x) AS total_spend FROM (SELECT * FROM expenditures "
+        "WHERE fiscal_year = 2025) e GROUP BY 1"
+    )
     assert not sql_filters_label(derived, "agency_canonical")
     # ...while a subquery INSIDE the clause is still part of it.
     assert sql_filters_label("SELECT fund, SUM(x) FROM t WHERE fund IN (SELECT fund FROM top) GROUP BY 1", "fund")
@@ -586,6 +634,7 @@ def test_a_where_on_another_column_keeps_the_pie():
 
 def test_sql_limits_result_ignores_literals_and_comments():
     from data_model import sql_limits_result
+
     assert sql_limits_result("SELECT a FROM t ORDER BY b LIMIT 10")
     assert sql_limits_result("SELECT a FROM t FETCH FIRST 5 ROWS ONLY")
     assert not sql_limits_result("SELECT a FROM t WHERE note = 'no limit here' -- limit")
@@ -594,8 +643,7 @@ def test_sql_limits_result_ignores_literals_and_comments():
 
 
 def test_chart_annual_trend_is_a_line():
-    df = pd.DataFrame({"fiscal_year": list(range(2008, 2027)),
-                       "total_spend": [float(i) for i in range(19)]})
+    df = pd.DataFrame({"fiscal_year": list(range(2008, 2027)), "total_spend": [float(i) for i in range(19)]})
     chart_type, label_col, value_col = infer_chart(df)
     assert (chart_type, label_col, value_col) == ("line", "fiscal_year", "total_spend")
 
@@ -603,8 +651,7 @@ def test_chart_annual_trend_is_a_line():
 def test_chart_numeric_month_is_a_line_but_month_names_are_not():
     nums = pd.DataFrame({"month": list(range(1, 13)), "total": [float(i) for i in range(12)]})
     assert infer_chart(nums)[0] == "line"
-    names = pd.DataFrame({"month": ["April", "August", "December", "February"],
-                          "total": [4.0, 3.0, 2.0, 1.0]})
+    names = pd.DataFrame({"month": ["April", "August", "December", "February"], "total": [4.0, 3.0, 2.0, 1.0]})
     # Lexicographic sort would mislead, so not a line — and a time axis is
     # never a pie either, so the downgrade lands on bars.
     assert infer_chart(names)[0] == "bar"
@@ -612,25 +659,30 @@ def test_chart_numeric_month_is_a_line_but_month_names_are_not():
 
 def test_chart_prefers_dollar_measure_over_count():
     """SELECT payee, SUM(amount) AS total, COUNT(*) AS num_invoices -> chart dollars."""
-    df = pd.DataFrame({
-        "payee": list("ABCDE"),
-        "total": [9.0, 7.0, 5.0, 3.0, 1.0],   # float measure
-        "num_invoices": [50, 40, 30, 20, 10],  # int count
-    })
+    df = pd.DataFrame(
+        {
+            "payee": list("ABCDE"),
+            "total": [9.0, 7.0, 5.0, 3.0, 1.0],  # float measure
+            "num_invoices": [50, 40, 30, 20, 10],  # int count
+        }
+    )
     assert infer_chart(df)[2] == "total"
 
 
 def test_chart_handles_nullable_and_string_dtypes():
     """Int32 measure and pandas string-dtype dimension should still chart."""
-    df = pd.DataFrame({
-        "category": pd.array(["A", "B", "C", "D", "E", "F"], dtype="string"),
-        "spend": pd.array([6, 5, 4, 3, 2, 1], dtype="Int32"),
-    })
+    df = pd.DataFrame(
+        {
+            "category": pd.array(["A", "B", "C", "D", "E", "F"], dtype="string"),
+            "spend": pd.array([6, 5, 4, 3, 2, 1], dtype="Int32"),
+        }
+    )
     chart_type, label_col, value_col = infer_chart(df)
     assert label_col == "category" and value_col == "spend" and chart_type == "bar"
 
 
 # ── Volume ────────────────────────────────────────────────────────────────────
+
 
 def test_total_expenditure_rows(con):
     r = con.execute("SELECT COUNT(*) FROM expenditures").fetchone()
@@ -641,14 +693,11 @@ def test_arp_relief_money_is_labelled_the_way_the_prompt_says(con):
     """The SQL prompt tells the model ARPA money lives under fund = 'ARP'.
     That is a claim about the data: if a refresh renames the fund, the prompt
     starts producing confident $0 answers about a real $37M program."""
-    funds = {r[0] for r in con.execute(
-        "SELECT DISTINCT fund FROM expenditures WHERE fund IS NOT NULL"
-    ).fetchall()}
+    funds = {r[0] for r in con.execute("SELECT DISTINCT fund FROM expenditures WHERE fund IS NOT NULL").fetchall()}
     assert "ARP" in funds, "fund 'ARP' vanished — the prompt's ARPA mapping is now wrong"
     # matching the filter the prompt prescribes, artifact exclusion included
     total = con.execute(
-        "SELECT SUM(extended_amount) FROM expenditures "
-        "WHERE fund = 'ARP' AND is_data_artifact = FALSE"
+        "SELECT SUM(extended_amount) FROM expenditures WHERE fund = 'ARP' AND is_data_artifact = FALSE"
     ).fetchone()[0]
     assert total and total > 1_000_000, f"fund 'ARP' holds only {total}"
     # the spelling the model reaches for on its own must still match nothing,
@@ -677,27 +726,38 @@ def test_prompt_topic_mappings_name_values_that_exist(con):
     contains the string: the prompt can name 'Metro Technology Services'
     forever while the canonical map renames it, and every source-text assertion
     stays green while the query returns nothing."""
-    agencies = {r[0] for r in con.execute(
-        "SELECT DISTINCT agency_canonical FROM expenditures WHERE agency_canonical IS NOT NULL"
-    ).fetchall()}
+    agencies = {
+        r[0]
+        for r in con.execute(
+            "SELECT DISTINCT agency_canonical FROM expenditures WHERE agency_canonical IS NOT NULL"
+        ).fetchall()
+    }
     src = _app_source()
-    for name in ("Louisville Metro Police Department", "Louisville Fire",
-                 "Parks & Recreation", "Public Works & Assets",
-                 "Metro Technology Services"):
+    for name in (
+        "Louisville Metro Police Department",
+        "Louisville Fire",
+        "Parks & Recreation",
+        "Public Works & Assets",
+        "Metro Technology Services",
+    ):
         assert name in src, f"{name} no longer referenced in the prompt"
         assert name in agencies, f"prompt names agency '{name}' that is not in the data"
 
 
 # ── humanize_text: labels belong in tables, not in the middle of sentences ────
 
+
 def test_prose_mode_leaves_ordinary_english_words_alone():
     """`Other` is a salary column labelled "Other Pay", so the unrestricted
     mapping rewrote "Other notable spends" into "Other Pay notable spends".
     Every word here is a real column name in some shipped table."""
     from data_model import humanize_text
-    sentence = ("Other notable spends include the fund for a program in that "
-                "region; the Chief approved the Allocation, and the "
-                "Description of the project names the department and payee.")
+
+    sentence = (
+        "Other notable spends include the fund for a program in that "
+        "region; the Chief approved the Allocation, and the "
+        "Description of the project names the department and payee."
+    )
     assert humanize_text(sentence, prose=True) == sentence
 
 
@@ -706,16 +766,16 @@ def test_prose_mode_still_removes_camel_and_shouted_jargon():
     LICENSENO, which then streamed into answers raw — the exact jargon this
     function exists to remove."""
     from data_model import humanize_text
-    out = humanize_text("Pay for the jobTitle listed in CalYear, plus the "
-                        "LICENSENO on file.", prose=True)
+
+    out = humanize_text("Pay for the jobTitle listed in CalYear, plus the LICENSENO on file.", prose=True)
     for jargon in ("jobTitle", "CalYear", "LICENSENO"):
         assert jargon not in out, f"{jargon} survived prose humanization"
 
 
 def test_prose_mode_still_humanizes_real_identifiers():
     from data_model import humanize_text
-    out = humanize_text("Totals come from extended_amount by agency_canonical.",
-                        prose=True)
+
+    out = humanize_text("Totals come from extended_amount by agency_canonical.", prose=True)
     assert "extended_amount" not in out and "agency_canonical" not in out
     assert "Extended Amount" in out
 
@@ -724,23 +784,28 @@ def test_table_mode_still_maps_bare_column_names():
     """In a results table a bare `Other` really is the column — prose mode
     must not have weakened the table path."""
     from data_model import humanize_text
+
     assert humanize_text("Other") != "Other"
     assert humanize_text("extended_amount") == humanize_text("extended_amount", prose=True)
 
 
 # ── chart inference must not refuse what the renderer would happily truncate ──
 
+
 def test_a_ranking_longer_than_the_render_cap_still_charts():
-    """"Which agencies have spent the most?" returns 61 rows and produced NO
+    """ "Which agencies have spent the most?" returns 61 rows and produced NO
     chart, while the same query capped at 50 charted fine — the inference
     ceiling sat below the renderer's own reach. A ranked result that merely
     needs truncating is the most chartable shape there is."""
     import pandas as pd
     from data_model import infer_chart, CHART_MAX_POINTS, CHART_MAX_ROWS
-    df = pd.DataFrame({
-        "agency_canonical": [f"Agency {i}" for i in range(61)],
-        "total_spend": [float(1_000_000_000 - i * 10_000_000) for i in range(61)],
-    })
+
+    df = pd.DataFrame(
+        {
+            "agency_canonical": [f"Agency {i}" for i in range(61)],
+            "total_spend": [float(1_000_000_000 - i * 10_000_000) for i in range(61)],
+        }
+    )
     assert infer_chart(df)[0] == "bar"
     # the ceiling must stay clear of the render cap, or this regresses quietly
     assert CHART_MAX_ROWS > CHART_MAX_POINTS
@@ -751,8 +816,10 @@ def test_a_raw_dump_is_still_refused():
     by whichever 30 rows happen to come first."""
     import pandas as pd
     from data_model import infer_chart, CHART_MAX_ROWS
-    df = pd.DataFrame({"payee": [f"P{i}" for i in range(CHART_MAX_ROWS + 1)],
-                       "amt": [float(i) for i in range(CHART_MAX_ROWS + 1)]})
+
+    df = pd.DataFrame(
+        {"payee": [f"P{i}" for i in range(CHART_MAX_ROWS + 1)], "amt": [float(i) for i in range(CHART_MAX_ROWS + 1)]}
+    )
     assert infer_chart(df)[0] is None
 
 
@@ -761,8 +828,8 @@ def test_a_truncated_ranking_keeps_the_top_and_says_so():
     ranking."""
     import pandas as pd
     from data_model import chart_window, CHART_MAX_POINTS
-    df = pd.DataFrame({"agency": [f"A{i}" for i in range(61)],
-                       "total_spend": [float(1000 - i) for i in range(61)]})
+
+    df = pd.DataFrame({"agency": [f"A{i}" for i in range(61)], "total_spend": [float(1000 - i) for i in range(61)]})
     out, note = chart_window(df, "bar", "agency", "total_spend")
     assert len(out) == CHART_MAX_POINTS
     assert note == f"top {CHART_MAX_POINTS} of 61"
@@ -776,6 +843,7 @@ def test_a_truncated_time_series_keeps_the_NEWEST_points():
     data it cut. This is the regression that raising the ceiling introduced."""
     import pandas as pd
     from data_model import chart_window, CHART_MAX_POINTS
+
     months = pd.date_range("2021-01-01", periods=61, freq="MS").strftime("%Y-%m")
     df = pd.DataFrame({"month": months, "total_spend": [float(i) for i in range(61)]})
     out, note = chart_window(df, "line", "month", "total_spend")
@@ -788,8 +856,8 @@ def test_an_unranked_bar_result_does_not_claim_to_be_a_top_n():
     """A result the SQL ordered by name is just the first N of M."""
     import pandas as pd
     from data_model import chart_window, CHART_MAX_POINTS
-    df = pd.DataFrame({"payee": [f"P{i:03d}" for i in range(61)],
-                       "amt": [float((i * 37) % 61) for i in range(61)]})
+
+    df = pd.DataFrame({"payee": [f"P{i:03d}" for i in range(61)], "amt": [float((i * 37) % 61) for i in range(61)]})
     _, note = chart_window(df, "bar", "payee", "amt")
     assert note == f"{CHART_MAX_POINTS} of 61"
     assert "top" not in note
@@ -798,12 +866,14 @@ def test_an_unranked_bar_result_does_not_claim_to_be_a_top_n():
 def test_a_frame_that_fits_is_left_alone():
     import pandas as pd
     from data_model import chart_window
+
     df = pd.DataFrame({"a": ["x", "y"], "v": [2.0, 1.0]})
     out, note = chart_window(df, "bar", "a", "v")
     assert note is None and len(out) == 2
 
 
 # ── a cached answer can never replay a dead citation link ────────────────────
+
 
 def test_the_citation_format_participates_in_the_cache_version():
     """A cached answer replays its stored SSE frames verbatim and never
@@ -813,10 +883,9 @@ def test_the_citation_format_participates_in_the_cache_version():
     pre-warmed starter answers kept serving 'Invalid parameters!' forever."""
     src = _app_source()
     assert "CITATION_FORMAT" in src
-    version_call = src[src.index("CACHE_VERSION = hashlib.sha1("):]
-    version_call = version_call[:version_call.index(").hexdigest()")]
-    assert "CITATION_FORMAT" in version_call, \
-        "a citation-format change must orphan every cached answer"
+    version_call = src[src.index("CACHE_VERSION = hashlib.sha1(") :]
+    version_call = version_call[: version_call.index(").hexdigest()")]
+    assert "CITATION_FORMAT" in version_call, "a citation-format change must orphan every cached answer"
 
 
 def test_loading_the_cache_drops_entries_with_dead_links(tmp_path, monkeypatch):
@@ -824,6 +893,7 @@ def test_loading_the_cache_drops_entries_with_dead_links(tmp_path, monkeypatch):
     which only helps the one time someone remembers to change it."""
     import json as _json
     import app
+
     good_key, dead_key = "v1:good question", "v1:dead question"
     cache = {
         good_key: ['data: {"type": "sources", "content": "Gateway.aspx?M=L&ID=1"}\n\n'],
@@ -847,10 +917,11 @@ def test_a_month_series_keeps_its_newest_end_end_to_end(order):
     the truncation the tail branch was added to prevent. Runs the real
     infer_chart -> chart_window path rather than asserting a chart type."""
     from data_model import infer_chart, chart_window, CHART_MAX_POINTS
+
     months = pd.date_range("2021-01-01", periods=61, freq="MS").strftime("%Y-%m")
     spend = [float(i) for i in range(61)]
     df = pd.DataFrame({"month": months, "total_spend": spend})
-    if order == "descending":            # SQL that ordered newest-first
+    if order == "descending":  # SQL that ordered newest-first
         df = df.iloc[::-1].reset_index(drop=True)
 
     chart_type, label_col, value_col = infer_chart(df)
@@ -867,6 +938,7 @@ def test_a_month_axis_truncates_from_the_right_end_even_as_a_bar():
     that lands on the categorical path for any other reason still keeps its
     recent end instead of its oldest."""
     from data_model import chart_window, CHART_MAX_POINTS
+
     months = pd.date_range("2021-01-01", periods=61, freq="MS").strftime("%Y-%m")
     df = pd.DataFrame({"month": months, "amt": [float(i) for i in range(61)]})
     out, note = chart_window(df, "bar", "month", "amt")
@@ -878,8 +950,10 @@ def test_a_non_chronological_label_is_not_mistaken_for_a_time_axis():
     """Month NAMES mis-sort lexicographically, which is why infer_chart
     downgrades them. chart_window must not then treat them as ordered time."""
     from data_model import chart_window, CHART_MAX_POINTS
-    names = [f"{m} 2021" for m in
-             ("Apr", "Aug", "Dec", "Feb", "Jan", "Jul", "Jun", "Mar", "May", "Nov", "Oct", "Sep")] * 6
+
+    names = [
+        f"{m} 2021" for m in ("Apr", "Aug", "Dec", "Feb", "Jan", "Jul", "Jun", "Mar", "May", "Nov", "Oct", "Sep")
+    ] * 6
     df = pd.DataFrame({"month_name": names[:61], "amt": [float(61 - i) for i in range(61)]})
     _, note = chart_window(df, "bar", "month_name", "amt")
     assert note == f"top {CHART_MAX_POINTS} of 61", "values descend, so this is a ranking"
@@ -895,6 +969,7 @@ def test_one_null_time_bucket_does_not_flip_the_truncation_end(dtype):
     route. Nulls are real here: the Louisville pack filters `fiscal_year IS NOT
     NULL` because the raw rows carry them, and generated SQL may not."""
     from data_model import infer_chart, chart_window, CHART_MAX_POINTS
+
     stamps = pd.date_range("2021-01-01", periods=61, freq="MS")
     if dtype == "datetime":
         axis = pd.Series(list(stamps))
@@ -918,14 +993,16 @@ def test_one_null_time_bucket_does_not_flip_the_truncation_end(dtype):
     # The null bucket sorts LAST, so before it was dropped it rendered as a bar
     # labelled "NaT"/"None" at the newest position, carrying a real total.
     rendered = out["month"].astype(str).tolist()
-    assert not [lbl for lbl in rendered if lbl in ("NaT", "None", "nan")], \
+    assert not [lbl for lbl in rendered if lbl in ("NaT", "None", "nan")], (
         f"a null bucket was charted as a real point: {rendered[-3:]}"
+    )
     assert out["month"].notna().all()
 
 
 def test_an_all_null_axis_is_not_treated_as_ordered_time():
     """Nothing to order by, so it must not claim a chronological window."""
     from data_model import is_chronological
+
     assert not is_chronological(pd.Series([None, None, None], dtype="object"))
     assert not is_chronological(pd.Series([pd.NaT, pd.NaT]))
 
@@ -936,6 +1013,7 @@ def test_a_null_label_is_never_charted_as_a_point():
     SUM, which a reader takes for the current month. It is not a category
     either, so it is dropped for every chart type, not only time axes."""
     from data_model import chart_window, CHART_MAX_POINTS
+
     labels = [f"Agency {i}" for i in range(60)] + [None]
     df = pd.DataFrame({"agency": labels, "amt": [float(100 - i) for i in range(61)]})
     out, note = chart_window(df, "bar", "agency", "amt")
@@ -946,13 +1024,14 @@ def test_a_null_label_is_never_charted_as_a_point():
 def test_a_mostly_null_axis_leaves_nothing_to_chart():
     """The caller re-checks after chart_window for exactly this."""
     from data_model import chart_window
-    df = pd.DataFrame({"month": [None] * 60 + ["2026-01"],
-                       "amt": [float(i) for i in range(61)]})
+
+    df = pd.DataFrame({"month": [None] * 60 + ["2026-01"], "amt": [float(i) for i in range(61)]})
     out, _ = chart_window(df, "line", "month", "amt")
     assert len(out) < 2, "app.py raises on this and skips the chart"
 
 
 # ── an unordered result is not a random one ──────────────────────────────────
+
 
 def test_an_unordered_result_leads_with_the_largest_value():
     """Generated SQL often omits ORDER BY entirely — the reported case was a
@@ -961,11 +1040,14 @@ def test_an_unordered_result_leads_with_the_largest_value():
     a bar chart whose bars jump around, for a question that plainly meant
     "who earns the most"."""
     from data_model import order_for_display
-    df = pd.DataFrame({
-        "role": ["Mayor", "Mayor", "Police Chief", "Police Chief"],
-        "employee": ["James", "Greenberg", "Bates", "Humphrey"],
-        "ytd_total": [146035.41, 158115.58, 201104.74, 267811.04],
-    })
+
+    df = pd.DataFrame(
+        {
+            "role": ["Mayor", "Mayor", "Police Chief", "Police Chief"],
+            "employee": ["James", "Greenberg", "Bates", "Humphrey"],
+            "ytd_total": [146035.41, 158115.58, 201104.74, 267811.04],
+        }
+    )
     out = order_for_display(df, "SELECT ... UNION ALL SELECT ...;")
     assert out["employee"].tolist() == ["Humphrey", "Bates", "Greenberg", "James"]
     assert out["ytd_total"].is_monotonic_decreasing
@@ -975,10 +1057,13 @@ def test_an_explicit_order_by_is_never_second_guessed():
     """An ORDER BY is an expressed intent, even when it disagrees with the
     heuristic — including one that sorts ascending on purpose."""
     from data_model import order_for_display
+
     df = pd.DataFrame({"payee": ["A", "B", "C"], "amt": [3.0, 1.0, 2.0]})
-    for sql in ("SELECT payee, amt FROM t ORDER BY payee",
-                "select * from t order by amt asc",
-                "SELECT * FROM t\nORDER   BY  amt DESC"):
+    for sql in (
+        "SELECT payee, amt FROM t ORDER BY payee",
+        "select * from t order by amt asc",
+        "SELECT * FROM t\nORDER   BY  amt DESC",
+    ):
         assert order_for_display(df, sql)["amt"].tolist() == [3.0, 1.0, 2.0], sql
 
 
@@ -986,14 +1071,15 @@ def test_a_time_keyed_result_keeps_its_chronology():
     """Chronology is the order of a trend, so reordering by value would make
     the table nonsense and fight the chart layer, which sorts by axis."""
     from data_model import order_for_display
-    df = pd.DataFrame({"fiscal_year": [2024, 2025, 2026],
-                       "total_spend": [5.0, 9.0, 1.0]})
+
+    df = pd.DataFrame({"fiscal_year": [2024, 2025, 2026], "total_spend": [5.0, 9.0, 1.0]})
     assert order_for_display(df, "SELECT ... GROUP BY 1")["fiscal_year"].tolist() == [2024, 2025, 2026]
 
 
 def test_reordering_is_stable_and_safe_on_odd_input():
     """Ties keep the order the query produced; nothing here may raise."""
     from data_model import order_for_display
+
     tied = pd.DataFrame({"name": ["first", "second"], "amt": [7.0, 7.0]})
     assert order_for_display(tied, "SELECT 1")["name"].tolist() == ["first", "second"]
     # no measure to sort by, single row, and a missing sql are all no-ops
@@ -1008,7 +1094,6 @@ def test_the_prompt_asks_for_an_explicit_order_by():
     src = _app_source()
     assert "ALWAYS give a multi-row result an explicit ORDER BY" in src
     assert "UNION ALL queries too" in src
-
 
 
 # ── which results may be reordered at all ────────────────────────────────────
@@ -1035,62 +1120,90 @@ _CTE_OUTER_LIMIT_SQL = (
 )
 
 
-@pytest.mark.parametrize("sql,ordered,why", [
-    # Reorderable: nothing in the statement speaks to row order.
-    ("SELECT a, b FROM t", False, "no ORDER BY at all"),
-    ("SELECT ... UNION ALL SELECT ...", False, "the reported salary query"),
-    ("SELECT p, SUM(a) AS total FROM e GROUP BY 1", False, "a plain aggregate"),
-    ("SELECT * FROM t WHERE payee = 'ORDER BY INC'", False, "string literal"),
-    ("SELECT * FROM t -- ORDER BY amt", False, "line comment"),
-    ("SELECT * FROM t /* ORDER BY amt */", False, "block comment"),
-    ("SELECT reorder_by FROM t", False, "word boundary"),
-    # Not reorderable: the query said something about order, so it is left alone.
-    ("SELECT a FROM t ORDER BY a", True, "plain top-level clause"),
-    ("select * from t order   by  amt desc", True, "case and whitespace"),
-    (_CTE_BOTTOM_N_SQL, True, "bottom-N, LIMIT inside the CTE"),
-    (_CTE_OUTER_LIMIT_SQL, True, "bottom-N, LIMIT on the enclosing SELECT"),
-    (_WINDOW_FN_SQL, True, "a window ORDER BY counts too — it may be a rank filter"),
-    (_WINDOW_FN_SQL.replace("DESC", "ASC"), True, "the bottom-N sibling likewise"),
-    ("SELECT p, SUM(a) AS total FROM e GROUP BY 1 "
-     "QUALIFY ROW_NUMBER() OVER (ORDER BY SUM(a) ASC) <= 10", True,
-     "QUALIFY filters a rank with no subquery at all"),
-    ("SELECT p, total, SUM(total) OVER (ORDER BY d) AS running FROM e", True,
-     "ACCEPTED COST: a value window decorates rather than selects, but "
-     "telling the two apart is what leaked seven times"),
-    ("SELECT p, d, amt FROM (SELECT *, ROW_NUMBER() OVER "
-     "(PARTITION BY p ORDER BY d DESC) rn FROM e) WHERE rn = 1", True,
-     "ACCEPTED COST: the de-duplication idiom is genuinely arbitrary across "
-     "entities, but its rank key is indistinguishable from a bottom-N's"),
-])
+@pytest.mark.parametrize(
+    "sql,ordered,why",
+    [
+        # Reorderable: nothing in the statement speaks to row order.
+        ("SELECT a, b FROM t", False, "no ORDER BY at all"),
+        ("SELECT ... UNION ALL SELECT ...", False, "the reported salary query"),
+        ("SELECT p, SUM(a) AS total FROM e GROUP BY 1", False, "a plain aggregate"),
+        ("SELECT * FROM t WHERE payee = 'ORDER BY INC'", False, "string literal"),
+        ("SELECT * FROM t -- ORDER BY amt", False, "line comment"),
+        ("SELECT * FROM t /* ORDER BY amt */", False, "block comment"),
+        ("SELECT reorder_by FROM t", False, "word boundary"),
+        # Not reorderable: the query said something about order, so it is left alone.
+        ("SELECT a FROM t ORDER BY a", True, "plain top-level clause"),
+        ("select * from t order   by  amt desc", True, "case and whitespace"),
+        (_CTE_BOTTOM_N_SQL, True, "bottom-N, LIMIT inside the CTE"),
+        (_CTE_OUTER_LIMIT_SQL, True, "bottom-N, LIMIT on the enclosing SELECT"),
+        (_WINDOW_FN_SQL, True, "a window ORDER BY counts too — it may be a rank filter"),
+        (_WINDOW_FN_SQL.replace("DESC", "ASC"), True, "the bottom-N sibling likewise"),
+        (
+            "SELECT p, SUM(a) AS total FROM e GROUP BY 1 QUALIFY ROW_NUMBER() OVER (ORDER BY SUM(a) ASC) <= 10",
+            True,
+            "QUALIFY filters a rank with no subquery at all",
+        ),
+        (
+            "SELECT p, total, SUM(total) OVER (ORDER BY d) AS running FROM e",
+            True,
+            "ACCEPTED COST: a value window decorates rather than selects, but "
+            "telling the two apart is what leaked seven times",
+        ),
+        (
+            "SELECT p, d, amt FROM (SELECT *, ROW_NUMBER() OVER "
+            "(PARTITION BY p ORDER BY d DESC) rn FROM e) WHERE rn = 1",
+            True,
+            "ACCEPTED COST: the de-duplication idiom is genuinely arbitrary across "
+            "entities, but its rank key is indistinguishable from a bottom-N's",
+        ),
+    ],
+)
 def test_only_an_arbitrary_order_may_be_reordered(sql, ordered, why):
     from data_model import sql_orders_result
+
     assert sql_orders_result(sql) is ordered, why
 
 
-@pytest.mark.parametrize("sql,why", [
-    (_CTE_BOTTOM_N_SQL, "LIMIT inside the CTE"),
-    (_CTE_OUTER_LIMIT_SQL, "LIMIT on the enclosing SELECT"),
-    (_CTE_BOTTOM_N_SQL.replace("ORDER BY total ASC", "ORDER BY total"),
-     "SQL's default direction is ASC"),
-    ("WITH r AS (SELECT p, SUM(a) AS total FROM e GROUP BY 1 ORDER BY total ASC), "
-     "j AS (SELECT r.p, r.total FROM r JOIN x ON 1=1) SELECT * FROM j LIMIT 20",
-     "the join lives in an intermediate CTE"),
-    ("WITH r AS (SELECT p, SUM(a) AS total FROM e GROUP BY 1 ORDER BY total ASC) "
-     "SELECT * FROM (SELECT r.p, r.total FROM r JOIN x ON 1=1) LIMIT 20",
-     "derived table"),
-    ("WITH r AS (SELECT p, SUM(a) AS total FROM e GROUP BY 1 ORDER BY total ASC) "
-     "SELECT r.p, r.total FROM r, x WHERE r.p = x.p LIMIT 20", "implicit comma join"),
-    ("WITH r AS (SELECT p, SUM(a) AS total FROM e GROUP BY 1 ORDER BY total ASC) "
-     "SELECT * FROM r UNION SELECT * FROM o LIMIT 20", "set operation"),
-    ("WITH recent AS (SELECT * FROM e ORDER BY check_date ASC LIMIT 100) "
-     "SELECT p, SUM(a) AS total FROM recent GROUP BY 1", "a slice on a non-measure column"),
-])
+@pytest.mark.parametrize(
+    "sql,why",
+    [
+        (_CTE_BOTTOM_N_SQL, "LIMIT inside the CTE"),
+        (_CTE_OUTER_LIMIT_SQL, "LIMIT on the enclosing SELECT"),
+        (_CTE_BOTTOM_N_SQL.replace("ORDER BY total ASC", "ORDER BY total"), "SQL's default direction is ASC"),
+        (
+            "WITH r AS (SELECT p, SUM(a) AS total FROM e GROUP BY 1 ORDER BY total ASC), "
+            "j AS (SELECT r.p, r.total FROM r JOIN x ON 1=1) SELECT * FROM j LIMIT 20",
+            "the join lives in an intermediate CTE",
+        ),
+        (
+            "WITH r AS (SELECT p, SUM(a) AS total FROM e GROUP BY 1 ORDER BY total ASC) "
+            "SELECT * FROM (SELECT r.p, r.total FROM r JOIN x ON 1=1) LIMIT 20",
+            "derived table",
+        ),
+        (
+            "WITH r AS (SELECT p, SUM(a) AS total FROM e GROUP BY 1 ORDER BY total ASC) "
+            "SELECT r.p, r.total FROM r, x WHERE r.p = x.p LIMIT 20",
+            "implicit comma join",
+        ),
+        (
+            "WITH r AS (SELECT p, SUM(a) AS total FROM e GROUP BY 1 ORDER BY total ASC) "
+            "SELECT * FROM r UNION SELECT * FROM o LIMIT 20",
+            "set operation",
+        ),
+        (
+            "WITH recent AS (SELECT * FROM e ORDER BY check_date ASC LIMIT 100) "
+            "SELECT p, SUM(a) AS total FROM recent GROUP BY 1",
+            "a slice on a non-measure column",
+        ),
+    ],
+)
 def test_a_bottom_n_or_sliced_result_is_never_flipped(sql, why):
     """Every one of these once rendered smallest-first as largest-first, or the
     reverse, because the direction was inferred from the query text. None of
     them is reordered now — the frame is served exactly as the query built it,
     which is at worst unhelpful rather than confidently wrong."""
     from data_model import order_for_display
+
     df = pd.DataFrame({"payee": ["cheap", "mid", "big"], "total": [1.0, 2.0, 3.0]})
     assert order_for_display(df, sql)["total"].tolist() == [1.0, 2.0, 3.0], why
 
@@ -1103,6 +1216,7 @@ def test_a_rank_filtered_window_is_left_alone_whichever_way_it_ranks():
     without reading the direction out of the SQL, which is what repeatedly
     produced reversed results, so both are served as the query built them."""
     from data_model import order_for_display
+
     df = pd.DataFrame({"payee": ["cheap", "mid", "big"], "total": [1.0, 2.0, 3.0]})
     for sql in (_WINDOW_FN_SQL, _WINDOW_FN_SQL.replace("DESC", "ASC")):
         assert order_for_display(df, sql)["total"].tolist() == [1.0, 2.0, 3.0]
@@ -1115,11 +1229,11 @@ def test_a_query_carrying_any_order_by_is_served_as_built():
     tokens, and a bottom-N can rank a plain column just as a de-dupe ranks a
     date. Seven attempts to separate them each shipped a reversed result."""
     from data_model import order_for_display
+
     df = pd.DataFrame({"payee": ["a", "b", "c"], "total": [1.0, 3.0, 2.0]})
     for sql in (
         "SELECT payee, total, SUM(total) OVER (ORDER BY d) AS running FROM e",
-        "SELECT p, d, amt FROM (SELECT *, ROW_NUMBER() OVER "
-        "(PARTITION BY p ORDER BY d DESC) rn FROM e) WHERE rn = 1",
+        "SELECT p, d, amt FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY p ORDER BY d DESC) rn FROM e) WHERE rn = 1",
     ):
         assert order_for_display(df, sql)["total"].tolist() == [1.0, 3.0, 2.0]
 
@@ -1129,6 +1243,7 @@ def test_no_sql_shape_can_invert_a_result():
     by rank or limit — in any spelling found across eight review rounds — is
     served exactly as built, so none of them can come back reversed."""
     from data_model import order_for_display
+
     df = pd.DataFrame({"payee": ["cheap", "mid", "big"], "total": [1.0, 2.0, 3.0]})
     selective = [
         _CTE_BOTTOM_N_SQL,
@@ -1136,10 +1251,8 @@ def test_no_sql_shape_can_invert_a_result():
         _WINDOW_FN_SQL.replace("DESC", "ASC"),
         "SELECT a,p,total FROM (SELECT a,p,total, ROW_NUMBER() OVER "
         "(PARTITION BY a ORDER BY total ASC) rn FROM s) WHERE rn <= 3",
-        "SELECT p, SUM(a) AS total FROM e GROUP BY 1 "
-        "QUALIFY ROW_NUMBER() OVER (ORDER BY SUM(a) ASC) <= 10",
-        "WITH recent AS (SELECT * FROM e ORDER BY d ASC LIMIT 100) "
-        "SELECT p, SUM(a) AS total FROM recent GROUP BY 1",
+        "SELECT p, SUM(a) AS total FROM e GROUP BY 1 QUALIFY ROW_NUMBER() OVER (ORDER BY SUM(a) ASC) <= 10",
+        "WITH recent AS (SELECT * FROM e ORDER BY d ASC LIMIT 100) SELECT p, SUM(a) AS total FROM recent GROUP BY 1",
     ]
     for sql in selective:
         assert order_for_display(df, sql)["total"].tolist() == [1.0, 2.0, 3.0], sql
@@ -1149,26 +1262,26 @@ def test_the_reorder_is_only_ever_descending():
     """The direction is never taken from the query. Borrowing it is how this
     function turned "which ten payees received the least" into
     largest-of-the-ten-first, five separate ways."""
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "data_model.py")).read()
-    body = src[src.index("def order_for_display("):src.index("def chart_window(")]
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data_model.py")).read()
+    body = src[src.index("def order_for_display(") : src.index("def chart_window(")]
     assert "ascending=False" in body
     assert "ascending=True" not in body
 
 
 # ── a truncated result must not read as a complete one ───────────────────────
 
+
 def test_a_long_result_says_what_was_cut():
-    """"How much grant funding, and from which sources?" returns 103 rows.
+    """ "How much grant funding, and from which sources?" returns 103 rows.
     pandas renders 25 head + "..." + 25 tail, and the model enumerated the 24
     visible funds (the head minus the ROLLUP total) as though that were every
     source — while the chart beside it said "top 30 of 102". The gap has to be
     stated, not implied by an ellipsis."""
     import duckdb
     from analytics_agent import execute_sql_safe, MAX_DISPLAY_ROWS
+
     con = duckdb.connect()
-    con.execute("CREATE TABLE t AS SELECT i AS fund, i * 1.0 AS amt "
-                f"FROM range({MAX_DISPLAY_ROWS + 53}) t(i)")
+    con.execute(f"CREATE TABLE t AS SELECT i AS fund, i * 1.0 AS amt FROM range({MAX_DISPLAY_ROWS + 53}) t(i)")
     _, s = execute_sql_safe(con, "SELECT fund, amt FROM t ORDER BY amt DESC")
     con.close()
     note = [ln for ln in s.splitlines() if ln.startswith("[")]
@@ -1188,14 +1301,13 @@ def test_the_note_separates_data_rows_from_a_rollup_total():
     chart does."""
     import duckdb
     from analytics_agent import execute_sql_safe, MAX_DISPLAY_ROWS
+
     n = MAX_DISPLAY_ROWS + 20
     con = duckdb.connect()
-    con.execute("CREATE TABLE t AS SELECT 'Fund ' || i AS fund, i * 1.0 AS amt "
-                f"FROM range(1, {n + 1}) t(i)")
+    con.execute(f"CREATE TABLE t AS SELECT 'Fund ' || i AS fund, i * 1.0 AS amt FROM range(1, {n + 1}) t(i)")
     _, s = execute_sql_safe(
-        con,
-        "SELECT COALESCE(fund, 'TOTAL - ALL FUNDS') AS fund, SUM(amt) AS amt "
-        "FROM t GROUP BY ROLLUP(fund)")
+        con, "SELECT COALESCE(fund, 'TOTAL - ALL FUNDS') AS fund, SUM(amt) AS amt FROM t GROUP BY ROLLUP(fund)"
+    )
     con.close()
     note = [ln for ln in s.splitlines() if ln.startswith("[TRUNCATED")][0]
     assert f"has {n + 1:,} rows" in note, note
@@ -1206,9 +1318,9 @@ def test_a_short_result_gets_no_note():
     """Nothing was cut, so nothing to disclose."""
     import duckdb
     from analytics_agent import execute_sql_safe, MAX_DISPLAY_ROWS
+
     con = duckdb.connect()
-    con.execute(f"CREATE TABLE t AS SELECT i AS fund, i * 1.0 AS amt "
-                f"FROM range({MAX_DISPLAY_ROWS}) t(i)")
+    con.execute(f"CREATE TABLE t AS SELECT i AS fund, i * 1.0 AS amt FROM range({MAX_DISPLAY_ROWS}) t(i)")
     _, s = execute_sql_safe(con, "SELECT fund, amt FROM t ORDER BY amt DESC")
     con.close()
     assert not [ln for ln in s.splitlines() if ln.startswith("[")]
@@ -1228,12 +1340,18 @@ def test_neither_the_note_nor_the_prompt_claims_the_head_is_the_largest():
     same reversal the ordering rules were stripped back to prevent, committed
     in prose instead of in the frame."""
     import duckdb
-    from analytics_agent import (execute_sql_safe, TRUNCATION_NOTE,
-                                 TRUNCATION_COUNTS, TRUNCATION_COUNTS_WITH_TOTALS,
-                                 MAX_DISPLAY_ROWS)
+    from analytics_agent import (
+        execute_sql_safe,
+        TRUNCATION_NOTE,
+        TRUNCATION_COUNTS,
+        TRUNCATION_COUNTS_WITH_TOTALS,
+        MAX_DISPLAY_ROWS,
+    )
+
     con = duckdb.connect()
-    con.execute("CREATE TABLE t AS SELECT 'Fund ' || i AS fund, i * 1.0 AS amt "
-                f"FROM range(1, {MAX_DISPLAY_ROWS + 40}) t(i)")
+    con.execute(
+        f"CREATE TABLE t AS SELECT 'Fund ' || i AS fund, i * 1.0 AS amt FROM range(1, {MAX_DISPLAY_ROWS + 40}) t(i)"
+    )
     _, s = execute_sql_safe(con, "SELECT fund, amt FROM t ORDER BY amt ASC")
     con.close()
     note = [ln for ln in s.splitlines() if ln.startswith("[TRUNCATED")][0]
@@ -1253,7 +1371,7 @@ def test_neither_the_note_nor_the_prompt_claims_the_head_is_the_largest():
         folded, c = text.lower(), clause.lower()
         assert c in folded, f"prohibition missing from: {text}"
         i = folded.index(c)
-        return folded[:i] + folded[i + len(c):]
+        return folded[:i] + folded[i + len(c) :]
 
     # One word list, one matcher, every surface. Applying a wider bar to only
     # some of them is how "describe the top items" survived on the two surfaces
@@ -1266,12 +1384,14 @@ def test_neither_the_note_nor_the_prompt_claims_the_head_is_the_largest():
 
     def _assert_no_direction(text, where):
         import re as _re
+
         low = text.lower()
         hits = [w for w in _POSITION_WORDS if _re.search(rf"\b{w}\b", low)]
         assert not hits, f"{where} takes a position on order {hits}: {text}"
 
-    _NOTE_PROHIBITION = ("Do not describe the shown rows as the largest or the "
-                         "smallest unless the query's own ordering says so.")
+    _NOTE_PROHIBITION = (
+        "Do not describe the shown rows as the largest or the smallest unless the query's own ordering says so."
+    )
     _assert_no_direction(_without(note, _NOTE_PROHIBITION), "runtime note")
     _assert_no_direction(_without(TRUNCATION_NOTE, _NOTE_PROHIBITION), "note template")
 
@@ -1300,6 +1420,7 @@ def test_neither_the_note_nor_the_prompt_claims_the_head_is_the_largest():
     # So no positional word may appear here at all — checked with the same
     # helper and the same list as every other surface.
     from analytics_agent import REFINE_SYSTEM_PROMPT
+
     _assert_no_direction(REFINE_SYSTEM_PROMPT, "refine prompt")
 
     # The regression this test is NAMED for lived in the prompt. Scanned over
@@ -1309,12 +1430,12 @@ def test_neither_the_note_nor_the_prompt_claims_the_head_is_the_largest():
     # bullet would too. (sql_system uses "largest" legitimately; interpret_system
     # uses it only here.)
     src = _app_source()
-    prompt = src[src.index('interpret_system = f"""'):]
-    prompt = prompt[:prompt.index('\n"""')]
+    prompt = src[src.index('interpret_system = f"""') :]
+    prompt = prompt[: prompt.index('\n"""')]
     _assert_no_direction(
-        _without(prompt, "Do not call them the largest or the smallest unless "
-                         "the query's ordering actually says so."),
-        "interpretation prompt")
+        _without(prompt, "Do not call them the largest or the smallest unless the query's ordering actually says so."),
+        "interpretation prompt",
+    )
 
 
 def test_the_truncation_note_is_part_of_the_cache_key():
@@ -1323,8 +1444,8 @@ def test_the_truncation_note_is_part_of_the_cache_key():
     valid — observed live, where two verification runs replayed a pre-fix
     answer and looked like the fix had failed."""
     src = _app_source()
-    call = src[src.index("CACHE_VERSION = hashlib.sha1("):]
-    call = call[:call.index(").hexdigest()")]
+    call = src[src.index("CACHE_VERSION = hashlib.sha1(") :]
+    call = call[: call.index(").hexdigest()")]
     assert "TRUNCATION_NOTE" in call
     assert "MAX_DISPLAY_ROWS" in call
     # The counts clause is the sentence the prompt tells the model to quote,
@@ -1333,6 +1454,7 @@ def test_the_truncation_note_is_part_of_the_cache_key():
     # TRUNCATION_COUNTS_WITH_TOTALS alone, so dropping the bare one would slip
     # through — the "passes for the wrong reason" shape.
     import re as _re
+
     for name in ("TRUNCATION_COUNTS", "TRUNCATION_COUNTS_WITH_TOTALS"):
         assert _re.search(rf"\b{name}\b", call), f"{name} is not hashed"
 
@@ -1353,18 +1475,58 @@ LIMIT 10;
 
 def _salary_frame():
     """The "highest paid positions" result, verbatim from a live answer."""
-    return pd.DataFrame({
-        "job_title": ["Police Officer", "LEDA Administrator", "Police Chief",
-                      "Police Sergeant", "Police Lieutenant", "EMS EMT-Paramedic II",
-                      "Director", "EMS EMT-Paramedic I", "EMS Manager",
-                      "Deputy Police Chief"],
-        "department": ["LMPD", "Economic Development", "LMPD", "LMPD", "LMPD",
-                       "EMS", "Louisville Zoo", "EMS", "EMS", "LMPD"],
-        "max_total_comp": [281740.87, 275961.58, 267811.04, 248976.60, 224800.35,
-                           222476.83, 213466.08, 209481.04, 206751.56, 204679.22],
-        "avg_total_comp": [104823.53, 129985.93, 267811.04, 135765.26, 154062.14,
-                           146656.74, 213466.08, 88373.49, 168691.41, 202891.98],
-    })
+    return pd.DataFrame(
+        {
+            "job_title": [
+                "Police Officer",
+                "LEDA Administrator",
+                "Police Chief",
+                "Police Sergeant",
+                "Police Lieutenant",
+                "EMS EMT-Paramedic II",
+                "Director",
+                "EMS EMT-Paramedic I",
+                "EMS Manager",
+                "Deputy Police Chief",
+            ],
+            "department": [
+                "LMPD",
+                "Economic Development",
+                "LMPD",
+                "LMPD",
+                "LMPD",
+                "EMS",
+                "Louisville Zoo",
+                "EMS",
+                "EMS",
+                "LMPD",
+            ],
+            "max_total_comp": [
+                281740.87,
+                275961.58,
+                267811.04,
+                248976.60,
+                224800.35,
+                222476.83,
+                213466.08,
+                209481.04,
+                206751.56,
+                204679.22,
+            ],
+            "avg_total_comp": [
+                104823.53,
+                129985.93,
+                267811.04,
+                135765.26,
+                154062.14,
+                146656.74,
+                213466.08,
+                88373.49,
+                168691.41,
+                202891.98,
+            ],
+        }
+    )
 
 
 def test_a_multi_measure_ranking_charts_the_ranked_measure():
@@ -1389,45 +1551,49 @@ def test_the_charted_measure_descends_for_a_ranked_result():
 def test_an_ascending_ranking_is_not_flipped_by_the_chart_layer():
     """A "least" question must stay ascending: charting the ranked measure must
     never become a licence to re-sort it."""
-    df = pd.DataFrame({"payee": list("abcd"),
-                       "total_paid": [10.0, 20.0, 30.0, 40.0],
-                       "avg_paid": [4.0, 1.0, 3.0, 2.0]})
+    df = pd.DataFrame({"payee": list("abcd"), "total_paid": [10.0, 20.0, 30.0, 40.0], "avg_paid": [4.0, 1.0, 3.0, 2.0]})
     sql = "SELECT payee, SUM(amt) AS total_paid, AVG(amt) AS avg_paid FROM t GROUP BY 1 ORDER BY total_paid ASC LIMIT 4"
     _, _, value_col = infer_chart(df, sql)
     assert value_col == "total_paid"
     assert df[value_col].is_monotonic_increasing, "the frame is untouched"
 
 
-@pytest.mark.parametrize("clause,expected", [
-    ("ORDER BY max_total_comp DESC", "max_total_comp"),
-    ("ORDER BY max_total_comp", "max_total_comp"),
-    ("ORDER BY t.max_total_comp DESC", "max_total_comp"),
-    ('ORDER BY "max_total_comp" DESC', "max_total_comp"),
-    ("ORDER BY MAX_TOTAL_COMP desc", "max_total_comp"),
-    ("ORDER BY 3 DESC", "max_total_comp"),
-    ("ORDER BY max_total_comp DESC NULLS LAST", "max_total_comp"),
-    ("ORDER BY max_total_comp DESC, job_title ASC", "max_total_comp"),
-    ("ORDER BY max_total_comp DESC LIMIT 10", "max_total_comp"),
-    ("ORDER BY job_title", "job_title"),          # resolved, but not a measure
-    ("ORDER BY 99", None),                        # out of range
-    ("ORDER BY nonexistent_col", None),
-    ("", None),
-])
+@pytest.mark.parametrize(
+    "clause,expected",
+    [
+        ("ORDER BY max_total_comp DESC", "max_total_comp"),
+        ("ORDER BY max_total_comp", "max_total_comp"),
+        ("ORDER BY t.max_total_comp DESC", "max_total_comp"),
+        ('ORDER BY "max_total_comp" DESC', "max_total_comp"),
+        ("ORDER BY MAX_TOTAL_COMP desc", "max_total_comp"),
+        ("ORDER BY 3 DESC", "max_total_comp"),
+        ("ORDER BY max_total_comp DESC NULLS LAST", "max_total_comp"),
+        ("ORDER BY max_total_comp DESC, job_title ASC", "max_total_comp"),
+        ("ORDER BY max_total_comp DESC LIMIT 10", "max_total_comp"),
+        ("ORDER BY job_title", "job_title"),  # resolved, but not a measure
+        ("ORDER BY 99", None),  # out of range
+        ("ORDER BY nonexistent_col", None),
+        ("", None),
+    ],
+)
 def test_sql_order_measure_resolves_the_key(clause, expected):
     from data_model import sql_order_measure
+
     sql = f"SELECT job_title, department, max_total_comp, avg_total_comp FROM t {clause}"
     assert sql_order_measure(sql, _salary_frame()) == expected
 
 
 def test_order_by_inside_a_comment_or_literal_is_not_a_key():
     from data_model import sql_order_measure
+
     df = _salary_frame()
     assert sql_order_measure("SELECT * FROM t -- ORDER BY max_total_comp\n", df) is None
     assert sql_order_measure("SELECT 'ORDER BY max_total_comp' FROM t", df) is None
     # A real ORDER BY after a decoy comment still resolves.
-    assert sql_order_measure(
-        "SELECT * FROM t /* ORDER BY avg_total_comp */ ORDER BY max_total_comp DESC", df
-    ) == "max_total_comp"
+    assert (
+        sql_order_measure("SELECT * FROM t /* ORDER BY avg_total_comp */ ORDER BY max_total_comp DESC", df)
+        == "max_total_comp"
+    )
 
 
 def test_a_non_measure_order_key_leaves_the_value_choice_alone():
@@ -1442,26 +1608,27 @@ def test_time_keyed_ordering_does_not_become_the_measure():
     """A trend ordered by year must still chart the amount, not the year."""
     df = pd.DataFrame({"fiscal_year": [2023, 2024, 2025], "amount": [3.0, 1.0, 2.0]})
     chart_type, label_col, value_col = infer_chart(
-        df, "SELECT fiscal_year, SUM(a) AS amount FROM t GROUP BY 1 ORDER BY fiscal_year")
+        df, "SELECT fiscal_year, SUM(a) AS amount FROM t GROUP BY 1 ORDER BY fiscal_year"
+    )
     assert value_col == "amount"
     assert label_col == "fiscal_year"
 
 
 def _ranked_sql(order_key, fn="ROW_NUMBER()", alias="rn"):
     """A top-N-per-group shape: the rank is computed in a CTE and kept."""
-    return (f"WITH ranked AS (SELECT payee, SUM(amt) AS total_paid, "
-            f"{fn} OVER (PARTITION BY agency ORDER BY SUM(amt) DESC) AS {alias} "
-            f"FROM t GROUP BY 1) "
-            f"SELECT payee, total_paid, {alias} FROM ranked WHERE {alias} <= 10 "
-            f"ORDER BY {order_key}")
+    return (
+        f"WITH ranked AS (SELECT payee, SUM(amt) AS total_paid, "
+        f"{fn} OVER (PARTITION BY agency ORDER BY SUM(amt) DESC) AS {alias} "
+        f"FROM t GROUP BY 1) "
+        f"SELECT payee, total_paid, {alias} FROM ranked WHERE {alias} <= 10 "
+        f"ORDER BY {order_key}"
+    )
 
 
 def test_a_kept_rank_column_never_displaces_the_dollars():
     """A top-N-per-group query keeps its ROW_NUMBER() column and orders by it.
     Honouring that key would chart a 1,2,3 staircase titled after the rank."""
-    df = pd.DataFrame({"payee": list("abcd"),
-                       "total_paid": [40.0, 30.0, 20.0, 10.0],
-                       "rn": [1, 2, 3, 4]})
+    df = pd.DataFrame({"payee": list("abcd"), "total_paid": [40.0, 30.0, 20.0, 10.0], "rn": [1, 2, 3, 4]})
     assert infer_chart(df, _ranked_sql("rn"))[2] == "total_paid"
 
 
@@ -1470,24 +1637,22 @@ def test_a_kept_rank_column_never_displaces_the_dollars():
 def test_window_ordinals_are_not_measures(fn, alias):
     """Identified from the SQL that derives them, so neither the alias nor the
     particular ranking function matters."""
-    df = pd.DataFrame({"payee": list("abcd"),
-                       "total_paid": [40.0, 30.0, 20.0, 10.0],
-                       alias: [1, 2, 3, 4]})
+    df = pd.DataFrame({"payee": list("abcd"), "total_paid": [40.0, 30.0, 20.0, 10.0], alias: [1, 2, 3, 4]})
     sql = _ranked_sql(alias, fn=fn, alias=alias)
     assert infer_chart(df, sql)[2] == "total_paid"
 
 
 def test_a_descending_rank_column_is_also_rejected():
-    df = pd.DataFrame({"payee": list("abcd"),
-                       "total_paid": [10.0, 20.0, 30.0, 40.0],
-                       "rn": [4, 3, 2, 1]})
+    df = pd.DataFrame({"payee": list("abcd"), "total_paid": [10.0, 20.0, 30.0, 40.0], "rn": [4, 3, 2, 1]})
     assert infer_chart(df, _ranked_sql("rn DESC"))[2] == "total_paid"
 
 
 def test_a_real_count_stays_a_measure():
     """A COUNT(*) is a measure however its values happen to fall."""
     df = pd.DataFrame({"agency": list("abcd"), "invoices": [12, 9, 40, 3]})
-    assert infer_chart(df, "SELECT agency, COUNT(*) AS invoices FROM t GROUP BY 1 ORDER BY invoices DESC")[2] == "invoices"
+    assert (
+        infer_chart(df, "SELECT agency, COUNT(*) AS invoices FROM t GROUP BY 1 ORDER BY invoices DESC")[2] == "invoices"
+    )
     # A count whose values happen to be contiguous but do not start at 0/1.
     df2 = pd.DataFrame({"agency": list("abcd"), "invoices": [7, 8, 9, 10]})
     assert infer_chart(df2, "SELECT agency, COUNT(*) AS invoices FROM t GROUP BY 1 ORDER BY invoices")[2] == "invoices"
@@ -1498,24 +1663,27 @@ def test_a_ranked_count_that_looks_exactly_like_a_row_number_is_still_charted():
     payments" whose top-5 counts really are 5,4,3,2,1. Indistinguishable from a
     rank by values, so charting dollars here would answer a different question
     than the one asked — and silently, since the frame is correctly sorted."""
-    df = pd.DataFrame({"agency": list("abcde"),
-                       "payments": [5, 4, 3, 2, 1],
-                       "total": [10.0, 90.0, 20.0, 80.0, 30.0]})
-    sql = ("SELECT agency, COUNT(*) AS payments, SUM(amount) AS total "
-           "FROM expenditures GROUP BY 1 ORDER BY payments DESC LIMIT 5")
+    df = pd.DataFrame({"agency": list("abcde"), "payments": [5, 4, 3, 2, 1], "total": [10.0, 90.0, 20.0, 80.0, 30.0]})
+    sql = (
+        "SELECT agency, COUNT(*) AS payments, SUM(amount) AS total "
+        "FROM expenditures GROUP BY 1 ORDER BY payments DESC LIMIT 5"
+    )
     chart_type, label_col, value_col = infer_chart(df, sql)
     assert value_col == "payments"
     assert label_col == "agency"
 
 
 def test_the_outer_order_by_wins_over_a_cte_ordering():
-    """"Last ORDER BY wins" is the disambiguation rule; a decoy in a comment
+    """ "Last ORDER BY wins" is the disambiguation rule; a decoy in a comment
     passes under any choice of key, so pin it against two real clauses."""
     from data_model import sql_order_measure
+
     df = _salary_frame()
-    sql = ("WITH ranked AS (SELECT * FROM salaries ORDER BY avg_total_comp DESC LIMIT 50) "
-           "SELECT job_title, department, max_total_comp, avg_total_comp FROM ranked "
-           "ORDER BY max_total_comp DESC LIMIT 10")
+    sql = (
+        "WITH ranked AS (SELECT * FROM salaries ORDER BY avg_total_comp DESC LIMIT 50) "
+        "SELECT job_title, department, max_total_comp, avg_total_comp FROM ranked "
+        "ORDER BY max_total_comp DESC LIMIT 10"
+    )
     assert sql_order_measure(sql, df) == "max_total_comp"
     assert infer_chart(df, sql)[2] == "max_total_comp"
 
@@ -1523,9 +1691,12 @@ def test_the_outer_order_by_wins_over_a_cte_ordering():
 def test_an_inner_only_order_by_is_still_read():
     """The mirror case: if the only ordering is in the CTE, that is the key."""
     from data_model import sql_order_measure
+
     df = _salary_frame()
-    sql = ("WITH ranked AS (SELECT * FROM salaries ORDER BY max_total_comp DESC LIMIT 50) "
-           "SELECT job_title, department, max_total_comp, avg_total_comp FROM ranked")
+    sql = (
+        "WITH ranked AS (SELECT * FROM salaries ORDER BY max_total_comp DESC LIMIT 50) "
+        "SELECT job_title, department, max_total_comp, avg_total_comp FROM ranked"
+    )
     assert sql_order_measure(sql, df) == "max_total_comp"
 
 
@@ -1551,10 +1722,12 @@ def test_a_lone_measure_that_looks_like_a_run_is_still_charted():
     """Values cannot distinguish a rank from a small real measure, so the ordinal
     guard must never take away the only y-axis available. A spend of 6,5,4,3,2,1
     across six categories reads as a descending run and is still the measure."""
-    df = pd.DataFrame({
-        "category": pd.array(["A", "B", "C", "D", "E", "F"], dtype="string"),
-        "spend": pd.array([6, 5, 4, 3, 2, 1], dtype="Int32"),
-    })
+    df = pd.DataFrame(
+        {
+            "category": pd.array(["A", "B", "C", "D", "E", "F"], dtype="string"),
+            "spend": pd.array([6, 5, 4, 3, 2, 1], dtype="Int32"),
+        }
+    )
     assert infer_chart(df)[2] == "spend"
     assert infer_chart(df, "SELECT category, spend FROM t ORDER BY spend DESC")[2] == "spend"
 
@@ -1562,17 +1735,21 @@ def test_a_lone_measure_that_looks_like_a_run_is_still_charted():
 def test_an_int_only_result_still_drops_the_rank_for_the_real_count():
     """No float to fall back on, but the count is a better axis than the rank."""
     df = pd.DataFrame({"agency": list("abcd"), "invoices": [12, 9, 40, 3], "rn": [1, 2, 3, 4]})
-    sql = ("WITH ranked AS (SELECT agency, COUNT(*) AS invoices, "
-           "ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC) AS rn FROM t GROUP BY 1) "
-           "SELECT agency, invoices, rn FROM ranked ORDER BY rn")
+    sql = (
+        "WITH ranked AS (SELECT agency, COUNT(*) AS invoices, "
+        "ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC) AS rn FROM t GROUP BY 1) "
+        "SELECT agency, invoices, rn FROM ranked ORDER BY rn"
+    )
     assert infer_chart(df, sql)[2] == "invoices"
 
 
 def test_a_rank_column_is_charted_when_it_is_the_only_measure():
     """An ordinal is a poor y-axis; no y-axis at all is worse."""
     df = pd.DataFrame({"payee": list("abcd"), "rn": [1, 2, 3, 4]})
-    sql = ("WITH ranked AS (SELECT payee, ROW_NUMBER() OVER (ORDER BY amt DESC) AS rn "
-           "FROM t) SELECT payee, rn FROM ranked ORDER BY rn")
+    sql = (
+        "WITH ranked AS (SELECT payee, ROW_NUMBER() OVER (ORDER BY amt DESC) AS rn "
+        "FROM t) SELECT payee, rn FROM ranked ORDER BY rn"
+    )
     assert infer_chart(df, sql)[2] == "rn"
 
 
@@ -1582,21 +1759,22 @@ def test_a_quoted_rank_alias_is_still_an_ordinal():
     instead, registered junk, missed the real ordinal, and let the ORDER BY
     override — which does strip quotes — put the staircase on the y-axis."""
     from data_model import sql_ordinal_columns
-    sql = ('WITH ranked AS (SELECT payee, SUM(amt) AS total_paid, '
-           'ROW_NUMBER() OVER (ORDER BY SUM(amt) DESC) AS "rank" FROM t GROUP BY 1) '
-           'SELECT payee, total_paid, "rank" FROM ranked WHERE "rank" <= 10 ORDER BY "rank"')
+
+    sql = (
+        "WITH ranked AS (SELECT payee, SUM(amt) AS total_paid, "
+        'ROW_NUMBER() OVER (ORDER BY SUM(amt) DESC) AS "rank" FROM t GROUP BY 1) '
+        'SELECT payee, total_paid, "rank" FROM ranked WHERE "rank" <= 10 ORDER BY "rank"'
+    )
     assert sql_ordinal_columns(sql) == {"rank"}
-    df = pd.DataFrame({"payee": list("abcd"),
-                       "total_paid": [40.0, 30.0, 20.0, 10.0],
-                       "rank": [1, 2, 3, 4]})
+    df = pd.DataFrame({"payee": list("abcd"), "total_paid": [40.0, 30.0, 20.0, 10.0], "rank": [1, 2, 3, 4]})
     assert infer_chart(df, sql)[2] == "total_paid"
 
 
 def test_a_named_window_does_not_swallow_the_alias():
     """OVER w names a window, not the column; the alias is still after it."""
     from data_model import sql_ordinal_columns
-    sql = ("SELECT payee, SUM(a) AS total_paid, ROW_NUMBER() OVER w AS rn "
-           "FROM t WINDOW w AS (ORDER BY SUM(a) DESC)")
+
+    sql = "SELECT payee, SUM(a) AS total_paid, ROW_NUMBER() OVER w AS rn FROM t WINDOW w AS (ORDER BY SUM(a) DESC)"
     assert sql_ordinal_columns(sql) == {"rn"}
 
 
@@ -1604,41 +1782,49 @@ def test_a_paren_inside_a_literal_does_not_truncate_the_scan():
     """The scan counts brackets, so a ')' in a string literal would end the OVER
     clause early and lose the alias."""
     from data_model import sql_ordinal_columns
-    sql = ("SELECT payee, SUM(a) AS total_paid, "
-           "ROW_NUMBER() OVER (ORDER BY CASE WHEN x = ')' THEN 1 END) AS rn FROM t")
+
+    sql = "SELECT payee, SUM(a) AS total_paid, ROW_NUMBER() OVER (ORDER BY CASE WHEN x = ')' THEN 1 END) AS rn FROM t"
     assert sql_ordinal_columns(sql) == {"rn"}
 
 
-@pytest.mark.parametrize("sql", [
-    "SELECT a, b FROM t -- ROW_NUMBER() OVER () AS rn\n",
-    "SELECT a, b FROM t /* ROW_NUMBER() OVER () AS rn */",
-    "SELECT 'ROW_NUMBER() OVER () AS rn' AS note FROM t",
-])
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT a, b FROM t -- ROW_NUMBER() OVER () AS rn\n",
+        "SELECT a, b FROM t /* ROW_NUMBER() OVER () AS rn */",
+        "SELECT 'ROW_NUMBER() OVER () AS rn' AS note FROM t",
+    ],
+)
 def test_a_ranking_function_in_a_comment_or_literal_names_nothing(sql):
     from data_model import sql_ordinal_columns
+
     assert sql_ordinal_columns(sql) == set()
 
 
 def test_a_bare_ranking_call_with_no_alias_names_nothing():
     from data_model import sql_ordinal_columns
+
     assert sql_ordinal_columns("SELECT ROW_NUMBER() OVER () FROM t") == set()
     assert sql_ordinal_columns("SELECT payee, ROW_NUMBER() OVER () FROM t") == set()
 
 
 # ── a grand total is not a line item ─────────────────────────────────────────
 
+
 def test_a_rollup_total_is_listed_last_not_first():
     """A ROLLUP total holds the largest number, so a DESC ranking hands it row
     one, where it reads as the biggest source rather than the sum of the rest —
     "the top grant source is TOTAL - ALL GRANT FUNDS"."""
     from data_model import totals_last
-    df = pd.DataFrame({
-        "fund": ["TOTAL - ALL GRANT FUNDS", "Grant Fund", "Federally Funded", "CDBG Fund"],
-        "total_amount": [607.0, 437.0, 151.0, 19.0],
-    })
+
+    df = pd.DataFrame(
+        {
+            "fund": ["TOTAL - ALL GRANT FUNDS", "Grant Fund", "Federally Funded", "CDBG Fund"],
+            "total_amount": [607.0, 437.0, 151.0, 19.0],
+        }
+    )
     out = totals_last(df, "fund", "total_amount")
-    assert out["fund"].tolist() == ["Grant Fund", "Federally Funded", "CDBG Fund",
-                                    "TOTAL - ALL GRANT FUNDS"]
+    assert out["fund"].tolist() == ["Grant Fund", "Federally Funded", "CDBG Fund", "TOTAL - ALL GRANT FUNDS"]
     # Every real row keeps its place relative to every other; that is what the
     # query's ordering actually asserts.
     assert out["total_amount"].head(3).tolist() == [437.0, 151.0, 19.0]
@@ -1646,6 +1832,7 @@ def test_a_rollup_total_is_listed_last_not_first():
 
 def test_totals_last_is_a_no_op_without_a_total():
     from data_model import totals_last
+
     df = pd.DataFrame({"fund": ["a", "b", "c"], "amt": [3.0, 2.0, 1.0]})
     assert totals_last(df, "fund", "amt")["fund"].tolist() == ["a", "b", "c"]
 
@@ -1657,14 +1844,14 @@ def test_totals_last_leaves_a_real_payee_named_total_alone():
     what the value rule reads as a grand total — writing this fixture with
     500 = 300 + 200 built a real total by accident."""
     from data_model import totals_last
-    df = pd.DataFrame({"payee": ["TOTAL TOOL SUPPLY INC", "ACME", "BETA"],
-                       "amt": [500.0, 300.0, 900.0]})
-    assert totals_last(df, "payee", "amt")["payee"].tolist() == [
-        "TOTAL TOOL SUPPLY INC", "ACME", "BETA"]
+
+    df = pd.DataFrame({"payee": ["TOTAL TOOL SUPPLY INC", "ACME", "BETA"], "amt": [500.0, 300.0, 900.0]})
+    assert totals_last(df, "payee", "amt")["payee"].tolist() == ["TOTAL TOOL SUPPLY INC", "ACME", "BETA"]
 
 
 def test_totals_last_survives_degenerate_frames():
     from data_model import totals_last
+
     one = pd.DataFrame({"fund": ["TOTAL"], "amt": [1.0]})
     assert totals_last(one, "fund", "amt")["fund"].tolist() == ["TOTAL"]
     all_totals = pd.DataFrame({"fund": ["TOTAL", "GRAND TOTAL"], "amt": [1.0, 1.0]})
@@ -1677,12 +1864,18 @@ def test_the_served_table_puts_the_rollup_total_at_the_bottom():
     the interpreting model all read."""
     import duckdb
     from analytics_agent import execute_sql_safe, MAX_DISPLAY_ROWS
+
     con = duckdb.connect()
-    con.execute("CREATE TABLE g AS SELECT 'Fund ' || i AS fund, i * 1000.0 AS amt "
-                f"FROM range(1, {MAX_DISPLAY_ROWS + 20}) t(i)")
-    df, s = execute_sql_safe(con, (
-        "SELECT COALESCE(fund, 'TOTAL - ALL FUNDS') AS fund, ROUND(SUM(amt), 2) AS amt "
-        "FROM g GROUP BY ROLLUP(fund) ORDER BY amt DESC NULLS LAST"))
+    con.execute(
+        f"CREATE TABLE g AS SELECT 'Fund ' || i AS fund, i * 1000.0 AS amt FROM range(1, {MAX_DISPLAY_ROWS + 20}) t(i)"
+    )
+    df, s = execute_sql_safe(
+        con,
+        (
+            "SELECT COALESCE(fund, 'TOTAL - ALL FUNDS') AS fund, ROUND(SUM(amt), 2) AS amt "
+            "FROM g GROUP BY ROLLUP(fund) ORDER BY amt DESC NULLS LAST"
+        ),
+    )
     con.close()
     assert df["fund"].iloc[-1] == "TOTAL - ALL FUNDS", "the total belongs at the end"
     assert df["fund"].iloc[0] != "TOTAL - ALL FUNDS"
@@ -1700,10 +1893,13 @@ def test_the_served_table_puts_the_rollup_total_at_the_bottom():
 def test_the_chart_still_excludes_the_total_after_it_moves():
     """Moving the total must not smuggle it onto the axis at the other end."""
     from data_model import totals_last, drop_total_rows
-    df = pd.DataFrame({
-        "fund": ["TOTAL - ALL GRANT FUNDS", "Grant Fund", "Federally Funded", "CDBG Fund"],
-        "total_amount": [607.0, 437.0, 151.0, 19.0],
-    })
+
+    df = pd.DataFrame(
+        {
+            "fund": ["TOTAL - ALL GRANT FUNDS", "Grant Fund", "Federally Funded", "CDBG Fund"],
+            "total_amount": [607.0, 437.0, 151.0, 19.0],
+        }
+    )
     moved = totals_last(df, "fund", "total_amount")
     charted = drop_total_rows(moved, "fund", "total_amount")
     assert "TOTAL - ALL GRANT FUNDS" not in charted["fund"].tolist()
@@ -1717,12 +1913,16 @@ def test_a_small_rollup_result_also_explains_the_moved_total():
     misreading the reorder was meant to prevent, at the other end of the table."""
     import duckdb
     from analytics_agent import execute_sql_safe, MAX_DISPLAY_ROWS
+
     con = duckdb.connect()
-    con.execute("CREATE TABLE g AS SELECT 'Fund ' || i AS fund, i * 1000.0 AS amt "
-                "FROM range(1, 13) t(i)")
-    df, s = execute_sql_safe(con, (
-        "SELECT COALESCE(fund, 'TOTAL - ALL FUNDS') AS fund, ROUND(SUM(amt), 2) AS amt "
-        "FROM g GROUP BY ROLLUP(fund) ORDER BY amt DESC NULLS LAST"))
+    con.execute("CREATE TABLE g AS SELECT 'Fund ' || i AS fund, i * 1000.0 AS amt FROM range(1, 13) t(i)")
+    df, s = execute_sql_safe(
+        con,
+        (
+            "SELECT COALESCE(fund, 'TOTAL - ALL FUNDS') AS fund, ROUND(SUM(amt), 2) AS amt "
+            "FROM g GROUP BY ROLLUP(fund) ORDER BY amt DESC NULLS LAST"
+        ),
+    )
     con.close()
     assert len(df) <= MAX_DISPLAY_ROWS, "this case must exercise the untruncated path"
     assert "[TRUNCATED" not in s, "and must not rely on the truncation note"
@@ -1734,11 +1934,16 @@ def test_a_small_rollup_result_also_explains_the_moved_total():
 def test_the_moved_total_note_counts_the_rows_it_describes():
     import duckdb
     from analytics_agent import execute_sql_safe
+
     con = duckdb.connect()
     con.execute("CREATE TABLE g AS SELECT 'F' || i AS fund, i * 100.0 AS amt FROM range(1, 8) t(i)")
-    _, s = execute_sql_safe(con, (
-        "SELECT COALESCE(fund, 'TOTAL') AS fund, ROUND(SUM(amt), 2) AS amt "
-        "FROM g GROUP BY ROLLUP(fund) ORDER BY amt DESC NULLS LAST"))
+    _, s = execute_sql_safe(
+        con,
+        (
+            "SELECT COALESCE(fund, 'TOTAL') AS fund, ROUND(SUM(amt), 2) AS amt "
+            "FROM g GROUP BY ROLLUP(fund) ORDER BY amt DESC NULLS LAST"
+        ),
+    )
     con.close()
     assert "the last 1 row(s)" in s
 
@@ -1747,6 +1952,7 @@ def test_no_moved_total_note_when_nothing_moved():
     """A plain ranking must not gain a sentence about totals it does not have."""
     import duckdb
     from analytics_agent import execute_sql_safe
+
     con = duckdb.connect()
     con.execute("CREATE TABLE g AS SELECT 'F' || i AS fund, i * 100.0 AS amt FROM range(1, 8) t(i)")
     _, s = execute_sql_safe(con, "SELECT fund, amt FROM g ORDER BY amt DESC")
@@ -1759,6 +1965,7 @@ def test_the_moved_total_note_is_hashed_into_the_cache_version():
     """It is model-visible input. Leaving it out of the hash is the bug that
     once replayed a pre-fix answer and made a fix look like it had failed."""
     import re as _re
+
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     with open(os.path.join(root, "app.py")) as f:
         src = f.read()
@@ -1771,6 +1978,7 @@ def test_the_moved_total_note_takes_no_position_on_order():
     """Same bar as every other model-visible surface: one word list, one matcher."""
     import re as _re
     from analytics_agent import TOTALS_MOVED_NOTE
+
     words = ("largest", "smallest", "biggest", "highest", "lowest", "top")
     low = TOTALS_MOVED_NOTE.lower()
     hits = [w for w in words if _re.search(rf"\b{w}\b", low)]
@@ -1782,8 +1990,8 @@ def test_a_frame_of_nothing_but_totals_is_left_alone():
     a table of sums — the label shapes just match. Reordering is a no-op, and
     saying they are "sums of the rows above" names rows that do not exist."""
     from data_model import move_totals_to_end, total_row_mask
-    df = pd.DataFrame({"category": ["TOTAL - POLICE", "TOTAL - FIRE"],
-                       "amt": [900.0, 400.0]})
+
+    df = pd.DataFrame({"category": ["TOTAL - POLICE", "TOTAL - FIRE"], "amt": [900.0, 400.0]})
     assert total_row_mask(df, "category", "amt").all(), "both labels match by design"
     out, n = move_totals_to_end(df, "category", "amt")
     assert n == 0, "nothing can be described as moved"
@@ -1794,6 +2002,7 @@ def test_the_moved_count_comes_from_the_move():
     """The count and the relocation cannot disagree, which is how a note once
     claimed a move that the reorder had declined to make."""
     from data_model import move_totals_to_end
+
     mixed = pd.DataFrame({"fund": ["TOTAL", "a", "b"], "amt": [3.0, 2.0, 1.0]})
     out, n = move_totals_to_end(mixed, "fund", "amt")
     assert n == 1 and out["fund"].tolist() == ["a", "b", "TOTAL"]
@@ -1805,10 +2014,11 @@ def test_the_moved_count_comes_from_the_move():
 def test_an_all_totals_result_gets_no_moved_total_note():
     import duckdb
     from analytics_agent import execute_sql_safe
+
     con = duckdb.connect()
-    _, s = execute_sql_safe(con, (
-        "SELECT 'TOTAL - POLICE' AS category, 900.0 AS amt "
-        "UNION ALL SELECT 'TOTAL - FIRE', 400.0"))
+    _, s = execute_sql_safe(
+        con, ("SELECT 'TOTAL - POLICE' AS category, 900.0 AS amt UNION ALL SELECT 'TOTAL - FIRE', 400.0")
+    )
     con.close()
     assert "moved to the end" not in s
     assert "not entries in the ranking" not in s
@@ -1819,9 +2029,12 @@ def test_an_all_totals_truncated_result_does_not_claim_zero_data_rows():
     number for a table that is entirely real rows with total-shaped labels."""
     import duckdb
     from analytics_agent import execute_sql_safe, MAX_DISPLAY_ROWS
+
     con = duckdb.connect()
-    con.execute("CREATE TABLE t AS SELECT 'TOTAL - Unit ' || i AS category, i * 1.0 AS amt "
-                f"FROM range(1, {MAX_DISPLAY_ROWS + 20}) t(i)")
+    con.execute(
+        "CREATE TABLE t AS SELECT 'TOTAL - Unit ' || i AS category, i * 1.0 AS amt "
+        f"FROM range(1, {MAX_DISPLAY_ROWS + 20}) t(i)"
+    )
     _, s = execute_sql_safe(con, "SELECT category, amt FROM t ORDER BY amt DESC")
     con.close()
     note = [ln for ln in s.splitlines() if ln.startswith("[TRUNCATED")][0]
@@ -1877,9 +2090,11 @@ def test_top_positions_prompt_query_stays_valid(con):
     by_max = con.execute(
         "SELECT job_title FROM summary_top_salaries WHERE calendar_year = "
         "(SELECT MAX(calendar_year) FROM summary_top_salaries) AND job_title IS NOT NULL "
-        "ORDER BY max_total_comp DESC LIMIT 10").fetchdf()
+        "ORDER BY max_total_comp DESC LIMIT 10"
+    ).fetchdf()
     assert df["job_title"].iloc[0] != by_max["job_title"].iloc[0], (
-        "if the two rankings ever agree this test has stopped proving anything")
+        "if the two rankings ever agree this test has stopped proving anything"
+    )
 
 
 def test_vendor_breadth_prompt_query_beats_the_contractor_table(con):
@@ -1897,17 +2112,19 @@ def test_vendor_breadth_prompt_query_beats_the_contractor_table(con):
     # contractor_profiles while agency_count is COUNT(DISTINCT agency_canonical)
     # over artifact-filtered expenditures, so the two rankings would disagree
     # even if the table covered every vendor.
-    filtered = set(con.execute(
-        "SELECT payee FROM summary_top_contractors").fetchdf()["payee"])
+    filtered = set(con.execute("SELECT payee FROM summary_top_contractors").fetchdf()["payee"])
     assert set(df["payee_canonical"]) - filtered, (
-        "the agent-filtered table no longer omits anyone, so the bullet is moot")
+        "the agent-filtered table no longer omits anyone, so the bullet is moot"
+    )
     # The bullet quotes these two to the model by name and agency count, so the
     # claim has to keep being true.
     for vendor, agencies in (("CINCINNATI COPIERS INC", 44), ("OFFICE DEPOT INC", 39)):
         assert vendor not in filtered, f"prompt says {vendor} is missing from the table"
         n = con.execute(
             "SELECT COUNT(DISTINCT agency_canonical) FROM expenditures "
-            "WHERE payee_canonical = ? AND is_data_artifact = FALSE", [vendor]).fetchone()[0]
+            "WHERE payee_canonical = ? AND is_data_artifact = FALSE",
+            [vendor],
+        ).fetchone()[0]
         assert n == agencies, f"prompt tells the model {vendor} spans {agencies} agencies, got {n}"
 
 
@@ -1918,6 +2135,7 @@ def test_contract_splitting_screen_stays_valid(con):
     # is MAX-1 only while the newest year is partial, so a bare MAX-1 would
     # diverge the moment a full year finishes loading.
     from data_model import year_context
+
     year = year_context(con, fy_start_month=7)["values"]["last_complete_year"]
     assert SPLIT_SCREEN_QUERY.replace("{yr}", "{last_complete_year}") in _app_source(), (
         "the prompt's copy-exact contract-splitting screen no longer matches this test"
@@ -1927,17 +2145,23 @@ def test_contract_splitting_screen_stays_valid(con):
     assert (df["payments_just_under"] >= 5).all(), "the HAVING floor"
     assert df["payments_just_under"].is_monotonic_decreasing
     assert (df["avg_invoice"] >= 4000).all() and (df["avg_invoice"] < 5000).all(), (
-        "every row must sit in the band the screen claims to examine")
+        "every row must sit in the band the screen claims to examine"
+    )
     # The band is what makes this about procurement rather than utility billing.
     over = con.execute(
         "SELECT COUNT(*) FROM expenditures WHERE fiscal_year = ? AND is_data_artifact = FALSE "
-        "AND invoice_amount BETWEEN 5000 AND 5999.99", [year]).fetchone()[0]
+        "AND invoice_amount BETWEEN 5000 AND 5999.99",
+        [year],
+    ).fetchone()[0]
     under = con.execute(
         "SELECT COUNT(*) FROM expenditures WHERE fiscal_year = ? AND is_data_artifact = FALSE "
-        "AND invoice_amount BETWEEN 4000 AND 4999.99", [year]).fetchone()[0]
+        "AND invoice_amount BETWEEN 4000 AND 4999.99",
+        [year],
+    ).fetchone()[0]
     assert under > over, (
         "the prompt tells the model this band is busier than the one above the "
-        f"threshold; got {under} under vs {over} over")
+        f"threshold; got {under} under vs {over} over"
+    )
 
 
 def test_prompt_job_title_literals_exist_in_the_data(con):
@@ -1948,17 +2172,16 @@ def test_prompt_job_title_literals_exist_in_the_data(con):
     than recomputed. A MAX-1 here would name a missing year the moment the
     loaded CalYears gap, and then fail claiming the office was retitled."""
     from data_model import year_context
+
     yc = year_context(con, fy_start_month=7)
     assert yc["salary"] is not None, "Louisville data should yield salary guidance"
     year = yc["salary"]["last_complete_year"]
     assert year is not None
     for title in ("Mayor", "Police Chief"):
         n = con.execute(
-            "SELECT COUNT(*) FROM salary_data WHERE jobTitle = ? AND CalYear = ?",
-            [title, year]).fetchone()[0]
-        assert n > 0, (
-            f"prompt matches jobTitle {title!r} exactly, which has no rows in "
-            f"CalYear {year}")
+            "SELECT COUNT(*) FROM salary_data WHERE jobTitle = ? AND CalYear = ?", [title, year]
+        ).fetchone()[0]
+        assert n > 0, f"prompt matches jobTitle {title!r} exactly, which has no rows in CalYear {year}"
 
 
 def test_contract_splitting_bullet_statistics_match_the_data(con):
@@ -1978,11 +2201,13 @@ def test_contract_splitting_bullet_statistics_match_the_data(con):
         return con.execute(
             "SELECT COUNT(*) FROM expenditures WHERE fiscal_year = 2025 "
             "AND is_data_artifact = FALSE AND invoice_amount BETWEEN ? AND ?",
-            [lo, hi]).fetchone()[0]
+            [lo, hi],
+        ).fetchone()[0]
 
     under, over = count(4000, 4999.99), count(5000, 5999.99)
     assert "FY2025 has 1,838 invoices in that band against 1,241" in src, (
-        f"prompt quotes band counts that must match the data (now {under:,} / {over:,})")
+        f"prompt quotes band counts that must match the data (now {under:,} / {over:,})"
+    )
     assert under == 1838, f"prompt tells the model 1,838 invoices just under; got {under:,}"
     assert over == 1241, f"prompt tells the model 1,241 invoices just over; got {over:,}"
 
@@ -1991,8 +2216,8 @@ def test_contract_splitting_bullet_statistics_match_the_data(con):
     # fact, and the all-time count for that payee and agency is 272,517 — an
     # order of magnitude off what the model would be repeating.
     assert "FY2025 has 26,033 LG&E bills averaging $193 in one agency" in src, (
-        "the LG&E figure must name its year, or the model states a one-year "
-        "count as though it were unbounded")
+        "the LG&E figure must name its year, or the model states a one-year count as though it were unbounded"
+    )
     # Same filters the warned-against screen would use — is_data_artifact only.
     # Adding is_offsetting/positive filters measures a different population than
     # the claim describes, so the two could diverge with this test still green.
@@ -2000,12 +2225,14 @@ def test_contract_splitting_bullet_statistics_match_the_data(con):
         "SELECT COUNT(*), ROUND(AVG(extended_amount), 2) FROM expenditures "
         "WHERE fiscal_year = 2025 AND is_data_artifact = FALSE "
         "AND payee_canonical = 'Louisville Gas & Electric Company' "
-        "AND agency_canonical = 'Community Services & Revitalization'").fetchone()
+        "AND agency_canonical = 'Community Services & Revitalization'"
+    ).fetchone()
     assert n == 26033, f"prompt tells the model 26,033 LG&E bills; got {n:,}"
     assert round(avg) == 193, f"prompt tells the model they average $193; got ${avg}"
 
 
 # ── Citations and legislative linkage ────────────────────────────────────────
+
 
 def _prompt_block(name: str) -> str:
     """The text of one f-string prompt in app.py, not the whole file.
@@ -2016,8 +2243,8 @@ def _prompt_block(name: str) -> str:
     prose at all, is exactly how it reached nobody."""
     src = _app_source()
     start = src.index(f'{name} = f"""')
-    body = src[start + len(f'{name} = f"""'):]
-    return body[:body.index('"""')]
+    body = src[start + len(f'{name} = f"""') :]
+    return body[: body.index('"""')]
 
 
 def test_the_reader_facing_legislation_rule_is_in_the_prose_prompt():
@@ -2027,14 +2254,17 @@ def test_the_reader_facing_legislation_rule_is_in_the_prose_prompt():
     interp = _prompt_block("interpret_system")
     sql_prompt = _prompt_block("sql_system")
     assert "carry no legislative identifier" in interp, (
-        "the rule about what to tell the reader must be in the prose prompt")
+        "the rule about what to tell the reader must be in the prose prompt"
+    )
     assert "never suggest a question that searches for one" in interp.lower()
     # The SQL prompt keeps only the half it can act on.
     assert "Never filter on one" in sql_prompt
     assert "carry no legislative identifier" not in sql_prompt
     from analytics_agent import REFINE_SYSTEM_PROMPT
+
     assert "cannot be linked to council" in REFINE_SYSTEM_PROMPT, (
-        "the refiner deletes unsupported claims, so it needs the allowance")
+        "the refiner deletes unsupported claims, so it needs the allowance"
+    )
 
 
 def test_no_table_carries_a_legislation_identifier(con):
@@ -2052,7 +2282,8 @@ def test_no_table_carries_a_legislation_identifier(con):
         hits = [c for c in cols if any(b in c.lower() for b in banned)]
         assert not hits, (
             f"{table} now has {hits} — the prompt tells the model no such column "
-            "exists, so either the rule or the data is wrong")
+            "exists, so either the rule or the data is wrong"
+        )
 
 
 def test_the_citation_rule_does_not_rest_on_the_retrieval_score(con):
@@ -2060,23 +2291,24 @@ def test_the_citation_rule_does_not_rest_on_the_retrieval_score(con):
     off-topic questions outscore on-topic ones. The prompt must say so, or a
     reader raises min_score to buy precision and loses real citations first."""
     import rag
+
     src = _app_source()
     assert "The retrieval score carries NO relevance information" in src
     assert "same agency, program or appropriation" in src, "the subject-matter test"
 
-    db = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                      "data", "rag_documents.duckdb")
+    db = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "rag_documents.duckdb")
     if not os.path.exists(db):
         pytest.skip("no document corpus in this checkout")
-    off = rag.retrieve("Which agencies have spent the most money across all fiscal years?",
-                       k=3, db_path=db, min_score=0.0)
-    on = rag.retrieve("What did the council fund with Neighborhood Development Funds?",
-                      k=3, db_path=db, min_score=0.0)
+    off = rag.retrieve(
+        "Which agencies have spent the most money across all fiscal years?", k=3, db_path=db, min_score=0.0
+    )
+    on = rag.retrieve("What did the council fund with Neighborhood Development Funds?", k=3, db_path=db, min_score=0.0)
     assert off and on
     assert off[0]["score"] > on[0]["score"], (
         "the premise of the prompt rule and the pack comment is that score does "
         f"not track relevance; got off-topic {off[0]['score']:.2f} vs "
-        f"on-topic {on[0]['score']:.2f}")
+        f"on-topic {on[0]['score']:.2f}"
+    )
 
 
 def test_an_incidental_word_still_retrieves_an_unrelated_resolution(con):
@@ -2084,12 +2316,11 @@ def test_an_incidental_word_still_retrieves_an_unrelated_resolution(con):
     the prompt stays real: 'massive increase' pulls a resolution about a
     'massive military attack' on one shared word, above the noise floor."""
     import rag
-    db = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                      "data", "rag_documents.duckdb")
+
+    db = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "rag_documents.duckdb")
     if not os.path.exists(db):
         pytest.skip("no document corpus in this checkout")
-    hits = rag.retrieve("what about the massive increase in 2025?", k=3,
-                        db_path=db, min_score=3.0)
+    hits = rag.retrieve("what about the massive increase in 2025?", k=3, db_path=db, min_score=3.0)
     assert hits, "if this stops retrieving, the rule below is guarding nothing"
     top = hits[0]
     # The worked example lives HERE and in the commit message, never in the
@@ -2100,9 +2331,9 @@ def test_an_incidental_word_still_retrieves_an_unrelated_resolution(con):
     assert "MILITARY ATTACK" in top["text"].upper()
     # One shared adjective, nothing else, and it clears the floor on its own.
     assert rag.retrieve("massive", k=1, db_path=db, min_score=3.0), (
-        "the single incidental token is what carries this above the floor")
-    assert not rag.retrieve("increase", k=1, db_path=db, min_score=3.0), (
-        "the on-topic word does not clear it")
+        "the single incidental token is what carries this above the floor"
+    )
+    assert not rag.retrieve("increase", k=1, db_path=db, min_score=3.0), "the on-topic word does not clear it"
     # The rule is stated positively, without naming the phrase.
     src = _app_source()
     assert "a single adjective in common" in src
@@ -2110,6 +2341,7 @@ def test_an_incidental_word_still_retrieves_an_unrelated_resolution(con):
 
 
 # ── summary_agency_contractors: no license fan-out (louisville-open-data-4jw) ──
+
 
 def test_agency_contractor_spend_has_no_license_fanout(con):
     """total_contractor_spend must not multiply an expenditure by a business's
@@ -2122,9 +2354,7 @@ def test_agency_contractor_spend_has_no_license_fanout(con):
     does NOT mirror the summary's query shape, so it can actually catch a
     regression (the earlier version reused the same DISTINCT join and would have
     fanned out in lockstep, hiding the bug)."""
-    summary = con.execute(
-        "SELECT ROUND(SUM(total_contractor_spend), 2) FROM summary_agency_contractors"
-    ).fetchone()[0]
+    summary = con.execute("SELECT ROUND(SUM(total_contractor_spend), 2) FROM summary_agency_contractors").fetchone()[0]
     # Each contractor-matched expenditure row summed exactly once, whatever the
     # contractor table's row multiplicity. NO agency_canonical filter here: the
     # summary GROUP BY agency_canonical keeps a NULL-agency group, so its spend
@@ -2152,12 +2382,12 @@ def test_agency_contractor_spend_has_no_license_fanout(con):
 
 # ── prompt<->schema contract (louisville-open-data-dmm) ───────────────────────
 
+
 def test_sql_prompt_never_advertises_columns_the_loader_dropped(con):
     """The loader builds expenditures from the unified 2018+ schema, so the six
     old-era-only source fields are NOT columns in the queryable table. The SQL
     prompt must not tell the model they exist, or it emits binder-error SQL."""
-    dropped = ["sub_agency", "department", "sub_department",
-               "stimulus_type", "payment_amount", "payment_void_date"]
+    dropped = ["sub_agency", "department", "sub_department", "stimulus_type", "payment_amount", "payment_void_date"]
     cols = {c[0].lower() for c in con.execute("DESCRIBE expenditures").fetchall()}
     for c in dropped:
         assert c not in cols, f"{c} unexpectedly present — the prompt fix may be moot now"
@@ -2177,8 +2407,7 @@ def test_sql_prompt_never_advertises_columns_the_loader_dropped(con):
     every = re.search(r"Every row has these columns:\s*([^.]+)\.", src)
     populates = re.search(r"additionally populates\s+([^;]+);", src)
     assert every and populates, "prompt no longer states its column lists in the expected form"
-    advertised = [c.strip() for grp in (every.group(1), populates.group(1))
-                  for c in grp.split(",") if c.strip()]
+    advertised = [c.strip() for grp in (every.group(1), populates.group(1)) for c in grp.split(",") if c.strip()]
     assert len(advertised) >= 15, "column-list parse looks wrong (too few names)"
     for c in advertised:
         assert c.lower() in cols, f"prompt advertises {c!r} but it is not a column in the loaded table"
@@ -2189,6 +2418,7 @@ def test_sql_prompt_never_advertises_columns_the_loader_dropped(con):
 
 # ── domain scoping against instruction injection (louisville-open-data-prk) ───
 
+
 def test_interpret_and_refine_prompts_scope_to_the_domain():
     """Observed live: an injected 'tell me a joke' in the question made the
     interpreter tell a joke. Both the interpret prompt and the refine editor
@@ -2198,15 +2428,18 @@ def test_interpret_and_refine_prompts_scope_to_the_domain():
     assert "Stay strictly on task" in src, "interpret_system lost its domain-scoping rule"
 
     import analytics_agent as aa
+
     flat = re.sub(r"\s+", " ", aa.REFINE_SYSTEM_PROMPT)
     assert "Stay on task" in flat, "refine prompt lost its domain-scoping rule"
 
 
 # ── chart measure classification (louisville-open-data-jin) ───────────────────
 
+
 def test_measure_kind_classifies_currency_vs_count():
     import pandas as pd
     from data_model import measure_kind
+
     # Money-named or float measures → currency.
     assert measure_kind("total_spend", pd.Series([1.0, 2.0])) == "currency"
     assert measure_kind("avg_total_comp", pd.Series([1.0])) == "currency"
@@ -2234,8 +2467,10 @@ def test_measure_kind_classifies_currency_vs_count():
 
 # ── latent data-integrity hardening (louisville-open-data-wyv) ────────────────
 
+
 def test_like_escape_neutralizes_wildcards():
     from data_model import _like_escape
+
     assert _like_escape("A_B") == r"A\_B"
     assert _like_escape("50%") == r"50\%"
     assert _like_escape("a\\b") == "a\\\\b"
@@ -2245,6 +2480,7 @@ def test_like_escape_neutralizes_wildcards():
 def test_source_files_rejects_years_range_without_year_placeholder():
     import pytest
     from data_model import _source_files
+
     # A years range with a {year}-less pattern would multiply the data N-fold.
     with pytest.raises(ValueError, match="year"):
         _source_files({"id": "bad", "files": "static.csv", "years": [2020, 2022]}, ".")
@@ -2288,14 +2524,13 @@ def test_shipped_contractor_profiles_have_one_row_per_payee():
     the payee-level total_spend so any SUM over the table double-counted it.
     The shipped file is tracked in git, so the invariant is checked here."""
     import csv
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "data", "contractor_profiles.csv")
+
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "contractor_profiles.csv")
     if not os.path.exists(path):
         pytest.skip("data/contractor_profiles.csv not present")
     with open(path, newline="") as f:
         payees = [r["payee"] for r in csv.DictReader(f)]
-    assert len(payees) == len(set(payees)), \
-        sorted({p for p in payees if payees.count(p) > 1})
+    assert len(payees) == len(set(payees)), sorted({p for p in payees if payees.count(p) > 1})
 
 
 def test_shipped_contractor_profiles_keep_their_numeric_columns_numeric():
@@ -2304,17 +2539,27 @@ def test_shipped_contractor_profiles_keep_their_numeric_columns_numeric():
     flips ZIPCODE to VARCHAR for all 200 rows and every numeric comparison in
     generated SQL then errors. The license aggregation joins text fields only;
     this pins the inferred types the table had before it existed."""
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "data", "contractor_profiles.csv")
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "contractor_profiles.csv")
     if not os.path.exists(path):
         pytest.skip("data/contractor_profiles.csv not present")
     import duckdb
+
     con = duckdb.connect()
-    types = dict(con.execute(
-        f"SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_csv_auto('{path}'))"
-    ).fetchall())
-    numeric = {"total_spend", "transaction_count", "years_active", "first_year", "last_year",
-               "agencies_served", "funds_used", "expenditure_types", "ZIPCODE", "sos_org_number"}
+    types = dict(
+        con.execute(f"SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_csv_auto('{path}'))").fetchall()
+    )
+    numeric = {
+        "total_spend",
+        "transaction_count",
+        "years_active",
+        "first_year",
+        "last_year",
+        "agencies_served",
+        "funds_used",
+        "expenditure_types",
+        "ZIPCODE",
+        "sos_org_number",
+    }
     wrong = {c: types.get(c) for c in numeric if types.get(c) == "VARCHAR" or c not in types}
     assert not wrong, f"columns that lost their numeric type: {wrong}"
     assert types.get("sos_file_date") == "DATE"
@@ -2343,10 +2588,13 @@ from data_model import (
 
 # The shape year_context() returns for Louisville as of the 2026-03-16 load.
 _YC = {
-    "values": {"first_year": 2008, "newest_year": 2026, "in_progress_year": 2026,
-               "last_complete_year": 2025},
-    "expenditures": {"is_partial": True, "covered_through": "2026-03-16",
-                     "last_complete_year": 2025, "in_progress_year": 2026},
+    "values": {"first_year": 2008, "newest_year": 2026, "in_progress_year": 2026, "last_complete_year": 2025},
+    "expenditures": {
+        "is_partial": True,
+        "covered_through": "2026-03-16",
+        "last_complete_year": 2025,
+        "in_progress_year": 2026,
+    },
     "salary": {"is_partial": True, "last_complete_year": 2025},
     "newest_cal_year": 2026,
 }
@@ -2357,32 +2605,61 @@ def _annual_spend_frame():
     """The annual-spend starter's shape: FY2008..FY2026, FY2026 partial (low)."""
     years = list(range(2008, 2027))
     spend = [240e6 + 17e6 * i for i in range(18)] + [420e6]
-    return pd.DataFrame({"fiscal_year": years, "total_spend": spend,
-                         "transaction_count": [1000 + i for i in range(19)]})
+    return pd.DataFrame(
+        {"fiscal_year": years, "total_spend": spend, "transaction_count": [1000 + i for i in range(19)]}
+    )
 
 
 def test_json_safe_turns_every_missing_and_numpy_value_into_valid_json():
-    cells = [None, float("nan"), pd.NaT, pd.NA, _np.int64(7), _np.float32(1.5),
-             _Decimal("2.25"), _np.bool_(True), pd.Timestamp("2026-03-16"),
-             pd.Timestamp("2026-03-16 13:45:00"), _date(2025, 7, 1), float("inf"), "x"]
+    cells = [
+        None,
+        float("nan"),
+        pd.NaT,
+        pd.NA,
+        _np.int64(7),
+        _np.float32(1.5),
+        _Decimal("2.25"),
+        _np.bool_(True),
+        pd.Timestamp("2026-03-16"),
+        pd.Timestamp("2026-03-16 13:45:00"),
+        _date(2025, 7, 1),
+        float("inf"),
+        "x",
+    ]
     out = [json_safe(v) for v in cells]
-    assert out == [None, None, None, None, 7, 1.5, 2.25, True, "2026-03-16",
-                   "2026-03-16T13:45:00", "2025-07-01", None, "x"]
-    _json.dumps(out, allow_nan=False)   # NaN would break JSON.parse in the UI
+    assert out == [
+        None,
+        None,
+        None,
+        None,
+        7,
+        1.5,
+        2.25,
+        True,
+        "2026-03-16",
+        "2026-03-16T13:45:00",
+        "2025-07-01",
+        None,
+        "x",
+    ]
+    _json.dumps(out, allow_nan=False)  # NaN would break JSON.parse in the UI
 
 
-@pytest.mark.parametrize("col,values,kind", [
-    ("fiscal_year", [2025, 2026], "date"),
-    ("CalYear", [2024, 2025], "date"),
-    ("years_active", [3, 12], "count"),          # time-named, but not year values
-    ("total_spend", [1.5, 2.5], "money"),
-    ("transaction_count", [3, 4], "count"),
-    ("total_vendors", [3, 4], "count"),          # integer, no money word
-    ("pct_of_total", [0.25, 0.75], "number"),
-    ("agency_canonical", ["A", "B"], "text"),
-    ("month", ["2025-01", "2025-02"], "date"),
-    ("payment_date", pd.to_datetime(["2025-01-01", "2025-02-01"]), "date"),
-])
+@pytest.mark.parametrize(
+    "col,values,kind",
+    [
+        ("fiscal_year", [2025, 2026], "date"),
+        ("CalYear", [2024, 2025], "date"),
+        ("years_active", [3, 12], "count"),  # time-named, but not year values
+        ("total_spend", [1.5, 2.5], "money"),
+        ("transaction_count", [3, 4], "count"),
+        ("total_vendors", [3, 4], "count"),  # integer, no money word
+        ("pct_of_total", [0.25, 0.75], "number"),
+        ("agency_canonical", ["A", "B"], "text"),
+        ("month", ["2025-01", "2025-02"], "date"),
+        ("payment_date", pd.to_datetime(["2025-01-01", "2025-02-01"]), "date"),
+    ],
+)
 def test_column_kind(col, values, kind):
     assert column_kind(col, pd.Series(values)) == kind
 
@@ -2392,8 +2669,7 @@ def test_column_kind_treats_sql_window_ordinals_as_plain_numbers():
 
 
 def test_result_table_caps_rows_and_nulls_missing_values():
-    df = pd.DataFrame({"agency_canonical": ["A", None, "C"],
-                       "total_spend": [1.5, float("nan"), 3.0]})
+    df = pd.DataFrame({"agency_canonical": ["A", None, "C"], "total_spend": [1.5, float("nan"), 3.0]})
     t = result_table(df, 2)
     assert t["columns"] == [
         {"name": "agency_canonical", "label": "Agency (Normalized)", "kind": "text"},
@@ -2405,19 +2681,36 @@ def test_result_table_caps_rows_and_nulls_missing_values():
     assert result_table(df, 50)["truncated"] is False
 
 
-@pytest.mark.parametrize("label,year", [
-    (2026, 2026), ("2026", 2026), ("FY2026", 2026), ("FY 2026", 2026),
-    ("2026.0", 2026), (2026.0, 2026), ("fy2025", 2025),
-    ("2026-03", None), ("Parks", None), (12, None), (2025.5, None), (None, None),
-])
+@pytest.mark.parametrize(
+    "label,year",
+    [
+        (2026, 2026),
+        ("2026", 2026),
+        ("FY2026", 2026),
+        ("FY 2026", 2026),
+        ("2026.0", 2026),
+        (2026.0, 2026),
+        ("fy2025", 2025),
+        ("2026-03", None),
+        ("Parks", None),
+        (12, None),
+        (2025.5, None),
+        (None, None),
+    ],
+)
 def test_year_of_label(label, year):
     assert year_of_label(label) == year
 
 
 def test_period_context_picks_the_salary_basis_only_for_salary_queries():
-    assert _FY_PERIOD == {"basis": "expenditures", "partial_year": 2026,
-                          "through": "2026-03-16", "last_complete_year": 2025, "prefix": "FY",
-                          "by_axis": {"fiscal": {"partial_year": 2026, "through": "2026-03-16"}}}
+    assert _FY_PERIOD == {
+        "basis": "expenditures",
+        "partial_year": 2026,
+        "through": "2026-03-16",
+        "last_complete_year": 2025,
+        "prefix": "FY",
+        "by_axis": {"fiscal": {"partial_year": 2026, "through": "2026-03-16"}},
+    }
     sal = period_context(_YC, "SELECT CalYear, SUM(Annual_Rate) FROM salary_data GROUP BY 1")
     assert sal["basis"] == "salary" and sal["partial_year"] == 2026 and sal["through"] is None
     # A join that reads expenditures stays on the fiscal-year basis.
@@ -2432,32 +2725,36 @@ def test_period_context_picks_the_salary_basis_only_for_salary_queries():
 def test_chart_partial_markers_flag_the_in_progress_year_on_a_year_axis():
     labels = [str(y) for y in range(2008, 2027)]
     assert chart_partial_markers(labels, "fiscal_year", _FY_PERIOD) == {
-        "partial_labels": ["2026"], "data_through": "2026-03-16"}
+        "partial_labels": ["2026"],
+        "data_through": "2026-03-16",
+    }
     # FY-prefixed labels count as a year axis whatever the column is called.
-    assert chart_partial_markers(["FY 2025", "FY 2026"], "label", _FY_PERIOD)[
-        "partial_labels"] == ["FY 2026"]
+    assert chart_partial_markers(["FY 2025", "FY 2026"], "label", _FY_PERIOD)["partial_labels"] == ["FY 2026"]
 
 
-@pytest.mark.parametrize("labels,col,period", [
-    ([str(y) for y in range(2008, 2026)], "fiscal_year", _FY_PERIOD),   # no partial year
-    (["2025", "2026"], "fiscal_year", None),                            # no year context
-    (["2025", "2026"], "payee_canonical", _FY_PERIOD),                  # not a time axis
-    (["Parks", "2026"], "fiscal_year", _FY_PERIOD),                     # not all years
-    (["2026-01", "2026-02"], "month", _FY_PERIOD),                      # months: not handled
-])
+@pytest.mark.parametrize(
+    "labels,col,period",
+    [
+        ([str(y) for y in range(2008, 2026)], "fiscal_year", _FY_PERIOD),  # no partial year
+        (["2025", "2026"], "fiscal_year", None),  # no year context
+        (["2025", "2026"], "payee_canonical", _FY_PERIOD),  # not a time axis
+        (["Parks", "2026"], "fiscal_year", _FY_PERIOD),  # not all years
+        (["2026-01", "2026-02"], "month", _FY_PERIOD),  # months: not handled
+    ],
+)
 def test_chart_partial_markers_stay_silent_otherwise(labels, col, period):
     assert chart_partial_markers(labels, col, period) == {}
 
 
 def test_headline_single_value():
     h = headline(pd.DataFrame({"total_spend": [12_345.5]}), "SELECT ...", _FY_PERIOD)
-    assert h == {"value": 12_345.5, "value_kind": "money", "label": "Total Spend",
-                 "context": None}
+    assert h == {"value": 12_345.5, "value_kind": "money", "label": "Total Spend", "context": None}
 
 
 def test_headline_single_value_names_its_year_and_flags_a_partial_one():
-    df = pd.DataFrame({"agency_canonical": ["Louisville Metro Police Department"],
-                       "fiscal_year": [2026], "total_spend": [1.5e8]})
+    df = pd.DataFrame(
+        {"agency_canonical": ["Louisville Metro Police Department"], "fiscal_year": [2026], "total_spend": [1.5e8]}
+    )
     h = headline(df, "SELECT ...", _FY_PERIOD)
     assert h["label"] == "FY2026 Total Spend"
     assert h["context"] == "Louisville Metro Police Department · partial year (through Mar 16)"
@@ -2475,19 +2772,24 @@ def test_headline_year_series_uses_the_latest_complete_year_not_the_partial_one(
 
 
 def test_headline_year_series_is_order_independent_and_skips_null_years():
-    df = _annual_spend_frame().iloc[::-1]          # "top years by spend" order
-    df = pd.concat([df, pd.DataFrame({"fiscal_year": [None], "total_spend": [9e9],
-                                      "transaction_count": [1]})])
+    df = _annual_spend_frame().iloc[::-1]  # "top years by spend" order
+    df = pd.concat([df, pd.DataFrame({"fiscal_year": [None], "total_spend": [9e9], "transaction_count": [1]})])
     h = headline(df, "SELECT ... ORDER BY total_spend DESC", _FY_PERIOD)
     assert h["label"] == "FY2025 Total Spend"
 
 
 def test_headline_ranked_list_reports_the_top_item_and_its_share_without_the_total_row():
-    df = pd.DataFrame({"agency_canonical": ["Public Works", "LMPD", "Parks", "TOTAL"],
-                       "total_spend": [60.0, 30.0, 10.0, 100.0]})
+    df = pd.DataFrame(
+        {"agency_canonical": ["Public Works", "LMPD", "Parks", "TOTAL"], "total_spend": [60.0, 30.0, 10.0, 100.0]}
+    )
     h = headline(df, "SELECT ... ORDER BY total_spend DESC", _FY_PERIOD)
-    assert h == {"value": 60.0, "value_kind": "money", "label": "Public Works",
-                 "context": "Top of 3 by Total Spend · 60% of the listed total", "share": 0.6}
+    assert h == {
+        "value": 60.0,
+        "value_kind": "money",
+        "label": "Public Works",
+        "context": "Top of 3 by Total Spend · 60% of the listed total",
+        "share": 0.6,
+    }
 
 
 def test_headline_ranked_list_gives_no_share_for_a_non_additive_measure():
@@ -2496,16 +2798,33 @@ def test_headline_ranked_list_gives_no_share_for_a_non_additive_measure():
     assert h["share"] is None and "listed total" not in h["context"]
 
 
-@pytest.mark.parametrize("df,sql", [
-    (pd.DataFrame(), "SELECT 1"),                                              # empty
-    (pd.DataFrame({"total_spend": [1.0], "transaction_count": [3]}), "x"),     # two measures
-    (pd.DataFrame({"total_spend": [None]}, dtype=float), "x"),                 # all-null value
-    (pd.DataFrame({"fiscal_year": [2024, 2024, 2025, 2025],                    # year x agency
-                   "agency_canonical": ["A", "B", "A", "B"],
-                   "total_spend": [1.0, 2.0, 3.0, 4.0]}), "x"),
-    (pd.DataFrame({"spend_view": ["Department", "Category"],                   # overlapping views
-                   "total_spend": [5.0, 7.0]}), "SELECT 'a' ... UNION ALL SELECT 'b' ..."),
-])
+@pytest.mark.parametrize(
+    "df,sql",
+    [
+        (pd.DataFrame(), "SELECT 1"),  # empty
+        (pd.DataFrame({"total_spend": [1.0], "transaction_count": [3]}), "x"),  # two measures
+        (pd.DataFrame({"total_spend": [None]}, dtype=float), "x"),  # all-null value
+        (
+            pd.DataFrame(
+                {
+                    "fiscal_year": [2024, 2024, 2025, 2025],  # year x agency
+                    "agency_canonical": ["A", "B", "A", "B"],
+                    "total_spend": [1.0, 2.0, 3.0, 4.0],
+                }
+            ),
+            "x",
+        ),
+        (
+            pd.DataFrame(
+                {
+                    "spend_view": ["Department", "Category"],  # overlapping views
+                    "total_spend": [5.0, 7.0],
+                }
+            ),
+            "SELECT 'a' ... UNION ALL SELECT 'b' ...",
+        ),
+    ],
+)
 def test_headline_emits_nothing_without_an_unambiguous_figure(df, sql):
     assert headline(df, sql, _FY_PERIOD) is None
 
@@ -2534,24 +2853,30 @@ def test_headline_on_the_real_annual_spend_table_is_last_complete_year(con):
 # in-progress fiscal year while calendar 2026 is the partial calendar year.
 # Today's load (2026-03-16) hides the difference: both are "2026".
 _YC_OCT = {
-    "values": {"first_year": 2008, "newest_year": 2027, "in_progress_year": 2027,
-               "last_complete_year": 2026},
-    "expenditures": {"is_partial": True, "covered_through": "2026-10-01",
-                     "last_complete_year": 2026, "in_progress_year": 2027},
+    "values": {"first_year": 2008, "newest_year": 2027, "in_progress_year": 2027, "last_complete_year": 2026},
+    "expenditures": {
+        "is_partial": True,
+        "covered_through": "2026-10-01",
+        "last_complete_year": 2026,
+        "in_progress_year": 2027,
+    },
     "salary": {"is_partial": True, "last_complete_year": 2025},
     "newest_cal_year": 2026,
 }
 _OCT = period_context(_YC_OCT, "SELECT * FROM expenditures")
 
 
-@pytest.mark.parametrize("labels,col,basis", [
-    (["2025", "2026"], "fiscal_year", "fiscal"),
-    (["FY 2025", "FY 2026"], "label", "fiscal"),
-    (["2025", "2026"], "CalYear", "calendar"),
-    (["2025", "2026"], "calendar_year", "calendar"),
-    (["CY2025", "CY2026"], "label", "calendar"),
-    (["2025", "2026"], "year", None),      # EXTRACT(year ...) or an alias: unknown
-])
+@pytest.mark.parametrize(
+    "labels,col,basis",
+    [
+        (["2025", "2026"], "fiscal_year", "fiscal"),
+        (["FY 2025", "FY 2026"], "label", "fiscal"),
+        (["2025", "2026"], "CalYear", "calendar"),
+        (["2025", "2026"], "calendar_year", "calendar"),
+        (["CY2025", "CY2026"], "label", "calendar"),
+        (["2025", "2026"], "year", None),  # EXTRACT(year ...) or an alias: unknown
+    ],
+)
 def test_axis_basis(labels, col, basis):
     assert axis_basis(labels, col) == basis
 
@@ -2560,7 +2885,9 @@ def test_partial_markers_follow_the_axis_kind_not_the_fiscal_year():
     assert _OCT["by_axis"] == {"fiscal": {"partial_year": 2027, "through": "2026-10-01"}}
     # A fiscal axis marks FY2027; FY2026 is complete.
     assert chart_partial_markers(["2025", "2026", "2027"], "fiscal_year", _OCT) == {
-        "partial_labels": ["2027"], "data_through": "2026-10-01"}
+        "partial_labels": ["2027"],
+        "data_through": "2026-10-01",
+    }
     # The fiscal partial year is never pinned on a calendar or ambiguous axis
     # (2027 isn't even on it; 2026 there is a different, partial, year).
     assert chart_partial_markers(["2024", "2025", "2026"], "CalYear", _OCT) == {}
@@ -2579,7 +2906,9 @@ def test_calendar_spending_series_gets_no_headline():
 def test_salary_calendar_axis_still_marks_its_ytd_year():
     sal = period_context(_YC, "SELECT CalYear, SUM(Annual_Rate) FROM salary_data GROUP BY 1")
     assert chart_partial_markers(["2024", "2025", "2026"], "CalYear", sal) == {
-        "partial_labels": ["2026"], "data_through": None}
+        "partial_labels": ["2026"],
+        "data_through": None,
+    }
     # ...and a fiscal axis over salary data is unknown.
     assert chart_partial_markers(["2025", "2026"], "fiscal_year", sal) == {}
 
@@ -2592,12 +2921,9 @@ def test_single_value_on_an_ambiguous_year_gets_no_headline():
 def test_single_row_span_of_years_is_a_range_not_its_first_year():
     """MIN/MAX(fiscal_year) beside a cumulative SUM: the headline read
     "FY2008 Total Spend · partial year" for an all-years total (roborev 4781)."""
-    df = pd.DataFrame({"first_fiscal_year": [2008], "last_fiscal_year": [2026],
-                       "total_spend": [5.1e9]})
-    h = headline(df, "SELECT MIN(fiscal_year), MAX(fiscal_year), SUM(extended_amount) FROM expenditures",
-                 _FY_PERIOD)
-    assert h == {"value": 5.1e9, "value_kind": "money",
-                 "label": "FY2008–FY2026 Total Spend", "context": None}
+    df = pd.DataFrame({"first_fiscal_year": [2008], "last_fiscal_year": [2026], "total_spend": [5.1e9]})
+    h = headline(df, "SELECT MIN(fiscal_year), MAX(fiscal_year), SUM(extended_amount) FROM expenditures", _FY_PERIOD)
+    assert h == {"value": 5.1e9, "value_kind": "money", "label": "FY2008–FY2026 Total Spend", "context": None}
     # Two year columns holding the same year still name it, and flag it.
     same = pd.DataFrame({"fiscal_year": [2026], "budget_fiscal_year": [2026], "total_spend": [1.0]})
     h = headline(same, "SELECT ... FROM expenditures", _FY_PERIOD)

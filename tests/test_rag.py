@@ -45,12 +45,39 @@ class _NoFtsCon:
 
 
 DOCS = [
-    (1, "R-057-21", "Resolution", "Passed", "2021-06-07", None, None,
-     "A RESOLUTION AUTHORIZING THE MAYOR TO ACCEPT FUNDING FROM THE AMERICAN RESCUE PLAN ACT OF 2021", "u1"),
-    (2, "O-416-21", "Ordinance", "Passed", "2021-08-10", None, None,
-     "AN ORDINANCE APPROPRIATING FUNDS TO THE FULLER CENTER FOR HOUSING OF LOUISVILLE", "u2"),
-    (3, "O-999-22", "Ordinance", "Passed", "2022-01-01", None, None,
-     "AN ORDINANCE CONCERNING STORMWATER DRAINAGE MAINTENANCE SCHEDULES", "u3"),
+    (
+        1,
+        "R-057-21",
+        "Resolution",
+        "Passed",
+        "2021-06-07",
+        None,
+        None,
+        "A RESOLUTION AUTHORIZING THE MAYOR TO ACCEPT FUNDING FROM THE AMERICAN RESCUE PLAN ACT OF 2021",
+        "u1",
+    ),
+    (
+        2,
+        "O-416-21",
+        "Ordinance",
+        "Passed",
+        "2021-08-10",
+        None,
+        None,
+        "AN ORDINANCE APPROPRIATING FUNDS TO THE FULLER CENTER FOR HOUSING OF LOUISVILLE",
+        "u2",
+    ),
+    (
+        3,
+        "O-999-22",
+        "Ordinance",
+        "Passed",
+        "2022-01-01",
+        None,
+        None,
+        "AN ORDINANCE CONCERNING STORMWATER DRAINAGE MAINTENANCE SCHEDULES",
+        "u3",
+    ),
 ]
 
 
@@ -135,12 +162,22 @@ def test_format_context(fixture_db):
 
 # ── config-pack driven corpus (a second city is a client name, not code) ─────
 
+
 def test_corpus_settings_come_from_the_pack_not_the_module():
     from city_config import CityConfig
-    cfg = CityConfig({"rag": {
-        "legistar_client": "cincinnati", "matter_type_ids": [1, 2],
-        "since": "2019-01-01", "min_score": 4.5, "k": 7,
-    }}, ".")
+
+    cfg = CityConfig(
+        {
+            "rag": {
+                "legistar_client": "cincinnati",
+                "matter_type_ids": [1, 2],
+                "since": "2019-01-01",
+                "min_score": 4.5,
+                "k": 7,
+            }
+        },
+        ".",
+    )
     s = rag.corpus_settings(cfg)
     assert s["client"] == "cincinnati"
     assert "cincinnati" in s["api"] and "cincinnati" in s["web"]
@@ -151,6 +188,7 @@ def test_corpus_settings_come_from_the_pack_not_the_module():
 
 def test_a_pack_with_no_rag_block_falls_back_to_the_module_defaults():
     from city_config import CityConfig
+
     s = rag.corpus_settings(CityConfig({}, "."))
     assert s["client"] == rag.LEGISTAR_CLIENT
     assert s["matter_type_ids"] == rag.MATTER_TYPE_IDS
@@ -161,6 +199,7 @@ def test_db_path_resolves_against_the_deployments_data_dir():
     """The container mounts /data; a dev checkout uses ./data. The pack
     declares a bare filename so the same pack works in both."""
     from city_config import CityConfig
+
     cfg = CityConfig({"rag": {"db": "rag_documents.duckdb"}}, ".")
     assert rag.db_path(cfg, "/data") == os.path.join("/data", "rag_documents.duckdb")
     assert rag.db_path(cfg, "data") == os.path.join("data", "rag_documents.duckdb")
@@ -171,6 +210,7 @@ def test_db_path_resolves_against_the_deployments_data_dir():
 
 def test_the_shipped_louisville_pack_declares_a_usable_corpus():
     from city_config import load_city_config
+
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cfg = load_city_config(os.path.join(repo, "cities", "louisville", "city.yaml"))
     s = rag.corpus_settings(cfg)
@@ -182,8 +222,10 @@ def test_the_shipped_louisville_pack_declares_a_usable_corpus():
 
 # ── the ask pipeline degrades instead of failing ─────────────────────────────
 
+
 def test_app_retrieval_returns_empty_when_no_corpus_exists(monkeypatch):
     import app
+
     monkeypatch.setattr(app, "RAG_DB", "/nonexistent/corpus.duckdb")
     assert app._retrieve_documents("anything") == []
 
@@ -191,6 +233,7 @@ def test_app_retrieval_returns_empty_when_no_corpus_exists(monkeypatch):
 def test_app_retrieval_swallows_a_corrupt_corpus(tmp_path, monkeypatch):
     """A broken corpus must cost citations, never the answer."""
     import app
+
     bad = tmp_path / "corpus.duckdb"
     bad.write_text("this is not a duckdb file")
     monkeypatch.setattr(app, "RAG_DB", str(bad))
@@ -200,6 +243,7 @@ def test_app_retrieval_swallows_a_corrupt_corpus(tmp_path, monkeypatch):
 
 def test_app_retrieval_returns_hits_from_a_real_corpus(fixture_db, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "RAG_DB", fixture_db)
     # BM25 scores scale with corpus size — the production floor of 3.0 is
     # calibrated for 1,400 documents, not this three-row fixture.
@@ -215,6 +259,7 @@ def test_app_retrieval_honors_the_packs_threshold(fixture_db, monkeypatch):
     """The junk floor is a pack setting, so it has to be read per request —
     not baked in at the call site."""
     import app
+
     monkeypatch.setattr(app, "RAG_DB", fixture_db)
     monkeypatch.setattr(app, "RAG_SETTINGS", {"min_score": 0.1, "k": 3})
     assert app._retrieve_documents("American Rescue Plan Act funding")
@@ -224,6 +269,7 @@ def test_app_retrieval_honors_the_packs_threshold(fixture_db, monkeypatch):
 
 def test_app_retrieval_honors_the_packs_k(fixture_db, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "RAG_DB", fixture_db)
     monkeypatch.setattr(app, "RAG_SETTINGS", {"min_score": 0.0, "k": 1})
     assert len(app._retrieve_documents("american rescue plan housing funding")) == 1
@@ -231,10 +277,12 @@ def test_app_retrieval_honors_the_packs_k(fixture_db, monkeypatch):
 
 # ── documents reach the prompt without poisoning the cache key ───────────────
 
+
 def test_documents_ride_the_user_message_not_the_system_prompt():
     """Per-question context in the system prompt would change CACHE_VERSION on
     every question and prune the whole response cache."""
     import analytics_agent
+
     captured = {}
 
     class FakeClient:
@@ -245,10 +293,17 @@ def test_documents_ride_the_user_message_not_the_system_prompt():
                     captured.update(kw)
                     return iter([])
 
-    list(analytics_agent.interpret_results_stream(
-        FakeClient(), "m", "SYSTEM", "q", "SELECT 1", "RESULTS",
-        documents="## Related city legislation\n- [O-1] text",
-    ))
+    list(
+        analytics_agent.interpret_results_stream(
+            FakeClient(),
+            "m",
+            "SYSTEM",
+            "q",
+            "SELECT 1",
+            "RESULTS",
+            documents="## Related city legislation\n- [O-1] text",
+        )
+    )
     system = [m for m in captured["messages"] if m["role"] == "system"][0]["content"]
     user = [m for m in captured["messages"] if m["role"] == "user"][0]["content"]
     assert system == "SYSTEM"
@@ -257,6 +312,7 @@ def test_documents_ride_the_user_message_not_the_system_prompt():
 
 def test_no_documents_leaves_the_prompt_untouched():
     import analytics_agent
+
     captured = {}
 
     class FakeClient:
@@ -267,8 +323,7 @@ def test_no_documents_leaves_the_prompt_untouched():
                     captured.update(kw)
                     return iter([])
 
-    list(analytics_agent.interpret_results_stream(
-        FakeClient(), "m", "SYSTEM", "q", "SELECT 1", "RESULTS"))
+    list(analytics_agent.interpret_results_stream(FakeClient(), "m", "SYSTEM", "q", "SELECT 1", "RESULTS"))
     user = [m for m in captured["messages"] if m["role"] == "user"][0]["content"]
     assert user.endswith("RESULTS")
     assert "legislation" not in user.lower()
@@ -279,9 +334,11 @@ def test_both_interpret_prompts_guard_against_over_citing():
     the served prompt and the CLI-path prompt must say so, or the model will
     attribute figures to whatever legislation the keyword search returned."""
     import analytics_agent
+
     served = read_repo_file("app.py")
     cli = analytics_agent.build_interpret_prompt("SCHEMA")
     import re
+
     for text in (served, cli):
         # the CLI prompt is wrapped, so compare on normalized whitespace
         flat = re.sub(r"\s+", " ", text)
@@ -294,21 +351,25 @@ def test_both_interpret_prompts_guard_against_over_citing():
 
 # ── the footer lists citations, not search results ──────────────────────────
 
+
 def test_refine_sink_collects_the_text_actually_served():
     """The caller needs the served answer to know what it cited."""
     from analytics_agent import refine_events_with_fallback
+
     sink = []
-    list(refine_events_with_fallback(
-        iter(["Spending rose ", "per O-374-22."]), "DRAFT",
-        send=lambda t, d: (t, d), transform=str.upper, sink=sink))
+    list(
+        refine_events_with_fallback(
+            iter(["Spending rose ", "per O-374-22."]), "DRAFT", send=lambda t, d: (t, d), transform=str.upper, sink=sink
+        )
+    )
     assert "".join(sink) == "SPENDING ROSE PER O-374-22."
 
 
 def test_refine_sink_collects_the_draft_when_refinement_produces_nothing():
     from analytics_agent import refine_events_with_fallback
+
     sink = []
-    list(refine_events_with_fallback(
-        iter([]), "the draft answer", send=lambda t, d: (t, d), sink=sink))
+    list(refine_events_with_fallback(iter([]), "the draft answer", send=lambda t, d: (t, d), sink=sink))
     assert "".join(sink) == "the draft answer"
 
 
@@ -316,10 +377,20 @@ def test_refine_sink_collects_the_draft_when_refinement_produces_nothing():
 def hits():
     """Fresh per test — a module-level list is shared mutable state."""
     return [
-        {"file_no": "O-374-22", "url": "u1", "matter_type": "Ordinance",
-         "intro_date": "2022-12-12", "text": "ARP reappropriations"},
-        {"file_no": "NDF102021BLC06", "url": "u2", "matter_type": "Fund",
-         "intro_date": "2021-10-20", "text": "$1,000 district appropriation"},
+        {
+            "file_no": "O-374-22",
+            "url": "u1",
+            "matter_type": "Ordinance",
+            "intro_date": "2022-12-12",
+            "text": "ARP reappropriations",
+        },
+        {
+            "file_no": "NDF102021BLC06",
+            "url": "u2",
+            "matter_type": "Fund",
+            "intro_date": "2021-10-20",
+            "text": "$1,000 district appropriation",
+        },
     ]
 
 
@@ -327,12 +398,14 @@ def test_uncited_retrievals_are_filtered_out_of_the_footer(hits):
     """BM25 returns a loosely-matching ordinance for almost any question; only
     what the answer cites belongs under it."""
     import app
+
     answer = "Spending rose sharply in 2022, largely ARP money (per O-374-22)."
     assert [h["file_no"] for h in app._cited_documents(hits, answer)] == ["O-374-22"]
 
 
 def test_an_answer_citing_nothing_produces_no_footer(hits):
     import app
+
     answer = "The three highest paid positions are Director, Chief, and Manager."
     assert app._cited_documents(hits, answer) == []
     assert app._cited_documents(hits, "") == []
@@ -341,6 +414,7 @@ def test_an_answer_citing_nothing_produces_no_footer(hits):
 
 def test_every_cited_document_is_carried_through(hits):
     import app
+
     answer = "See O-374-22 and NDF102021BLC06 for the appropriations."
     assert len(app._cited_documents(hits, answer)) == 2
 
@@ -379,20 +453,21 @@ def test_the_sources_frame_carries_exactly_the_keys_the_page_reads(hits):
 
     frames = app._sources_event(hits, "as authorized by O-374-22", send)
     assert len(frames) == 1
-    payload = json.loads(frames[0][len("data: "):])
+    payload = json.loads(frames[0][len("data: ") :])
     assert payload["type"] == "sources"
     assert len(payload["items"]) == 1
     assert set(payload["items"][0]) == FRONTEND_SOURCE_KEYS
     assert payload["items"][0]["file_no"] == "O-374-22"
 
     page = read_repo_file("static", "index.html")
-    block = page[page.index("event.type === 'sources'"):page.index("event.type === 'log'")]
+    block = page[page.index("event.type === 'sources'") : page.index("event.type === 'log'")]
     for key in FRONTEND_SOURCE_KEYS:
         assert f"s.{key}" in block, f"the page stopped reading {key}"
 
 
 def test_retrieved_but_uncited_documents_produce_a_diagnostic_not_a_footer(hits):
     import app
+
     frames = app._sources_event(hits, "No legislation is named here.", lambda t, d: (t, d))
     assert [f[0] for f in frames] == ["debug"]
     assert "none cited" in frames[0][1]["content"]
@@ -404,7 +479,9 @@ def test_the_zero_row_path_emits_the_footer_too():
     but skipped the footer, so a citation there shipped with no link — on the
     one path with no results table to fall back on either."""
     src = read_repo_file("app.py")
-    branch = src[src.index("if _is_vacuous(result_df):"):src.index('yield send("log", {"content": "Interpreting results..."})')]
+    branch = src[
+        src.index("if _is_vacuous(result_df):") : src.index('yield send("log", {"content": "Interpreting results..."})')
+    ]
     assert "_sources_event(doc_hits" in branch, "zero-row path skips the citation footer"
     assert branch.index("_sources_event") < branch.index('send("done"')
 
@@ -414,14 +491,21 @@ def test_file_numbers_match_on_token_boundaries(hits):
     numeric file number matches a year in prose, and R-57-21 is a substring
     of R-57-215."""
     import app
-    assert app._cited_documents(
-        [{"file_no": "R-57-21", "url": "u", "matter_type": "t",
-          "intro_date": "d", "text": "x"}],
-        "See R-57-215 for details.") == []
-    assert app._cited_documents(
-        [{"file_no": "2021", "url": "u", "matter_type": "t",
-          "intro_date": "d", "text": "x"}],
-        "Spending rose in 2021 sharply.") == [], "all-digit file numbers are unsafe tokens"
+
+    assert (
+        app._cited_documents(
+            [{"file_no": "R-57-21", "url": "u", "matter_type": "t", "intro_date": "d", "text": "x"}],
+            "See R-57-215 for details.",
+        )
+        == []
+    )
+    assert (
+        app._cited_documents(
+            [{"file_no": "2021", "url": "u", "matter_type": "t", "intro_date": "d", "text": "x"}],
+            "Spending rose in 2021 sharply.",
+        )
+        == []
+    ), "all-digit file numbers are unsafe tokens"
 
 
 def test_the_app_wires_documents_into_all_three_llm_calls():
@@ -431,15 +515,16 @@ def test_the_app_wires_documents_into_all_three_llm_calls():
     the failure names the branch that lost it and a fourth legitimate call site
     doesn't fail the test for the wrong reason."""
     src = read_repo_file("app.py")
-    zero_row = src[src.index("if _is_vacuous(result_df):"):
-                   src.index('yield send("log", {"content": "Interpreting results..."})')]
-    draft = src[src.index('yield send("log", {"content": "Interpreting results..."})'):
-                src.index("refine_events_with_fallback(")]
-    refine = src[src.index("refine_events_with_fallback("):
-                 src.index('_sources_event(doc_hits, "".join(served_text)')]
-    for name, region in (("zero-row explanation", zero_row),
-                         ("draft interpretation", draft),
-                         ("refine pass", refine)):
+    zero_row = src[
+        src.index("if _is_vacuous(result_df):") : src.index('yield send("log", {"content": "Interpreting results..."})')
+    ]
+    draft = src[
+        src.index('yield send("log", {"content": "Interpreting results..."})') : src.index(
+            "refine_events_with_fallback("
+        )
+    ]
+    refine = src[src.index("refine_events_with_fallback(") : src.index('_sources_event(doc_hits, "".join(served_text)')]
+    for name, region in (("zero-row explanation", zero_row), ("draft interpretation", draft), ("refine pass", refine)):
         assert "documents=documents" in region, f"{name} lost the retrieved documents"
 
 
@@ -447,7 +532,7 @@ def test_the_interpretation_stream_is_humanized_as_prose_not_as_a_table():
     """Reverting any one of these call sites to humanize_text reintroduces
     'Other Pay notable spends' with the whole suite green."""
     src = read_repo_file("app.py")
-    body = src[src.index("def event_stream():"):]
+    body = src[src.index("def event_stream():") :]
     assert "humanize_text(chunk)" not in body
     assert "humanize_text(draft)" not in body
     assert "transform=humanize_prose" in body
@@ -458,8 +543,16 @@ def test_typographic_dashes_still_count_as_a_citation():
     "Resolution R‑083‑21" shipped with an empty footer while the citation
     sat in plain sight."""
     import app
-    hits = [{"file_no": "R-083-21", "url": "u", "matter_type": "Resolution",
-             "intro_date": "2021-08-09", "text": "priorities"}]
+
+    hits = [
+        {
+            "file_no": "R-083-21",
+            "url": "u",
+            "matter_type": "Resolution",
+            "intro_date": "2021-08-09",
+            "text": "priorities",
+        }
+    ]
     for dash in ("‐", "‑", "‒", "–", "−"):
         answer = f"Resolution R{dash}083{dash}21 established the priorities."
         assert app._cited_documents(hits, answer), f"missed U+{ord(dash):04X}"
@@ -473,8 +566,16 @@ def test_a_dash_used_as_prose_punctuation_does_not_block_the_citation():
     into hyphens made them token characters and silently dropped the footer on
     answers that had matched before."""
     import app
-    hits = [{"file_no": "R-083-21", "url": "u", "matter_type": "Resolution",
-             "intro_date": "2021-08-09", "text": "priorities"}]
+
+    hits = [
+        {
+            "file_no": "R-083-21",
+            "url": "u",
+            "matter_type": "Resolution",
+            "intro_date": "2021-08-09",
+            "text": "priorities",
+        }
+    ]
     for answer in (
         "Two measures—R-083-21 and O-120-21—were adopted.",
         "The largest areas—R-083-21—were set that year.",
@@ -489,13 +590,22 @@ def test_an_em_dash_joined_pair_cites_both_ends():
     from an en dash *inside* an identifier (R–083–21), and identifier wins — so
     that form stays uncited. Em dash, the far more common prose form, matches."""
     import app
-    hits = [{"file_no": "R-083-21", "url": "u", "matter_type": "Resolution",
-             "intro_date": "2021-08-09", "text": "priorities"}]
+
+    hits = [
+        {
+            "file_no": "R-083-21",
+            "url": "u",
+            "matter_type": "Resolution",
+            "intro_date": "2021-08-09",
+            "text": "priorities",
+        }
+    ]
     assert app._cited_documents(hits, "Resolutions R-083-20—R-083-21 were adopted.")
     assert app._cited_documents(hits, "Resolutions R-083-20–R-083-21 were adopted.") == []
 
 
 # ── the FTS install-failure latch ────────────────────────────────────────────
+
 
 def test_a_failed_fts_install_is_suppressed_then_retried():
     """INSTALL reaches out to extensions.duckdb.org, so a blocked-egress host
@@ -534,9 +644,9 @@ def test_a_successful_install_clears_the_latch():
 
         def execute(self, sql):
             self.n += 1
-            if self.n == 1:          # plain LOAD, as on a fresh container
+            if self.n == 1:  # plain LOAD, as on a fresh container
                 raise duckdb.Error("fts not loaded")
-            return None              # INSTALL + LOAD succeeds
+            return None  # INSTALL + LOAD succeeds
 
     rag._fts_install_failed_at = time.monotonic() - rag._FTS_RETRY_AFTER - 1
     rag._load_fts(_RecoveringCon())
@@ -568,6 +678,7 @@ def test_a_plain_load_never_consults_the_latch():
 
 # ── citation links must reach a real page ────────────────────────────────────
 
+
 def test_matter_urls_use_the_gateway_not_legislationdetail():
     """LegislationDetail.aspx?ID=<MatterId> is the obvious URL and it is wrong:
     InSite's ?ID= is a different identifier space from the Web API's MatterId
@@ -586,9 +697,9 @@ def test_matter_urls_use_the_gateway_not_legislationdetail():
 
 def test_a_pack_gets_its_own_gateway_host():
     from city_config import CityConfig
+
     s = rag.corpus_settings(CityConfig({"rag": {"legistar_client": "cincinnati"}}, "."))
-    assert rag._matter_url(s["web"], 42) == \
-        "https://cincinnati.legistar.com/Gateway.aspx?M=L&ID=42"
+    assert rag._matter_url(s["web"], 42) == "https://cincinnati.legistar.com/Gateway.aspx?M=L&ID=42"
 
 
 def test_a_stale_corpus_is_healed_at_read_time():
@@ -597,12 +708,12 @@ def test_a_stale_corpus_is_healed_at_read_time():
     serving dead links off the old database. The host comes from the stored
     URL, so no config is needed to repair it."""
     old = "https://louisville.legistar.com/LegislationDetail.aspx?ID=58091&GUID=D065BDBC"
-    assert rag._repaired_url(old, 58091) == \
-        "https://louisville.legistar.com/Gateway.aspx?M=L&ID=58091"
+    assert rag._repaired_url(old, 58091) == "https://louisville.legistar.com/Gateway.aspx?M=L&ID=58091"
     # another city's corpus keeps its own host
-    assert rag._repaired_url(
-        "https://cincinnati.legistar.com/LegislationDetail.aspx?ID=1&GUID=x", 7) == \
-        "https://cincinnati.legistar.com/Gateway.aspx?M=L&ID=7"
+    assert (
+        rag._repaired_url("https://cincinnati.legistar.com/LegislationDetail.aspx?ID=1&GUID=x", 7)
+        == "https://cincinnati.legistar.com/Gateway.aspx?M=L&ID=7"
+    )
     # already-correct and empty URLs pass through untouched
     good = "https://louisville.legistar.com/Gateway.aspx?M=L&ID=58091"
     assert rag._repaired_url(good, 58091) == good
@@ -612,10 +723,13 @@ def test_a_stale_corpus_is_healed_at_read_time():
 def test_retrieve_returns_healed_urls(fixture_db):
     """End of the path that matters: what the citation footer actually links."""
     import duckdb as _d
+
     con = _d.connect(fixture_db)
-    con.execute("UPDATE documents SET url = "
-                "'https://louisville.legistar.com/LegislationDetail.aspx?ID=' "
-                "|| CAST(doc_id AS VARCHAR) || '&GUID=stale'")
+    con.execute(
+        "UPDATE documents SET url = "
+        "'https://louisville.legistar.com/LegislationDetail.aspx?ID=' "
+        "|| CAST(doc_id AS VARCHAR) || '&GUID=stale'"
+    )
     con.close()
     hits = rag.retrieve("american rescue plan", k=1, db_path=fixture_db, min_score=0.1)
     assert hits

@@ -22,7 +22,7 @@ def _local_imports(entry="app.py") -> set:
             continue
         seen.add(f)
         tree = ast.parse(open(os.path.join(REPO, f)).read())
-        for node in tree.body:   # module level only: lazy imports are optional deps
+        for node in tree.body:  # module level only: lazy imports are optional deps
             names = []
             if isinstance(node, ast.Import):
                 names = [a.name.split(".")[0] for a in node.names]

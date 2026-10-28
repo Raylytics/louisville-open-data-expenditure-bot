@@ -2,6 +2,7 @@
 migration depends on. Synth needs no AWS account and no Docker (the image asset
 is only staged, not built).
 """
+
 import json
 import os
 import sys
@@ -21,9 +22,12 @@ from lou_stack import LouStack  # noqa: E402
 
 def _synth(**context) -> Template:
     app = cdk.App(context={"lou:waf": False, **context})
-    stack = LouStack(app, "LouStack",
-                     env=cdk.Environment(account="012146975534", region="us-east-1"),
-                     synthesizer=cdk.DefaultStackSynthesizer(qualifier="lou0"))
+    stack = LouStack(
+        app,
+        "LouStack",
+        env=cdk.Environment(account="012146975534", region="us-east-1"),
+        synthesizer=cdk.DefaultStackSynthesizer(qualifier="lou0"),
+    )
     cdk.Tags.of(app).add("Project", "lou")
     cdk.Tags.of(app).add("ManagedBy", "cdk")
     return Template.from_stack(stack)
@@ -46,6 +50,7 @@ def _only(resources, rtype):
 
 
 # ── namespace + guardrails ──────────────────────────────────────────────────
+
 
 def test_function_is_named_and_sized_as_measured(resources):
     fn = _only(resources, "AWS::Lambda::Function")
@@ -90,16 +95,25 @@ def test_no_custom_resources(resources):
 
 
 def test_log_groups_have_retention(resources):
-    groups = {r["Properties"]["LogGroupName"]: r["Properties"]
-              for r in resources.values() if r["Type"] == "AWS::Logs::LogGroup"}
+    groups = {
+        r["Properties"]["LogGroupName"]: r["Properties"]
+        for r in resources.values()
+        if r["Type"] == "AWS::Logs::LogGroup"
+    }
     assert set(groups) == {"/aws/lambda/lou-bot", "/lou/build"}, groups.keys()
     assert groups["/aws/lambda/lou-bot"]["RetentionInDays"] == 7
     assert groups["/lou/build"]["RetentionInDays"] == 30
 
 
 def test_every_taggable_resource_carries_project_lou(resources):
-    taggable = ("AWS::Lambda::Function", "AWS::DynamoDB::Table", "AWS::S3::Bucket",
-                "AWS::IAM::Role", "AWS::Logs::LogGroup", "AWS::CloudFront::Distribution")
+    taggable = (
+        "AWS::Lambda::Function",
+        "AWS::DynamoDB::Table",
+        "AWS::S3::Bucket",
+        "AWS::IAM::Role",
+        "AWS::Logs::LogGroup",
+        "AWS::CloudFront::Distribution",
+    )
     for r in resources.values():
         if r["Type"] in taggable:
             props = r["Properties"]
@@ -111,6 +125,7 @@ def test_every_taggable_resource_carries_project_lou(resources):
 
 
 # ── streaming path: Function URL + both grants + CloudFront/OAC ─────────────
+
 
 def test_function_url_is_iam_locked_and_streaming(resources):
     url = _only(resources, "AWS::Lambda::Url")
@@ -142,12 +157,13 @@ def test_cloudfront_uses_oac_no_cache_no_compress_no_host(resources):
     assert origin["CustomOriginConfig"]["OriginProtocolPolicy"] == "https-only"
     assert origin["CustomOriginConfig"]["OriginReadTimeout"] == 60
     b = dist["DefaultCacheBehavior"]
-    assert b["CachePolicyId"] == "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"          # Managed-CachingDisabled
+    assert b["CachePolicyId"] == "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"  # Managed-CachingDisabled
     # Custom origin request policy: the app's viewer headers plus the
     # CloudFront-added viewer address the rate limiter keys on; never Host.
     orp = _only(resources, "AWS::CloudFront::OriginRequestPolicy")["OriginRequestPolicyConfig"]
-    assert b["OriginRequestPolicyId"] == {"Ref": next(
-        k for k, r in resources.items() if r["Type"] == "AWS::CloudFront::OriginRequestPolicy")}
+    assert b["OriginRequestPolicyId"] == {
+        "Ref": next(k for k, r in resources.items() if r["Type"] == "AWS::CloudFront::OriginRequestPolicy")
+    }
     headers = orp["HeadersConfig"]
     assert headers["HeaderBehavior"] == "whitelist"
     names = {h.lower() for h in headers["Headers"]}
@@ -165,9 +181,13 @@ def test_cloudfront_uses_oac_no_cache_no_compress_no_host(resources):
 
 # ── state + data ────────────────────────────────────────────────────────────
 
+
 def _table(resources, name):
-    found = [r["Properties"] for r in resources.values()
-             if r["Type"] == "AWS::DynamoDB::Table" and r["Properties"].get("TableName") == name]
+    found = [
+        r["Properties"]
+        for r in resources.values()
+        if r["Type"] == "AWS::DynamoDB::Table" and r["Properties"].get("TableName") == name
+    ]
     assert len(found) == 1, f"expected one table {name}, got {len(found)}"
     return found[0]
 
@@ -187,12 +207,14 @@ def test_interactions_table_matches_interactions_contract(resources):
     lou-* grant, and handed to the function by INTERACTIONS_TABLE — without
     that env var the app records nothing."""
     t = _table(resources, "lou-interactions")
-    assert t["KeySchema"] == [{"AttributeName": "pk", "KeyType": "HASH"},
-                              {"AttributeName": "sk", "KeyType": "RANGE"}]
+    assert t["KeySchema"] == [{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}]
     assert t["BillingMode"] == "PAY_PER_REQUEST"
     assert t["TimeToLiveSpecification"] == {"AttributeName": "ttl", "Enabled": True}
-    res = next(r for r in resources.values()
-               if r["Type"] == "AWS::DynamoDB::Table" and r["Properties"]["TableName"] == "lou-interactions")
+    res = next(
+        r
+        for r in resources.values()
+        if r["Type"] == "AWS::DynamoDB::Table" and r["Properties"]["TableName"] == "lou-interactions"
+    )
     assert res.get("DeletionPolicy") == "Retain"
     fn = _only(resources, "AWS::Lambda::Function")
     assert fn["Environment"]["Variables"]["INTERACTIONS_TABLE"] == "lou-interactions"
@@ -214,6 +236,7 @@ def test_data_bucket_follows_the_naming_rule_and_is_private(resources):
 
 # ── tunables ────────────────────────────────────────────────────────────────
 
+
 def test_waf_is_present_in_code_and_attaches_when_enabled():
     t = _synth(**{"lou:waf": True})
     acl = _only(t.to_json()["Resources"], "AWS::WAFv2::WebACL")
@@ -225,15 +248,18 @@ def test_waf_is_present_in_code_and_attaches_when_enabled():
 
 
 def test_memory_and_concurrency_are_context_tunable():
-    fn = _only(_synth(**{"lou:memoryMb": 2048, "lou:reservedConcurrency": 3}).to_json()["Resources"],
-               "AWS::Lambda::Function")
+    fn = _only(
+        _synth(**{"lou:memoryMb": 2048, "lou:reservedConcurrency": 3}).to_json()["Resources"], "AWS::Lambda::Function"
+    )
     assert fn["MemorySize"] == 2048 and fn["ReservedConcurrentExecutions"] == 3
 
 
 # ── the boundary is the effective ceiling ──────────────────────────────────
 
+
 def _boundary_allows(action: str, boundary: dict) -> bool:
     import fnmatch
+
     allowed = denied = False
     for st in boundary["Statement"]:
         acts = st["Action"] if isinstance(st["Action"], list) else [st["Action"]]
@@ -264,12 +290,16 @@ def test_every_runtime_grant_is_inside_the_permissions_boundary(resources):
 
 # ── alarms (louisville-open-data-5cn) ──────────────────────────────────────
 
+
 def test_alarms_cover_errors_throttles_and_duration_and_notify_the_topic(resources):
     topic = _only(resources, "AWS::SNS::Topic")
     assert topic["TopicName"] == "lou-alerts"
     topic_ref = next(k for k, r in resources.items() if r["Type"] == "AWS::SNS::Topic")
-    alarms = {r["Properties"]["AlarmName"]: r["Properties"]
-              for r in resources.values() if r["Type"] == "AWS::CloudWatch::Alarm"}
+    alarms = {
+        r["Properties"]["AlarmName"]: r["Properties"]
+        for r in resources.values()
+        if r["Type"] == "AWS::CloudWatch::Alarm"
+    }
     assert set(alarms) == {"lou-bot-errors", "lou-bot-throttles", "lou-bot-duration-near-timeout"}
     for name, a in alarms.items():
         assert a["Namespace"] == "AWS/Lambda", name
@@ -295,8 +325,9 @@ def test_alert_email_becomes_a_subscription_only_via_context():
 
 def test_waf_alarm_only_when_waf_is_on():
     res = _synth(**{"lou:waf": True}).to_json()["Resources"]
-    alarms = {r["Properties"]["AlarmName"]: r["Properties"]
-              for r in res.values() if r["Type"] == "AWS::CloudWatch::Alarm"}
+    alarms = {
+        r["Properties"]["AlarmName"]: r["Properties"] for r in res.values() if r["Type"] == "AWS::CloudWatch::Alarm"
+    }
     assert "lou-edge-blocked-spike" in alarms
     # The WebACL dimension is the ACL's VisibilityConfig MetricName, not its
     # name; a mismatch means a metric with no datapoints and an alarm stuck OK.
@@ -308,6 +339,7 @@ def test_waf_alarm_only_when_waf_is_on():
 
 
 # ── build plane: the scheduled refresh (louisville-open-data-0nu) ──────────
+
 
 def test_refresh_build_uses_the_human_created_build_role_and_docker_on_arm(resources):
     proj = _only(resources, "AWS::CodeBuild::Project")
@@ -321,11 +353,22 @@ def test_refresh_build_uses_the_human_created_build_role_and_docker_on_arm(resou
     assert proj["TimeoutInMinutes"] == 180
     assert "BuildLogs" in json.dumps(proj["LogsConfig"]["CloudWatchLogs"]["GroupName"])
     assert proj["Source"]["Type"] == "NO_SOURCE"
-    spec = json.loads(proj["Source"]["BuildSpec"]) if isinstance(proj["Source"]["BuildSpec"], str) else proj["Source"]["BuildSpec"]
+    spec = (
+        json.loads(proj["Source"]["BuildSpec"])
+        if isinstance(proj["Source"]["BuildSpec"], str)
+        else proj["Source"]["BuildSpec"]
+    )
     assert spec["env"]["parameter-store"]["ADMIN_TOKEN"] == "/lou/prod/ADMIN_TOKEN"
     cmds = " ".join(spec["phases"]["build"]["commands"] + spec["phases"]["post_build"]["commands"])
-    for step in ("refresh_data.py --skip-graph", "rag.py ingest", "--materialize data/lou.duckdb",
-                 "s3 sync data/", "cdk@2", "deploy LouStack", "warm_cache.py"):
+    for step in (
+        "refresh_data.py --skip-graph",
+        "rag.py ingest",
+        "--materialize data/lou.duckdb",
+        "s3 sync data/",
+        "cdk@2",
+        "deploy LouStack",
+        "warm_cache.py",
+    ):
         assert step in cmds, step
     # The monthly deploy must keep the live hostname binding (roborev 4747).
     deploy_cmd = next(c for c in spec["phases"]["build"]["commands"] if "deploy LouStack" in c)
@@ -333,10 +376,12 @@ def test_refresh_build_uses_the_human_created_build_role_and_docker_on_arm(resou
     assert "lou:domain=$D" in deploy_cmd and "lou:certificateArn=$C" in deploy_cmd
     # The cache clear must be able to FAIL the build: a bare curl -f, not the
     # deliberately non-fatal refresh_data.clear_response_cache.
-    assert 'curl -sf' in cmds and '-X DELETE "${CF}api/cache"' in cmds and "clear_response_cache" not in cmds
+    assert "curl -sf" in cmds and '-X DELETE "${CF}api/cache"' in cmds and "clear_response_cache" not in cmds
     # Every command anchors on an absolute path: CodeBuild keeps the cwd between commands.
     all_cmds = [c for ph in spec["phases"].values() for c in ph.get("commands", [])]
-    assert all("$CODEBUILD_SRC_DIR" in c or c.startswith("export CF=") or c.startswith("curl ") for c in all_cmds), all_cmds
+    assert all("$CODEBUILD_SRC_DIR" in c or c.startswith("export CF=") or c.startswith("curl ") for c in all_cmds), (
+        all_cmds
+    )
     # No CDK-created role for the build: the stack references, never creates, it.
     roles = [r["Properties"]["RoleName"] for r in resources.values() if r["Type"] == "AWS::IAM::Role"]
     assert roles == ["lou-lambda-exec"], roles
@@ -374,6 +419,7 @@ def test_data_bucket_expires_refresh_snapshots(resources):
 
 
 # ── cutover: custom domain (louisville-open-data-lla) ──────────────────────
+
 
 def test_no_custom_domain_by_default(resources):
     dist = _only(resources, "AWS::CloudFront::Distribution")["DistributionConfig"]

@@ -4,6 +4,7 @@ The bug: offsets advanced by the REQUESTED batch_size with a precomputed page
 count, so when a hosted layer caps its page size below --batch-size, records
 past the first page were silently skipped and a partial CSV was written.
 """
+
 import json
 
 import pytest
@@ -22,12 +23,14 @@ def _make_capped_server(total, server_cap):
     """A fake ArcGIS query endpoint that never returns more than server_cap rows
     per page, regardless of the requested resultRecordCount, and sets
     exceededTransferLimit until the last row is served."""
+
     def fake_fetch_json(url, params, retries=3):
         offset = params["resultOffset"]
         want = params["resultRecordCount"]
         take = max(0, min(want, server_cap, total - offset))
         feats = [{"attributes": {"id": i}} for i in range(offset, offset + take)]
         return {"features": feats, "exceededTransferLimit": (offset + take) < total}
+
     return fake_fetch_json
 
 
@@ -56,6 +59,7 @@ def test_pull_records_stops_cleanly_on_exact_multiple(monkeypatch):
 def test_pull_records_handles_empty_result(monkeypatch):
     def _must_not_be_called(*a, **k):
         raise AssertionError("fetch_json should not be called when total is 0")
+
     monkeypatch.setattr(pull_arcgis, "get_record_count", lambda *a, **k: 0)
     monkeypatch.setattr(pull_arcgis, "fetch_json", _must_not_be_called)
     assert pull_arcgis.pull_records("http://x/FeatureServer/0") == []
@@ -69,6 +73,7 @@ def test_save_data_is_atomic_and_leaves_no_part_file(tmp_path):
     assert not (tmp_path / "thing.csv.part").exists(), "temp .part file was left behind"
     # Round-trips.
     import pandas as pd
+
     df = pd.read_csv(out)
     assert list(df["id"]) == [1, 2]
 
@@ -87,11 +92,14 @@ def test_pull_records_aborts_on_non_paginating_server(monkeypatch):
     same page forever with exceededTransferLimit=true. The loop must abort
     instead of spinning and appending duplicates without bound (louisville-open-data l9a/3681)."""
     import pytest
+
     total = 2000
+
     def ignores_offset(url, params, retries=3):
         # Always returns the SAME first 1000 rows, always claims there's more.
         feats = [{"attributes": {"id": i}} for i in range(1000)]
         return {"features": feats, "exceededTransferLimit": True}
+
     monkeypatch.setattr(pull_arcgis, "get_record_count", lambda *a, **k: total)
     monkeypatch.setattr(pull_arcgis, "fetch_json", ignores_offset)
     with pytest.raises(RuntimeError, match="pagination not honored"):
@@ -102,6 +110,7 @@ def test_pull_records_aborts_on_non_paginating_server(monkeypatch):
 # The 2026-10-01 lou-refresh timed out mid-pull when the source served pages
 # ~6x slower than usual; pages are now fetched in a parallel window but must be
 # committed in offset order so the output is identical to the serial pull.
+
 
 def test_parallel_pull_matches_serial_and_keeps_order(monkeypatch):
     total, server_cap = 10_500, 1000
@@ -122,7 +131,7 @@ def test_parallel_pull_replans_after_a_short_page(monkeypatch):
     def shrinking_server(url, params, retries=3):
         offset = params["resultOffset"]
         calls.append(offset)
-        cap = 1000 if offset < 2000 else 500      # cap drops after the 2nd page
+        cap = 1000 if offset < 2000 else 500  # cap drops after the 2nd page
         take = max(0, min(params["resultRecordCount"], cap, total - offset))
         feats = [{"attributes": {"id": i}} for i in range(offset, offset + take)]
         return {"features": feats, "exceededTransferLimit": (offset + take) < total}
@@ -139,9 +148,10 @@ def test_parallel_pull_replans_after_a_short_page(monkeypatch):
 
 def test_parallel_pull_aborts_on_non_paginating_server(monkeypatch):
     import pytest
+
     def ignores_offset(url, params, retries=3):
-        return {"features": [{"attributes": {"id": i}} for i in range(1000)],
-                "exceededTransferLimit": True}
+        return {"features": [{"attributes": {"id": i}} for i in range(1000)], "exceededTransferLimit": True}
+
     monkeypatch.setattr(pull_arcgis, "get_record_count", lambda *a, **k: 2000)
     monkeypatch.setattr(pull_arcgis, "fetch_json", ignores_offset)
     with pytest.raises(RuntimeError, match="pagination not honored"):
@@ -150,6 +160,7 @@ def test_parallel_pull_aborts_on_non_paginating_server(monkeypatch):
 
 def test_workers_flag_defaults_from_env(monkeypatch):
     import importlib
+
     monkeypatch.setenv("ARCGIS_WORKERS", "3")
     mod = importlib.reload(pull_arcgis)
     try:
@@ -161,6 +172,7 @@ def test_workers_flag_defaults_from_env(monkeypatch):
 
 # ── ArcGIS Online request-unit quota (lou-refresh #5, 2026-10-01) ────────────
 
+
 def test_quota_429_waits_for_retry_after_and_retries(monkeypatch):
     """ArcGIS answers HTTP 200 with a JSON-level 429 when the per-minute
     request-unit budget is spent. That is a stall, not a failure: sleep for
@@ -170,19 +182,32 @@ def test_quota_429_waits_for_retry_after_and_retries(monkeypatch):
     calls = {"n": 0}
 
     class Resp:
-        def __init__(self, payload): self._p = payload
-        def raise_for_status(self): pass
-        def json(self): return self._p
+        def __init__(self, payload):
+            self._p = payload
 
-    quota = {"error": {"code": 429, "message": "Unable to perform query. Too many requests.",
-                       "details": ["API calls quota exceeded (6044 request units)! maximum allowed "
-                                   "request units (6000) per Minute. Retry after 60 sec."]}}
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._p
+
+    quota = {
+        "error": {
+            "code": 429,
+            "message": "Unable to perform query. Too many requests.",
+            "details": [
+                "API calls quota exceeded (6044 request units)! maximum allowed "
+                "request units (6000) per Minute. Retry after 60 sec."
+            ],
+        }
+    }
     ok = {"features": [{"attributes": {"id": 1}}], "exceededTransferLimit": False}
 
     class Sess:
         def get(self, url, params=None, timeout=None):
             calls["n"] += 1
             return Resp(quota if calls["n"] <= 2 else ok)
+
     monkeypatch.setattr(pull_arcgis, "_session", lambda: Sess())
     assert pull_arcgis.fetch_json("http://x/query", {}) == ok
     assert calls["n"] == 3
@@ -191,15 +216,21 @@ def test_quota_429_waits_for_retry_after_and_retries(monkeypatch):
 
 def test_quota_429_gives_up_after_quota_retries(monkeypatch):
     import pytest
+
     monkeypatch.setattr(pull_arcgis.time, "sleep", lambda s: None)
     monkeypatch.setattr(pull_arcgis, "QUOTA_RETRIES", 3)
 
     class Resp:
-        def raise_for_status(self): pass
-        def json(self): return {"error": {"code": 429, "message": "Too many requests.", "details": []}}
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"error": {"code": 429, "message": "Too many requests.", "details": []}}
 
     class Sess:
-        def get(self, url, params=None, timeout=None): return Resp()
+        def get(self, url, params=None, timeout=None):
+            return Resp()
+
     monkeypatch.setattr(pull_arcgis, "_session", lambda: Sess())
     with pytest.raises(RuntimeError, match="ArcGIS error"):
         pull_arcgis.fetch_json("http://x/query", {})
@@ -207,15 +238,21 @@ def test_quota_429_gives_up_after_quota_retries(monkeypatch):
 
 def test_other_arcgis_errors_still_raise_immediately(monkeypatch):
     import pytest
+
     sleeps = []
     monkeypatch.setattr(pull_arcgis.time, "sleep", lambda s: sleeps.append(s))
 
     class Resp:
-        def raise_for_status(self): pass
-        def json(self): return {"error": {"code": 400, "message": "Invalid query parameters", "details": []}}
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"error": {"code": 400, "message": "Invalid query parameters", "details": []}}
 
     class Sess:
-        def get(self, url, params=None, timeout=None): return Resp()
+        def get(self, url, params=None, timeout=None):
+            return Resp()
+
     monkeypatch.setattr(pull_arcgis, "_session", lambda: Sess())
     with pytest.raises(RuntimeError, match="Invalid query"):
         pull_arcgis.fetch_json("http://x/query", {})
@@ -228,8 +265,11 @@ def test_rate_limiter_caps_pages_per_minute(monkeypatch):
     clock = {"t": 0.0}
     slept = []
     monkeypatch.setattr(pull_arcgis.time, "monotonic", lambda: clock["t"])
+
     def fake_sleep(s):
-        slept.append(s); clock["t"] += s
+        slept.append(s)
+        clock["t"] += s
+
     monkeypatch.setattr(pull_arcgis.time, "sleep", fake_sleep)
     lim = pull_arcgis.RateLimiter(100)
     for _ in range(10):
@@ -250,9 +290,12 @@ def test_pull_records_passes_through_the_limiter(monkeypatch):
     monkeypatch.setattr(pull_arcgis, "get_record_count", lambda *a, **k: total)
     monkeypatch.setattr(pull_arcgis, "fetch_json", _make_capped_server(total, cap))
     acquired = []
+
     class Spy(pull_arcgis.RateLimiter):
         def acquire(self):
-            acquired.append(1); return 0.0
+            acquired.append(1)
+            return 0.0
+
     monkeypatch.setattr(pull_arcgis, "RateLimiter", Spy)
     records = pull_arcgis.pull_records("http://x/FeatureServer/0", batch_size=1000, workers=2)
     assert len(records) == total

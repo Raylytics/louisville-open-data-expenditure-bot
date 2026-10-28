@@ -20,26 +20,33 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # ── normalization ────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("a,b", [
-    ("LOUISVILLE GAS & ELECTRIC COMPANY", "Louisville Gas and Electric Co."),
-    ("ACME SERVICES, INC.", "Acme Services Inc"),
-    ("The Kroger Co", "KROGER"),
-    ("A.B.C. Supply L.L.C.", "ABC SUPPLY LLC"),
-    ("WALGREENS #4821", "Walgreens"),
-    ("Dugan & Meyers LLC", "DUGAN AND MEYERS"),
-])
+
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        ("LOUISVILLE GAS & ELECTRIC COMPANY", "Louisville Gas and Electric Co."),
+        ("ACME SERVICES, INC.", "Acme Services Inc"),
+        ("The Kroger Co", "KROGER"),
+        ("A.B.C. Supply L.L.C.", "ABC SUPPLY LLC"),
+        ("WALGREENS #4821", "Walgreens"),
+        ("Dugan & Meyers LLC", "DUGAN AND MEYERS"),
+    ],
+)
 def test_orthographic_variants_share_a_key(a, b):
     assert cs.normalize(a) == cs.normalize(b) != ""
 
 
-@pytest.mark.parametrize("a,b", [
-    # Different organizations that share a lot of surface text.
-    ("BETHEL #2 APOSTOLIC CHURCH", "BETHEL #3 APOSTOLIC CHURCH"),
-    ("LOUISVILLE METRO POLICE", "LOUISVILLE METRO PARKS"),
-    ("FIRST NATIONAL BANK", "FIRST NATIONAL BANCORP"),
-    # Truncation is NOT a safe automatic merge — it goes to the review report.
-    ("LOUISVILLE GAS AND ELE", "LOUISVILLE GAS AND ELECTRIC"),
-])
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        # Different organizations that share a lot of surface text.
+        ("BETHEL #2 APOSTOLIC CHURCH", "BETHEL #3 APOSTOLIC CHURCH"),
+        ("LOUISVILLE METRO POLICE", "LOUISVILLE METRO PARKS"),
+        ("FIRST NATIONAL BANK", "FIRST NATIONAL BANCORP"),
+        # Truncation is NOT a safe automatic merge — it goes to the review report.
+        ("LOUISVILLE GAS AND ELE", "LOUISVILLE GAS AND ELECTRIC"),
+    ],
+)
 def test_distinct_entities_keep_distinct_keys(a, b):
     assert cs.normalize(a) != cs.normalize(b)
 
@@ -57,6 +64,7 @@ def test_normalize_tolerates_junk():
 
 # ── canonical labels ─────────────────────────────────────────────────────────
 
+
 def test_label_is_the_heaviest_spelling_not_the_first_seen():
     c = cs.Cluster("ACME", {"ACME INC": 10.0, "Acme Services": 500.0})
     assert c.canonical == "Acme Services"
@@ -69,29 +77,35 @@ def test_label_choice_is_deterministic_under_ties():
     assert labels == {"C Spelling"}
 
 
-@pytest.mark.parametrize("raw,expected", [
-    ("DEPARTMENT OF PUBLIC WORKS", "Department of Public Works"),
-    ("ACME SERVICES LLC", "Acme Services LLC"),    # known acronym stays upper
-    ("HUMANA INC", "Humana Inc"),                  # suffix reads as a word
-    ("Already Cased Inc.", "Already Cased Inc."),  # mixed case left alone
-    # A vowel-less shout cannot be a word, so it survives — and it survives
-    # the same way whether or not other words follow it.
-    ("LMPD", "LMPD"),
-    ("CDM SMITH INC", "CDM Smith Inc"),
-    ("HNTB OHIO INC", "HNTB Ohio Inc"),
-])
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("DEPARTMENT OF PUBLIC WORKS", "Department of Public Works"),
+        ("ACME SERVICES LLC", "Acme Services LLC"),  # known acronym stays upper
+        ("HUMANA INC", "Humana Inc"),  # suffix reads as a word
+        ("Already Cased Inc.", "Already Cased Inc."),  # mixed case left alone
+        # A vowel-less shout cannot be a word, so it survives — and it survives
+        # the same way whether or not other words follow it.
+        ("LMPD", "LMPD"),
+        ("CDM SMITH INC", "CDM Smith Inc"),
+        ("HNTB OHIO INC", "HNTB Ohio Inc"),
+    ],
+)
 def test_smart_title(raw, expected):
     assert cs.smart_title(raw) == expected
 
 
-@pytest.mark.parametrize("raw,expected", [
-    # An all-lowercase export is a casing accident too, not an intentional
-    # style — accepting it made "veritiv" and "vets securing america" the
-    # canonical names of real Cincinnati vendors.
-    ("veritiv", "Veritiv"),
-    ("vets securing america", "Vets Securing America"),
-    ("priscilla gorman oehlschlaeger", "Priscilla Gorman Oehlschlaeger"),
-])
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # An all-lowercase export is a casing accident too, not an intentional
+        # style — accepting it made "veritiv" and "vets securing america" the
+        # canonical names of real Cincinnati vendors.
+        ("veritiv", "Veritiv"),
+        ("vets securing america", "Vets Securing America"),
+        ("priscilla gorman oehlschlaeger", "Priscilla Gorman Oehlschlaeger"),
+    ],
+)
 def test_all_lowercase_is_cased_too_not_taken_as_intentional(raw, expected):
     assert cs.smart_title(raw) == expected
 
@@ -111,9 +125,7 @@ def test_an_acronym_is_recovered_from_a_lowercase_export_too():
     identical 'HNTB OHIO' became 'HNTB Ohio', from nothing but the portal's
     shift key. (Only vowel-less tokens qualify at all: TLO and APCD carry a
     vowel and are title-cased in either case, a curator's fix by design.)"""
-    for lower, upper in (("cdm smith inc", "CDM SMITH INC"),
-                         ("hntb ohio", "HNTB OHIO"),
-                         ("lmpd unit", "LMPD UNIT")):
+    for lower, upper in (("cdm smith inc", "CDM SMITH INC"), ("hntb ohio", "HNTB OHIO"), ("lmpd unit", "LMPD UNIT")):
         assert cs.smart_title(lower) == cs.smart_title(upper)
     assert cs.smart_title("hntb ohio") == "HNTB Ohio"
 
@@ -134,33 +146,36 @@ def test_real_words_are_never_preserved_as_acronyms():
     assert cs.smart_title("VETS SECURING AMERICA") == "Vets Securing America"
 
 
-@pytest.mark.parametrize("raw,expected", [
-    # "no AEIOU" is a proxy for "cannot be pronounced", and English spells
-    # plenty of words without those five letters.
-    ("lynch bros", "Lynch Bros"),
-    ("smyth partners", "Smyth Partners"),
-    ("flynn byrd", "Flynn Byrd"),
-    # ...and the residue the vowel rule cannot see at all: abbreviations that
-    # read as words in a name.
-    ("st matthews health", "St Matthews Health"),
-    ("smith wm jr", "Smith Wm Jr"),
-    # The other direction: treating Y as a vowel demoted the state
-    # abbreviation of the one state this repo runs in. Both rows below are
-    # real in cities/louisville/payee_map.csv.
-    ("ky retirement system", "KY Retirement System"),
-    ("waste management of ky llc", "Waste Management of KY LLC"),
-    # ...and the cost of over-correcting that: ACRONYMS is consulted before
-    # JOINERS, so a state abbreviation that is also an English word shouts the
-    # word. "IN THE LINE OF DUTY" and "INVEST IN NEIGHBORHOODS" are curated
-    # rows in the Cincinnati pack.
-    ("partners in health", "Partners in Health"),
-    ("invest in neighborhoods", "Invest in Neighborhoods"),
-    # TN/WV are deliberately NOT in ACRONYMS — being vowel-less, the heuristic
-    # still owns them. Pinned here because "the heuristic covers it" is exactly
-    # the assumption that failed for KY: raising the two-character lower bound
-    # in _looks_like_acronym would otherwise demote this with the suite green.
-    ("tn dept of revenue", "TN Dept of Revenue"),
-])
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # "no AEIOU" is a proxy for "cannot be pronounced", and English spells
+        # plenty of words without those five letters.
+        ("lynch bros", "Lynch Bros"),
+        ("smyth partners", "Smyth Partners"),
+        ("flynn byrd", "Flynn Byrd"),
+        # ...and the residue the vowel rule cannot see at all: abbreviations that
+        # read as words in a name.
+        ("st matthews health", "St Matthews Health"),
+        ("smith wm jr", "Smith Wm Jr"),
+        # The other direction: treating Y as a vowel demoted the state
+        # abbreviation of the one state this repo runs in. Both rows below are
+        # real in cities/louisville/payee_map.csv.
+        ("ky retirement system", "KY Retirement System"),
+        ("waste management of ky llc", "Waste Management of KY LLC"),
+        # ...and the cost of over-correcting that: ACRONYMS is consulted before
+        # JOINERS, so a state abbreviation that is also an English word shouts the
+        # word. "IN THE LINE OF DUTY" and "INVEST IN NEIGHBORHOODS" are curated
+        # rows in the Cincinnati pack.
+        ("partners in health", "Partners in Health"),
+        ("invest in neighborhoods", "Invest in Neighborhoods"),
+        # TN/WV are deliberately NOT in ACRONYMS — being vowel-less, the heuristic
+        # still owns them. Pinned here because "the heuristic covers it" is exactly
+        # the assumption that failed for KY: raising the two-character lower bound
+        # in _looks_like_acronym would otherwise demote this with the suite green.
+        ("tn dept of revenue", "TN Dept of Revenue"),
+    ],
+)
 def test_words_the_vowel_rule_cannot_see_are_not_shouted(raw, expected):
     """Judging the case-folded shape extended the acronym rule to lowercase
     exports, which also extended its misfires there. Both cases must agree AND
@@ -170,6 +185,7 @@ def test_words_the_vowel_rule_cannot_see_are_not_shouted(raw, expected):
 
 
 # ── the live map must be recognised however its path is spelled ──────────────
+
 
 def test_the_live_map_is_recognised_however_its_path_is_spelled(tmp_path, monkeypatch):
     """Both protections for a curated map — the refuse-to-overwrite guard and
@@ -199,6 +215,7 @@ def test_the_live_map_is_recognised_before_it_exists(tmp_path):
 
 # ── main(): the two decisions _same_file actually guards ─────────────────────
 
+
 def _tiny_pack(tmp_path):
     """A minimal city pack: one canonicalization spec and a curated map."""
     pack = tmp_path / "pack"
@@ -209,17 +226,14 @@ def _tiny_pack(tmp_path):
         "    target_column: payee_canonical\n"
         "    exact_map: payee_map.csv\n"
     )
-    (pack / "payee_map.csv").write_text(
-        "source,canonical\nAPCD,Air Pollution Control District\n")
+    (pack / "payee_map.csv").write_text("source,canonical\nAPCD,Air Pollution Control District\n")
     return pack
 
 
 @pytest.fixture()
 def seeded_weights(monkeypatch):
     """Skip the DuckDB read so main() can be exercised as a whole."""
-    monkeypatch.setattr(
-        cs, "load_weights",
-        lambda *a, **k: ({"ACME INC": 5.0, "Acme, Inc.": 3.0}, "dollars"))
+    monkeypatch.setattr(cs, "load_weights", lambda *a, **k: ({"ACME INC": 5.0, "Acme, Inc.": 3.0}, "dollars"))
 
 
 def test_main_refuses_a_relative_out_that_names_the_live_map(tmp_path, monkeypatch, seeded_weights):
@@ -242,16 +256,14 @@ def test_main_merges_when_force_names_the_live_map_relatively(tmp_path, monkeypa
     whatever the path is spelled like, or curation is silently discarded."""
     pack = _tiny_pack(tmp_path)
     monkeypatch.chdir(tmp_path)
-    assert cs.main(["--city", "pack/city.yaml", "--out", "pack/payee_map.csv",
-                    "--force"]) == 0
+    assert cs.main(["--city", "pack/city.yaml", "--out", "pack/payee_map.csv", "--force"]) == 0
     with open(pack / "payee_map.csv", newline="") as f:
         written = dict(list(csv.reader(f))[1:])
     assert written["APCD"] == "Air Pollution Control District", "curated row dropped"
     assert "ACME INC" in written, "the draft rows were not added"
 
 
-def test_main_says_what_it_replaced_when_rewriting_a_draft(tmp_path, monkeypatch,
-                                                           seeded_weights, capsys):
+def test_main_says_what_it_replaced_when_rewriting_a_draft(tmp_path, monkeypatch, seeded_weights, capsys):
     """The default --out is the file a curator may have been editing. Replacing
     it is correct; doing so silently is not."""
     pack = _tiny_pack(tmp_path)
@@ -269,6 +281,7 @@ def test_main_says_what_it_replaced_when_rewriting_a_draft(tmp_path, monkeypatch
 
 
 # ── clustering and draft rows ────────────────────────────────────────────────
+
 
 def _clusters(weights):
     return cs.cluster_values(weights)
@@ -312,6 +325,7 @@ def test_draft_rows_are_a_function_of_the_map_the_engine_will_load():
 
 # ── suggestions (never auto-merged) ──────────────────────────────────────────
 
+
 def test_truncations_surface_as_near_duplicates_but_stay_out_of_the_map():
     weights = {"LOUISVILLE GAS AND ELECTRIC": 100.0, "LOUISVILLE GAS AND ELE": 20.0}
     cl = _clusters(weights)
@@ -330,9 +344,7 @@ def test_initialism_candidates_find_the_semantic_merges():
     # from a word, so it is cased like one and the curator restores it — the
     # deliberate direction of error (see _looks_like_acronym). The pairing
     # itself, which is what this test is about, is unaffected.
-    assert [(s.canonical, l.canonical) for s, l in found] == [
-        ("Apcd", "Air Pollution Control District")
-    ]
+    assert [(s.canonical, l.canonical) for s, l in found] == [("Apcd", "Air Pollution Control District")]
     assert cs.draft_rows(cl) == [], "suggestions must not enter the draft map"
 
 
@@ -344,10 +356,13 @@ def test_initialism_skips_joiners_the_way_writers_do():
 def test_prefix_candidates_only_fire_on_trailing_store_codes():
     """A mid-name '#' is part of the identity; a prefix rule keyed on it would
     swallow every other congregation on the street."""
-    cl = _clusters({
-        "WALGREENS #4821": 10.0, "WALGREENS #17": 5.0,
-        "BETHEL #2 APOSTOLIC CHURCH": 3.0,
-    })
+    cl = _clusters(
+        {
+            "WALGREENS #4821": 10.0,
+            "WALGREENS #17": 5.0,
+            "BETHEL #2 APOSTOLIC CHURCH": 3.0,
+        }
+    )
     prefixes = [p for p, _, _, _ in cs.prefix_candidates(cl)]
     assert prefixes == ["WALGREENS #"]
 
@@ -356,10 +371,10 @@ def test_near_duplicate_cap_is_reported_not_silent():
     """The comparison bound must be visible in the report, or a capped run
     reads as 'nothing left to merge'."""
     import io
+
     cl = _clusters({f"VENDOR NUMBER {i}": float(i) for i in range(50)})
     buf = io.StringIO()
-    cs.write_report(buf, cl, [], [], [], [], cl[:5], "dollars", limit=10,
-                    threshold=0.9)
+    cs.write_report(buf, cl, [], [], [], [], cl[:5], "dollars", limit=10, threshold=0.9)
     text = buf.getvalue()
     assert "Compared the 10 heaviest of 50 clusters" in text
     assert "Lighter clusters were not compared" in text
@@ -367,11 +382,13 @@ def test_near_duplicate_cap_is_reported_not_silent():
 
 # ── the map the engine actually loads ────────────────────────────────────────
 
+
 def test_written_map_round_trips_through_the_engines_loader(tmp_path):
     """The draft has to be loadable by CityConfig.load_map verbatim, including
     values holding commas and quotes."""
     from city_config import CityConfig
-    cl = _clusters({'ACME, INC.': 10.0, '"ACME" INC': 4.0})
+
+    cl = _clusters({"ACME, INC.": 10.0, '"ACME" INC': 4.0})
     assert len(cl) == 1, "fixture must actually co-cluster for this to test CSV"
     path = tmp_path / "payee_map.csv"
     cs.write_map(str(path), cs.draft_rows(cl))
@@ -379,13 +396,14 @@ def test_written_map_round_trips_through_the_engines_loader(tmp_path):
     raw = path.read_text()
     assert '"' in raw and "," in raw
     loaded = CityConfig({}, str(tmp_path)).load_map("payee_map.csv")
-    assert loaded['ACME, INC.'] == "Acme, Inc."
+    assert loaded["ACME, INC."] == "Acme, Inc."
     assert loaded['"ACME" INC'] == "Acme, Inc."
 
 
 def test_seeder_output_survives_the_engines_sql_quoting(tmp_path):
     """Canonical labels reach DuckDB inside single-quoted SQL literals."""
     import data_model
+
     cl = _clusters({"O'BRIEN & SONS": 10.0, "O'Brien and Sons Inc": 4.0})
     rows = cs.draft_rows(cl)
     assert rows, "apostrophe names must still cluster"
@@ -396,10 +414,12 @@ def test_seeder_output_survives_the_engines_sql_quoting(tmp_path):
 
 # ── CLI safety ───────────────────────────────────────────────────────────────
 
+
 def test_cli_writes_a_draft_and_never_touches_a_curated_map(tmp_path, monkeypatch):
     """Re-running the seeder on an onboarded city must not clobber the map a
     human spent hours on."""
     import shutil
+
     pack = tmp_path / "pack"
     pack.mkdir()
     shutil.copy(os.path.join(REPO, "cities", "louisville", "city.yaml"), pack)
@@ -408,8 +428,7 @@ def test_cli_writes_a_draft_and_never_touches_a_curated_map(tmp_path, monkeypatc
     for name in ("payee_map.csv", "payee_prefix_map.csv"):
         shutil.copy(os.path.join(REPO, "cities", "louisville", name), pack)
 
-    monkeypatch.setattr(cs, "load_weights",
-                        lambda *a, **k: ({"ACME INC": 9.0, "Acme, Inc.": 1.0}, "dollars"))
+    monkeypatch.setattr(cs, "load_weights", lambda *a, **k: ({"ACME INC": 9.0, "Acme, Inc.": 1.0}, "dollars"))
     cs.main(["--city", str(pack / "city.yaml"), "--dimension", "agency"])
 
     assert curated.read_text() == "source,canonical\nHAND,Hand Curated\n"
@@ -420,6 +439,7 @@ def test_cli_writes_a_draft_and_never_touches_a_curated_map(tmp_path, monkeypatc
 
 def test_cli_rejects_a_dimension_the_pack_does_not_declare(tmp_path):
     from city_config import load_city_config
+
     cfg = load_city_config(os.path.join(REPO, "cities", "louisville", "city.yaml"))
     with pytest.raises(SystemExit):
         cs.spec_for(cfg, "not_a_dimension")
@@ -428,15 +448,14 @@ def test_cli_rejects_a_dimension_the_pack_does_not_declare(tmp_path):
 
 # ── --force must not destroy curation ────────────────────────────────────────
 
+
 def test_force_preserves_curated_rows_it_did_not_write(tmp_path):
     """The doc's safety claim used to hold only for the draft path: --force
     opened the live map with "w" and wrote machine rows only, silently
     deleting the ~92% semantic curation the seeder cannot regenerate."""
     live = tmp_path / "payee_map.csv"
-    live.write_text("source,canonical\nLG&E,Louisville Gas & Electric Company\n"
-                    "APCD,Air Pollution Control District\n")
-    merged, kept, added = cs.merge_with_existing(
-        str(live), [("ACME INC", "Acme Inc"), ("Acme, Inc.", "Acme Inc")])
+    live.write_text("source,canonical\nLG&E,Louisville Gas & Electric Company\nAPCD,Air Pollution Control District\n")
+    merged, kept, added = cs.merge_with_existing(str(live), [("ACME INC", "Acme Inc"), ("Acme, Inc.", "Acme Inc")])
     assert kept == 2 and added == 2
     as_map = dict(merged)
     assert as_map["LG&E"] == "Louisville Gas & Electric Company"
@@ -449,15 +468,13 @@ def test_a_curators_correction_wins_over_the_seeders_label(tmp_path):
     reverts 'UC Health' to the tool's 'Uc Health'."""
     live = tmp_path / "m.csv"
     live.write_text("source,canonical\nUC HEALTH,UC Health\n")
-    merged, kept, added = cs.merge_with_existing(
-        str(live), [("UC HEALTH", "Uc Health")])
+    merged, kept, added = cs.merge_with_existing(str(live), [("UC HEALTH", "Uc Health")])
     assert dict(merged)["UC HEALTH"] == "UC Health"
     assert added == 0
 
 
 def test_merge_on_a_missing_file_is_just_the_draft(tmp_path):
-    merged, kept, added = cs.merge_with_existing(
-        str(tmp_path / "nope.csv"), [("A", "B")])
+    merged, kept, added = cs.merge_with_existing(str(tmp_path / "nope.csv"), [("A", "B")])
     assert merged == [("A", "B")] and kept == 0 and added == 1
 
 
@@ -466,8 +483,7 @@ def test_the_merged_map_is_one_sorted_run(tmp_path):
     block, and the next curation diff is noise instead of the changed rows."""
     live = tmp_path / "m.csv"
     live.write_text("source,canonical\nBRAVO,Bravo\nZULU,Zulu\n")
-    merged, _, _ = cs.merge_with_existing(
-        str(live), [("ALPHA", "Alpha"), ("MIKE", "Mike")])
+    merged, _, _ = cs.merge_with_existing(str(live), [("ALPHA", "Alpha"), ("MIKE", "Mike")])
     sources = [r[0] for r in merged]
     assert sources == sorted(sources) == ["ALPHA", "BRAVO", "MIKE", "ZULU"]
 
@@ -479,8 +495,8 @@ def test_merging_a_case_insensitive_pack_adds_no_unreachable_branch(tmp_path):
     live = tmp_path / "m.csv"
     live.write_text("source,canonical\nACME INC,Acme Inc\n")
     merged, kept, added = cs.merge_with_existing(
-        str(live), [("Acme Inc", "Acme Inc"), ("BETA LLC", "Beta Llc")],
-        case_insensitive=True)
+        str(live), [("Acme Inc", "Acme Inc"), ("BETA LLC", "Beta Llc")], case_insensitive=True
+    )
     assert added == 1 and kept == 1
     keys = [r[0].upper() for r in merged]
     assert len(keys) == len(set(keys))
@@ -488,6 +504,7 @@ def test_merging_a_case_insensitive_pack_adds_no_unreachable_branch(tmp_path):
 
 
 # ── the map the engine can actually reach ────────────────────────────────────
+
 
 def test_case_insensitive_specs_do_not_emit_unreachable_branches():
     """The engine compiles those specs to WHEN UPPER(source) = ..., so two
@@ -504,6 +521,7 @@ def test_case_insensitive_specs_do_not_emit_unreachable_branches():
 
 def test_the_shipped_cincinnati_map_has_no_unreachable_rows():
     import csv as _csv
+
     path = os.path.join(REPO, "cities", "cincinnati", "payee_map.csv")
     with open(path, newline="") as f:
         rows = list(_csv.reader(f))[1:]
@@ -519,12 +537,13 @@ def test_the_shipped_cincinnati_map_has_no_unreachable_rows():
 def test_the_shipped_cincinnati_map_has_no_single_case_labels():
     """Canonical names are what the bot prints in answers."""
     import csv as _csv
+
     path = os.path.join(REPO, "cities", "cincinnati", "payee_map.csv")
     with open(path, newline="") as f:
         rows = list(_csv.reader(f))[1:]
-    shouted_words = [r[1] for r in rows
-                     if r[1].isupper() and len(r[1].split()) > 1
-                     and any(len(w) > 5 for w in r[1].split())]
+    shouted_words = [
+        r[1] for r in rows if r[1].isupper() and len(r[1].split()) > 1 and any(len(w) > 5 for w in r[1].split())
+    ]
     lowercased = [r[1] for r in rows if r[1].islower()]
     assert not lowercased, f"all-lowercase canonical labels: {lowercased[:5]}"
     assert not shouted_words, f"shouted canonical labels: {shouted_words[:5]}"
@@ -536,15 +555,18 @@ def test_load_weights_reads_dollars_and_skips_artifact_rows(monkeypatch):
     from city_config import CityConfig
 
     con = duckdb.connect()
-    con.execute("CREATE TABLE expenditures (payee VARCHAR, extended_amount DOUBLE, "
-                "is_data_artifact BOOLEAN)")
-    con.executemany("INSERT INTO expenditures VALUES (?,?,?)", [
-        ("REAL VENDOR", 100.0, False),
-        ("REAL VENDOR", 50.0, False),
-        ("ARTIFACT VENDOR", 999_000_000.0, True),
-        ("ARTIFACT VENDOR", 25.0, False),
-    ])
+    con.execute("CREATE TABLE expenditures (payee VARCHAR, extended_amount DOUBLE, is_data_artifact BOOLEAN)")
+    con.executemany(
+        "INSERT INTO expenditures VALUES (?,?,?)",
+        [
+            ("REAL VENDOR", 100.0, False),
+            ("REAL VENDOR", 50.0, False),
+            ("ARTIFACT VENDOR", 999_000_000.0, True),
+            ("ARTIFACT VENDOR", 25.0, False),
+        ],
+    )
     import data_model
+
     monkeypatch.setattr(data_model, "load_all_data", lambda *a, **k: con)
 
     cfg = CityConfig({"data_quality": {"amount_column": "extended_amount"}}, ".")
@@ -561,9 +583,9 @@ def test_load_weights_falls_back_to_row_counts(monkeypatch):
 
     con = duckdb.connect()
     con.execute("CREATE TABLE expenditures (payee VARCHAR)")
-    con.executemany("INSERT INTO expenditures VALUES (?)",
-                    [("A",), ("A",), ("B",)])
+    con.executemany("INSERT INTO expenditures VALUES (?)", [("A",), ("A",), ("B",)])
     import data_model
+
     monkeypatch.setattr(data_model, "load_all_data", lambda *a, **k: con)
 
     weights, unit = cs.load_weights("data", CityConfig({}, "."), "expenditures", "payee")
@@ -574,6 +596,7 @@ def test_the_report_discloses_the_blocking_not_just_the_top_n_cap():
     """'Compared the 400 heaviest' reads as 'all pairs among 400 were scored'.
     Blocking on the first 4 characters means most pairs never met."""
     import io
+
     cl = _clusters({f"VENDOR NUMBER {i}": float(i) for i in range(20)})
     buf = io.StringIO()
     cs.write_report(buf, cl, [], [], [], [], cl[:3], "dollars", limit=10, threshold=0.9)

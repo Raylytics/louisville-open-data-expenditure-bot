@@ -11,6 +11,7 @@ Two properties matter and are covered here:
      permits read_csv() of an arbitrary path and COPY TO — the connection
      serves LLM-generated SQL, so the filesystem must be unreachable from it.
 """
+
 import hashlib
 import os
 
@@ -52,6 +53,7 @@ def _tiny_db(path: str) -> str:
 
 # ── load_prebuilt: contract and lockdown (fast, no real data needed) ─────────
 
+
 def test_missing_artifact_raises_with_the_build_command(tmp_path):
     """A missing artifact must say how to make one. This fires at container
     startup, where the reader is whoever is debugging a failed deploy."""
@@ -73,11 +75,14 @@ def test_prebuilt_connection_is_read_only(tmp_path):
         con.close()
 
 
-@pytest.mark.parametrize("escape", [
-    "SELECT * FROM read_csv_auto('/etc/hosts')",
-    "SELECT * FROM read_json_auto('/etc/hosts')",
-    "COPY (SELECT 1) TO '/tmp/lou_test_should_not_exist.csv'",
-])
+@pytest.mark.parametrize(
+    "escape",
+    [
+        "SELECT * FROM read_csv_auto('/etc/hosts')",
+        "SELECT * FROM read_json_auto('/etc/hosts')",
+        "COPY (SELECT 1) TO '/tmp/lou_test_should_not_exist.csv'",
+    ],
+)
 def test_prebuilt_connection_cannot_reach_the_filesystem(tmp_path, escape):
     """read_only=True does NOT block these; the explicit lockdown does. This
     connection executes model-generated SQL, so the escape must be closed."""
@@ -101,12 +106,12 @@ def test_prebuilt_still_answers_queries(tmp_path):
 
 # ── build_database: atomicity ────────────────────────────────────────────────
 
+
 def test_failed_build_leaves_no_artifact(tmp_path, monkeypatch):
     """An interrupted build must not leave a half-populated file where the app
     would open it and serve wrong answers. It writes to a sibling and renames."""
     out = str(tmp_path / "out.duckdb")
-    monkeypatch.setattr(dm, "_ingest",
-                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(dm, "_ingest", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     with pytest.raises(RuntimeError):
         dm.build_database(out, "data")
     assert not os.path.exists(out), "partial artifact published"
@@ -118,11 +123,16 @@ def test_build_replaces_a_previous_artifact_and_stale_temp(tmp_path, monkeypatch
     existing file — refresh_data.py reruns into the same path — and must not
     be confused by a .building file left by an earlier hard kill."""
     out = str(tmp_path / "out.duckdb")
-    _tiny_db(out)                                    # previous artifact
-    duckdb.connect(out + ".building").close()        # stale temp from a crash
+    _tiny_db(out)  # previous artifact
+    duckdb.connect(out + ".building").close()  # stale temp from a crash
 
-    monkeypatch.setattr(dm, "_ingest", lambda con, cfg, d: con.execute(
-        "CREATE TABLE expenditures AS SELECT 1 AS fiscal_year, 2.0 AS extended_amount, 3 AS extra"))
+    monkeypatch.setattr(
+        dm,
+        "_ingest",
+        lambda con, cfg, d: con.execute(
+            "CREATE TABLE expenditures AS SELECT 1 AS fiscal_year, 2.0 AS extended_amount, 3 AS extra"
+        ),
+    )
     dm.build_database(out, "data")
 
     assert not os.path.exists(out + ".building")
@@ -135,6 +145,7 @@ def test_build_replaces_a_previous_artifact_and_stale_temp(tmp_path, monkeypatch
 
 
 # ── Equivalence against the CSV path (needs the real gitignored data) ────────
+
 
 @pytest.fixture(scope="module")
 def real_artifact(tmp_path_factory, require_louisville_data):
@@ -154,8 +165,7 @@ def test_artifact_schema_matches_csv_path(real_artifact, in_memory):
     here changes what the model is told about the data."""
     pre = dm.load_prebuilt(real_artifact)
     try:
-        assert dm.get_compact_schema_description(pre) == \
-               dm.get_compact_schema_description(in_memory)
+        assert dm.get_compact_schema_description(pre) == dm.get_compact_schema_description(in_memory)
     finally:
         pre.close()
 

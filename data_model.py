@@ -34,6 +34,7 @@ EXPENDITURE_LABELS = ALL_LABELS.get("expenditures", {})
 
 # ── Loader ───────────────────────────────────────────────────────────────────
 
+
 def _sql_quote(s: str) -> str:
     return s.replace("'", "''")
 
@@ -61,6 +62,7 @@ def _source_files(source: dict, data_dir: str) -> list:
     cities like Cincinnati), yielding year=None entries.
     """
     import glob as _glob
+
     pattern = source["files"]
     if "years" in source:
         # A years range with a {year}-less pattern would .format() to the SAME
@@ -118,9 +120,7 @@ def _load_expenditures(con, cfg: CityConfig, data_dir: str) -> None:
             column_map = source.get("column_map", {})
             select = "*"
             if column_map:
-                renames = ", ".join(
-                    f"{_ident_quote(s)} AS {_ident_quote(d)}" for s, d in column_map.items() if s != d
-                )
+                renames = ", ".join(f"{_ident_quote(s)} AS {_ident_quote(d)}" for s, d in column_map.items() if s != d)
                 if renames:
                     select = f"* RENAME ({renames})"
             if not _table_exists(con, table):
@@ -191,12 +191,8 @@ def _apply_canonicalization(con, cfg: CityConfig) -> None:
             ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {target} VARCHAR;
             UPDATE {table} SET {target} = {expr};
         """)
-        before = con.execute(
-            f"SELECT COUNT(DISTINCT {src}) FROM {table} WHERE {src} IS NOT NULL"
-        ).fetchone()[0]
-        after = con.execute(
-            f"SELECT COUNT(DISTINCT {target}) FROM {table} WHERE {target} IS NOT NULL"
-        ).fetchone()[0]
+        before = con.execute(f"SELECT COUNT(DISTINCT {src}) FROM {table} WHERE {src} IS NOT NULL").fetchone()[0]
+        after = con.execute(f"SELECT COUNT(DISTINCT {target}) FROM {table} WHERE {target} IS NOT NULL").fetchone()[0]
         print(f"{src} normalization: {before:,} variants -> {after:,} canonical names")
 
 
@@ -213,7 +209,7 @@ def _apply_data_quality(con, cfg: CityConfig) -> None:
     # match another vendor's refund by number and amount and wrongly net to zero.
     def _key_sql(key):
         cols = key if isinstance(key, list) else [key]
-        sel = ", ".join(cols)                       # for SELECT / GROUP BY
+        sel = ", ".join(cols)  # for SELECT / GROUP BY
         lhs = sel if len(cols) == 1 else f"({sel})"  # row-value for WHERE ... IN
         return sel, lhs
 
@@ -273,8 +269,10 @@ def _apply_data_quality(con, cfg: CityConfig) -> None:
             n = con.execute(f"SELECT COUNT(*) FROM {table} WHERE {where}").fetchone()[0]
             if n:
                 con.execute(f"UPDATE {table} SET {q} = NULL WHERE {where}")
-                print(f"Date sanity: nulled {n:,} impossible {col} value(s) outside "
-                      f"{min_date or '-inf'}..{max_date or '+inf'}")
+                print(
+                    f"Date sanity: nulled {n:,} impossible {col} value(s) outside "
+                    f"{min_date or '-inf'}..{max_date or '+inf'}"
+                )
 
     offset_count = con.execute(f"SELECT COUNT(*) FROM {table} WHERE is_offsetting").fetchone()[0] if off else 0
     artifact_count = con.execute(f"SELECT COUNT(*) FROM {table} WHERE is_data_artifact").fetchone()[0] if art else 0
@@ -285,9 +283,7 @@ def _load_enrichment(con, cfg: CityConfig, data_dir: str) -> None:
     for table_name, filename in cfg.enrichment_tables.items():
         csv_path = os.path.join(data_dir, filename)
         if os.path.exists(csv_path):
-            con.execute(
-                f"CREATE TABLE {table_name} AS SELECT * FROM read_csv_auto('{_sql_quote(csv_path)}')"
-            )
+            con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM read_csv_auto('{_sql_quote(csv_path)}')")
             count = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
             print(f"{table_name}: {count:,} rows")
         else:
@@ -314,7 +310,10 @@ def _build_summaries(con, cfg: CityConfig) -> None:
                 log.warning(
                     "cannot check whether summary table %r is empty (%s: %s) — check that "
                     "the spec's `table:` key matches the table its SQL creates and is a "
-                    "plain identifier", spec["table"], type(e).__name__, e,
+                    "plain identifier",
+                    spec["table"],
+                    type(e).__name__,
+                    e,
                 )
             else:
                 if n == 0:
@@ -351,8 +350,9 @@ def _trim_text_columns(con, tables: list) -> None:
             if n:
                 padded.append((name, n))
         if padded:
-            con.execute(f"UPDATE {qt} SET " + ", ".join(
-                f"{_ident_quote(c)} = TRIM({_ident_quote(c)})" for c, _ in padded))
+            con.execute(
+                f"UPDATE {qt} SET " + ", ".join(f"{_ident_quote(c)} = TRIM({_ident_quote(c)})" for c, _ in padded)
+            )
             print(f"{table}: trimmed whitespace in " + ", ".join(f"{c} ({n:,} rows)" for c, n in padded))
 
 
@@ -373,6 +373,7 @@ def _ingest(con: duckdb.DuckDBPyConnection, cfg: CityConfig, data_dir: str) -> N
     # The vocabulary the prompt cannot carry (see grounding.py). Built last so
     # it sees canonical columns and the data-quality flags.
     from grounding import build_value_index
+
     build_value_index(con, cfg)
 
 
@@ -403,8 +404,7 @@ def load_all_data(data_dir: str = "data", config: CityConfig | None = None) -> d
     return con
 
 
-def build_database(out_path: str, data_dir: str = "data",
-                   config: CityConfig | None = None) -> str:
+def build_database(out_path: str, data_dir: str = "data", config: CityConfig | None = None) -> str:
     """Build the analytical database from CSVs into a DuckDB file at out_path.
 
     The offline half of the split: run once in CI, ship the result. Writes to a
@@ -436,8 +436,7 @@ def build_database(out_path: str, data_dir: str = "data",
     con.close()
 
     os.replace(tmp, out_path)
-    log.info("Built %s (%.0f MB) from %s", out_path,
-             os.path.getsize(out_path) / 1e6, data_dir)
+    log.info("Built %s (%.0f MB) from %s", out_path, os.path.getsize(out_path) / 1e6, data_dir)
     return out_path
 
 
@@ -457,8 +456,7 @@ def _write_meta(con: duckdb.DuckDBPyConnection) -> None:
     """
     con.execute(f"DROP TABLE IF EXISTS {META_TABLE}")
     con.execute(f"CREATE TABLE {META_TABLE} (key VARCHAR PRIMARY KEY, value VARCHAR)")
-    con.execute(f"INSERT INTO {META_TABLE} VALUES (?, ?)",
-                ["compact_schema", get_compact_schema_description(con)])
+    con.execute(f"INSERT INTO {META_TABLE} VALUES (?, ?)", ["compact_schema", get_compact_schema_description(con)])
 
 
 def prebuilt_meta(con: duckdb.DuckDBPyConnection, key: str) -> str | None:
@@ -480,8 +478,7 @@ def load_prebuilt(db_path: str) -> duckdb.DuckDBPyConnection:
     """
     if not os.path.exists(db_path):
         raise FileNotFoundError(
-            f"No prebuilt database at {db_path!r}. Build one with: "
-            f"python data_model.py --materialize {db_path}"
+            f"No prebuilt database at {db_path!r}. Build one with: python data_model.py --materialize {db_path}"
         )
     con = duckdb.connect(db_path, read_only=True)
     # DuckDB spills sorts/aggregates that exceed its memory limit to
@@ -524,7 +521,7 @@ def get_full_schema_description(con: duckdb.DuckDBPyConnection) -> str:
         for col_name, col_type, *_ in columns:
             semantic = labels.get(col_name, col_name)
             doc = col_docs.get(col_name, "")
-            line = f"  - {col_name} ({col_type}) — \"{semantic}\""
+            line = f'  - {col_name} ({col_type}) — "{semantic}"'
             if doc:
                 line += f": {doc}"
 
@@ -536,22 +533,17 @@ def get_full_schema_description(con: duckdb.DuckDBPyConnection) -> str:
             if "VARCHAR" in col_type.upper():
                 try:
                     distincts = con.execute(
-                        f"SELECT DISTINCT {qcol} FROM {table} "
-                        f"WHERE {qcol} IS NOT NULL ORDER BY 1 LIMIT 5"
+                        f"SELECT DISTINCT {qcol} FROM {table} WHERE {qcol} IS NOT NULL ORDER BY 1 LIMIT 5"
                     ).fetchall()
                     vals = [str(r[0]) for r in distincts]
                     if vals:
-                        total_distinct = con.execute(
-                            f"SELECT COUNT(DISTINCT {qcol}) FROM {table}"
-                        ).fetchone()[0]
+                        total_distinct = con.execute(f"SELECT COUNT(DISTINCT {qcol}) FROM {table}").fetchone()[0]
                         line += f"  e.g. {', '.join(repr(v) for v in vals[:4])} [{total_distinct} distinct]"
                 except Exception:
                     pass
             elif "INT" in col_type.upper() or "DOUBLE" in col_type.upper():
                 try:
-                    stats = con.execute(
-                        f"SELECT MIN({qcol}), MAX({qcol}) FROM {table}"
-                    ).fetchone()
+                    stats = con.execute(f"SELECT MIN({qcol}), MAX({qcol}) FROM {table}").fetchone()
                     line += f"  range: {stats[0]} to {stats[1]}"
                 except Exception:
                     pass
@@ -600,9 +592,7 @@ def get_compact_schema_description(con: duckdb.DuckDBPyConnection) -> str:
             qcol = _ident_quote(col_name)  # tolerate spaced/reserved column names
             if "VARCHAR" in col_type.upper():
                 try:
-                    n_distinct = con.execute(
-                        f"SELECT COUNT(DISTINCT {qcol}) FROM {table}"
-                    ).fetchone()[0]
+                    n_distinct = con.execute(f"SELECT COUNT(DISTINCT {qcol}) FROM {table}").fetchone()[0]
                     # Enumerate only genuinely categorical columns the model
                     # filters on; high-cardinality ones (payees, etc.) are handled
                     # by the canonical-column rules. Cap the list so a ~12-value
@@ -613,9 +603,9 @@ def get_compact_schema_description(con: duckdb.DuckDBPyConnection) -> str:
                         # text (and every prompt built from it, plus the
                         # prompt-hash cache version) would differ per process.
                         vals = [
-                            str(r[0]) for r in con.execute(
-                                f"SELECT DISTINCT {qcol} FROM {table} "
-                                f"WHERE {qcol} IS NOT NULL ORDER BY 1 LIMIT 12"
+                            str(r[0])
+                            for r in con.execute(
+                                f"SELECT DISTINCT {qcol} FROM {table} WHERE {qcol} IS NOT NULL ORDER BY 1 LIMIT 12"
                             ).fetchall()
                         ]
                         if vals:
@@ -653,16 +643,25 @@ PIE_MAX_SLICES = 6
 
 # Whether a chart's y-values are dollars or a plain count, so the frontend axis
 # formats "1,500 employees" as 1,500 rather than "$1.5K".
-CHART_COUNT_KEYWORDS = ("count", "number", "num_", "_num", "n_distinct", "distinct",
-                        "transactions", "payments_just_under", "employees", "_count")
+CHART_COUNT_KEYWORDS = (
+    "count",
+    "number",
+    "num_",
+    "_num",
+    "n_distinct",
+    "distinct",
+    "transactions",
+    "payments_just_under",
+    "employees",
+    "_count",
+)
 # Only UNAMBIGUOUS money words. Ambiguous ones (total, paid, fund, comp, rate)
 # were dropped on purpose: they also appear in count aliases an LLM writes
 # (total_vendors, vendors_paid, funded_projects, companies), so relying on them
 # would mislabel those integer counts as currency. Everything not caught here
 # or by a count keyword falls to the integer-dtype signal, which is reliable in
 # this schema (dollar sums are ROUND()ed floats, counts are COUNT(*) integers).
-CHART_MONEY_KEYWORDS = ("spend", "amount", "salary", "invoice", "revenue",
-                        "cost", "dollar", "extended")
+CHART_MONEY_KEYWORDS = ("spend", "amount", "salary", "invoice", "revenue", "cost", "dollar", "extended")
 
 
 def measure_kind(col_name, series=None) -> str:
@@ -689,8 +688,7 @@ def measure_kind(col_name, series=None) -> str:
     if any(k in name for k in CHART_MONEY_KEYWORDS):
         return "currency"
     try:
-        if series is not None and pd.api.types.is_integer_dtype(series) \
-                and not pd.api.types.is_bool_dtype(series):
+        if series is not None and pd.api.types.is_integer_dtype(series) and not pd.api.types.is_bool_dtype(series):
             return "count"
     except Exception:
         pass
@@ -737,8 +735,7 @@ def is_chronological(series, require_sorted: bool = True) -> bool:
         return False
 
 
-_ORDINAL_FN_RE = re.compile(
-    r"\b(?:row_number|rank|dense_rank|percent_rank|ntile)\s*\(", re.I)
+_ORDINAL_FN_RE = re.compile(r"\b(?:row_number|rank|dense_rank|percent_rank|ntile)\s*\(", re.I)
 # A quoted alias is not exotic here: `rank` collides with a function name, so
 # `AS "rank"` is exactly what a generator reaches for.
 _ALIAS_RE = re.compile(r'\s*(?:as\s+)?(?:"([^"]+)"|([A-Za-z_]\w*))', re.I)
@@ -762,7 +759,7 @@ def _blank_literals(sql: str) -> str:
 
     while i < n:
         c = sql[i]
-        if c == "'":                                  # string literal
+        if c == "'":  # string literal
             j = i + 1
             while j < n:
                 if sql[j] == "'":
@@ -774,7 +771,7 @@ def _blank_literals(sql: str) -> str:
                 j += 1
             blank(i, j)
             i = j
-        elif c == '"':                                # quoted identifier: keep
+        elif c == '"':  # quoted identifier: keep
             j = i + 1
             while j < n and sql[j] != '"':
                 j += 1
@@ -831,18 +828,18 @@ def sql_ordinal_columns(sql: str) -> set:
     scrubbed = _blank_literals(sql)
     n = len(scrubbed)
     for m in _ORDINAL_FN_RE.finditer(scrubbed):
-        i = _skip_parens(scrubbed, m.end() - 1)      # the call's own arguments
+        i = _skip_parens(scrubbed, m.end() - 1)  # the call's own arguments
         j = i
         while j < n and scrubbed[j].isspace():
             j += 1
-        if scrubbed[j:j + 4].lower() == "over":
+        if scrubbed[j : j + 4].lower() == "over":
             j += 4
             while j < n and scrubbed[j].isspace():
                 j += 1
             if j < n and scrubbed[j] == "(":
-                j = _skip_parens(scrubbed, j)        # inline window spec
+                j = _skip_parens(scrubbed, j)  # inline window spec
             else:
-                w = _IDENT_RE.match(scrubbed, j)     # or a named window
+                w = _IDENT_RE.match(scrubbed, j)  # or a named window
                 j = w.end() if w else j
             i = j
         alias = _ALIAS_RE.match(scrubbed, i)
@@ -934,8 +931,9 @@ def _where_clause(scrubbed: str, start: int) -> str:
     return scrubbed[start:]
 
 
-_WHERE_END_WORDS = frozenset(("group", "order", "having", "limit", "qualify", "window",
-                              "union", "intersect", "except", "select"))
+_WHERE_END_WORDS = frozenset(
+    ("group", "order", "having", "limit", "qualify", "window", "union", "intersect", "except", "select")
+)
 _GROUPING_EXT_RE = re.compile(r"\b(rollup|cube|grouping\s+sets)\b", re.I)
 
 
@@ -988,8 +986,8 @@ def is_share_of_whole(df, label_col: str, value_col: str, sql: str = None) -> bo
         parts = pd.to_numeric(body[value_col], errors="coerce").sum()
         nulls = pd.to_numeric(null_rows[value_col], errors="coerce")
         is_total = _GROUPING_EXT_RE.search(_blank_literals(sql)) is not None or bool(
-            nulls.notna().all()
-            and abs(abs(float(nulls.iloc[0])) - abs(parts)) <= max(1.0, abs(parts) * 0.005))
+            nulls.notna().all() and abs(abs(float(nulls.iloc[0])) - abs(parts)) <= max(1.0, abs(parts) * 0.005)
+        )
         if not is_total:
             return False
     n = len(body)
@@ -1070,10 +1068,7 @@ def infer_chart(df, sql: str = None) -> tuple:
     for c in cols:
         if c == value_col or ndist(c) <= 1:
             continue
-        is_dim = (
-            pd.api.types.is_string_dtype(df[c])
-            or any(k in c.lower() for k in CHART_LABEL_KEYWORDS)
-        )
+        is_dim = pd.api.types.is_string_dtype(df[c]) or any(k in c.lower() for k in CHART_LABEL_KEYWORDS)
         if is_dim and ndist(c) > best:
             best = ndist(c)
             label_col = c
@@ -1161,7 +1156,7 @@ def _order_by_keys(sql: str) -> list:
     i, n = 0, len(sql)
     while i < n:
         c = sql[i]
-        if c == "'":                                  # string literal ('' escapes)
+        if c == "'":  # string literal ('' escapes)
             i += 1
             while i < n:
                 if sql[i] == "'":
@@ -1171,7 +1166,7 @@ def _order_by_keys(sql: str) -> list:
                     break
                 i += 1
             i += 1
-        elif c == '"':                                # quoted identifier
+        elif c == '"':  # quoted identifier
             i += 1
             while i < n and sql[i] != '"':
                 i += 1
@@ -1217,8 +1212,8 @@ def sql_order_measure(sql: str, df):
     # The last ORDER BY: in generated SQL the outermost SELECT comes last, so
     # its ordering is the one the reader sees.
     # First key only; a secondary key is a tie-break, not the ranking.
-    key = re.split(r"[,;)]", sql[keys[-1]:])[0].strip()
-    if key.startswith('"'):                       # quoted, possibly with spaces
+    key = re.split(r"[,;)]", sql[keys[-1] :])[0].strip()
+    if key.startswith('"'):  # quoted, possibly with spaces
         end = key.find('"', 1)
         key = key[1:end] if end != -1 else key[1:]
     else:
@@ -1267,8 +1262,7 @@ def order_for_display(df, sql: str):
             return df
         # mergesort is stable, so rows tied on the measure keep the order the
         # query produced rather than being shuffled.
-        return df.sort_values(value_col, ascending=False,
-                              kind="mergesort").reset_index(drop=True)
+        return df.sort_values(value_col, ascending=False, kind="mergesort").reset_index(drop=True)
     except Exception:
         return df
 
@@ -1315,8 +1309,7 @@ def chart_window(chart_df, chart_type: str, label_col: str, value_col: str) -> t
 
     head = chart_df.head(CHART_MAX_POINTS)
     ranked = bool(head[value_col].is_monotonic_decreasing)
-    return head, (f"top {CHART_MAX_POINTS} of {total:,}" if ranked
-                  else f"{CHART_MAX_POINTS} of {total:,}")
+    return head, (f"top {CHART_MAX_POINTS} of {total:,}" if ranked else f"{CHART_MAX_POINTS} of {total:,}")
 
 
 def fiscal_year_end(year: int, fy_start_month: int = 1):
@@ -1366,7 +1359,7 @@ def derive_year_facts(newest_year, fy_start_month=1, max_covered=None, grace_day
         rules = (
             f"- CRITICAL: FY{newest_year} data is INCOMPLETE{through}, so its totals are "
             f"partial and must not be compared like a full year. When presenting FY{newest_year} "
-            f"always say the data is partial. For \"current\" or \"latest\" SPENDING use "
+            f'always say the data is partial. For "current" or "latest" SPENDING use '
             f"fiscal_year = {last_complete_year}, the most recent year with complete expenditure "
             f"data, unless the user asks about {newest_year}."
         )
@@ -1380,7 +1373,7 @@ def derive_year_facts(newest_year, fy_start_month=1, max_covered=None, grace_day
     else:
         rules = (
             f"- FY{newest_year} expenditure data is complete; use fiscal_year = {newest_year} "
-            "for \"current\" or \"latest\" SPENDING."
+            'for "current" or "latest" SPENDING.'
         )
         fact = (
             f"FY{newest_year} is the most recent fiscal year and its expenditure data is "
@@ -1417,7 +1410,7 @@ def derive_salary_year_facts(newest_cal_year, prior_cal_year) -> dict | None:
         "last_complete_year": prior_cal_year,
         "rules": (
             f"- CalYear {newest_cal_year} in salary_data is a YEAR-TO-DATE partial year. For "
-            f"\"current\" or \"latest\" SALARIES use CalYear = {prior_cal_year}, the most recent "
+            f'"current" or "latest" SALARIES use CalYear = {prior_cal_year}, the most recent '
             f"complete calendar year in the data, unless the user asks about {newest_cal_year}."
         ),
         "fact": (
@@ -1440,11 +1433,19 @@ def year_context(con, fy_start_month=1, today=None) -> dict:
         # No usable fiscal years (empty table / all NULL): say nothing rather
         # than deriving from None. Callers get no rules and no facts.
         log.warning("year_context: no usable fiscal_year values; skipping year guidance")
-        return {"values": {}, "rules": "", "facts": [], "expenditures": None,
-                "salary": None, "newest_cal_year": None, "salary_error": False,
-                # salary_data was never queried on this path — "unknown", not
-                # a claim that the pack has no salary table.
-                "salary_table_present": None, "salary_state": "unknown"}
+        return {
+            "values": {},
+            "rules": "",
+            "facts": [],
+            "expenditures": None,
+            "salary": None,
+            "newest_cal_year": None,
+            "salary_error": False,
+            # salary_data was never queried on this path — "unknown", not
+            # a claim that the pack has no salary table.
+            "salary_table_present": None,
+            "salary_state": "unknown",
+        }
 
     max_covered = con.execute(
         "SELECT MAX(payment_date) FROM expenditures WHERE fiscal_year = ?", [newest_year]
@@ -1466,9 +1467,9 @@ def year_context(con, fy_start_month=1, today=None) -> dict:
         if newest_cal is not None:
             # The prior year must actually be loaded — pointing the model at a
             # CalYear the table lacks returns zero rows for every salary question.
-            prior_cal = con.execute(
-                "SELECT MAX(CalYear) FROM salary_data WHERE CalYear < ?", [newest_cal]
-            ).fetchone()[0]
+            prior_cal = con.execute("SELECT MAX(CalYear) FROM salary_data WHERE CalYear < ?", [newest_cal]).fetchone()[
+                0
+            ]
     except duckdb.CatalogException:
         pass  # city pack has no salary table — nothing to say about salaries
     except Exception as e:
@@ -1486,8 +1487,8 @@ def year_context(con, fy_start_month=1, today=None) -> dict:
             facts.append(salary["fact"])
         else:
             log.warning(
-                "salary_data holds only CalYear %s; no complete year to cite, "
-                "so no salary year guidance is emitted", newest_cal,
+                "salary_data holds only CalYear %s; no complete year to cite, so no salary year guidance is emitted",
+                newest_cal,
             )
 
     return {
@@ -1508,10 +1509,14 @@ def year_context(con, fy_start_month=1, today=None) -> dict:
         # exclusive) to work out what happened. The keys below remain for
         # detail, not for classification.
         "salary_state": (
-            "error" if salary_error
-            else "no_table" if not salary_table_present
-            else "no_years" if newest_cal is None
-            else "single_year" if salary is None
+            "error"
+            if salary_error
+            else "no_table"
+            if not salary_table_present
+            else "no_years"
+            if newest_cal is None
+            else "single_year"
+            if salary is None
             else "ok"
         ),
         "newest_cal_year": newest_cal,
@@ -1520,9 +1525,7 @@ def year_context(con, fy_start_month=1, today=None) -> dict:
     }
 
 
-_TOTAL_LABEL_SHAPES = re.compile(
-    r"^(GRAND\s+TOTAL|TOTAL)(\s*[-–:]\s|\s+(ALL|SPENDING|AMOUNT|YEARS)\b|$)"
-)
+_TOTAL_LABEL_SHAPES = re.compile(r"^(GRAND\s+TOTAL|TOTAL)(\s*[-–:]\s|\s+(ALL|SPENDING|AMOUNT|YEARS)\b|$)")
 
 
 def total_row_mask(df, label_col: str, value_col: str = None):
@@ -1631,9 +1634,9 @@ def humanize_text(text: str, table: str = "expenditures", prose: bool = False) -
     for col, label in sorted(all_flat.items(), key=lambda x: -len(x[0])):
         if prose and re.fullmatch(r"[A-Za-z][a-z]*", col):
             continue
-        text = re.sub(rf'\b{re.escape(col)}\b', label, text)
+        text = re.sub(rf"\b{re.escape(col)}\b", label, text)
     # Convert any remaining snake_case words to Title Case
-    text = re.sub(r'\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b', lambda m: m.group(1).replace('_', ' ').title(), text)
+    text = re.sub(r"\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b", lambda m: m.group(1).replace("_", " ").title(), text)
     return text
 
 
@@ -1651,8 +1654,20 @@ def humanize_text(text: str, table: str = "expenditures", prose: bool = False) -
 _NUMBER_WORDS = ("pct", "percent", "share", "ratio", "rank")
 # Aggregates whose rows do not add up to a meaningful whole: a "share of the
 # listed total" of average salaries is arithmetic on nonsense.
-_NON_ADDITIVE_WORDS = ("avg", "average", "mean", "median", "max", "min", "pct",
-                       "percent", "rate", "ratio", "share", "rank")
+_NON_ADDITIVE_WORDS = (
+    "avg",
+    "average",
+    "mean",
+    "median",
+    "max",
+    "min",
+    "pct",
+    "percent",
+    "rate",
+    "ratio",
+    "share",
+    "rank",
+)
 _YEAR_RANGE = (1900, 2100)
 # 2026, "2026", "FY2026", "FY 2026", "CY2026" — and "2026.0", which is what a
 # float fiscal_year column becomes after the chart's astype(str).
@@ -1748,6 +1763,7 @@ def column_kind(col_name, series=None, ordinals=()) -> str:
         first = sample.iloc[0] if len(sample) else None
         from datetime import datetime
         from decimal import Decimal
+
         if isinstance(first, (date, datetime)):
             return "date"
         if isinstance(first, Decimal):
@@ -1781,12 +1797,10 @@ def result_table(df, max_rows: int, sql: str = None, label=None) -> dict:
     for i, c in enumerate(df.columns):
         # iloc, not df[c]: a duplicated column name (two unaliased SUM()s)
         # returns a DataFrame from df[c].
-        columns.append({"name": str(c), "label": label(str(c)),
-                        "kind": column_kind(c, df.iloc[:, i], ordinals)})
+        columns.append({"name": str(c), "label": label(str(c)), "kind": column_kind(c, df.iloc[:, i], ordinals)})
     head = df.head(max_rows)
     rows = [[json_safe(v) for v in row] for row in head.itertuples(index=False, name=None)]
-    return {"columns": columns, "rows": rows, "total_rows": int(len(df)),
-            "truncated": bool(len(df) > max_rows)}
+    return {"columns": columns, "rows": rows, "total_rows": int(len(df)), "truncated": bool(len(df) > max_rows)}
 
 
 def period_context(yc: dict, sql: str = None) -> dict | None:
@@ -1822,24 +1836,29 @@ def period_context(yc: dict, sql: str = None) -> dict | None:
         if not sal:
             return None
         cal = yc.get("newest_cal_year") if sal.get("is_partial", True) else None
-        return {"basis": "salary", "partial_year": cal,
-                "through": None, "last_complete_year": sal.get("last_complete_year"),
-                "prefix": "",
-                "by_axis": {"calendar": {"partial_year": cal, "through": None}}}
+        return {
+            "basis": "salary",
+            "partial_year": cal,
+            "through": None,
+            "last_complete_year": sal.get("last_complete_year"),
+            "prefix": "",
+            "by_axis": {"calendar": {"partial_year": cal, "through": None}},
+        }
     exp = yc.get("expenditures")
     if not exp:
         return None
     values = yc.get("values") or {}
     fiscal = values.get("in_progress_year") if exp.get("is_partial") else None
     covered = exp.get("covered_through")
-    by_axis = {"fiscal": {"partial_year": fiscal,
-                          "through": covered if exp.get("is_partial") else None}}
-    return {"basis": "expenditures",
-            "partial_year": fiscal,
-            "through": covered if exp.get("is_partial") else None,
-            "last_complete_year": exp.get("last_complete_year"),
-            "prefix": "FY",
-            "by_axis": by_axis}
+    by_axis = {"fiscal": {"partial_year": fiscal, "through": covered if exp.get("is_partial") else None}}
+    return {
+        "basis": "expenditures",
+        "partial_year": fiscal,
+        "through": covered if exp.get("is_partial") else None,
+        "last_complete_year": exp.get("last_complete_year"),
+        "prefix": "FY",
+        "by_axis": by_axis,
+    }
 
 
 def axis_basis(labels, label_col) -> str | None:
@@ -1880,6 +1899,7 @@ def year_of_label(v) -> int | None:
     """The year a chart label / cell names (2026, '2026', 'FY 2026'), else None."""
     import math
     import numpy as np
+
     if v is None or isinstance(v, (bool, np.bool_)):
         return None
     if isinstance(v, (int, np.integer)):
@@ -1903,8 +1923,7 @@ def _is_year_axis(labels, label_col) -> bool:
     labels = [l for l in labels if l is not None and not (isinstance(l, float) and l != l)]
     if not labels or any(year_of_label(l) is None for l in labels):
         return False
-    return is_time_named(str(label_col or "")) or any(
-        re.match(r"\s*(FY|CY)", str(l), re.I) for l in labels)
+    return is_time_named(str(label_col or "")) or any(re.match(r"\s*(FY|CY)", str(l), re.I) for l in labels)
 
 
 def chart_partial_markers(labels, label_col, period) -> dict:
@@ -1980,8 +1999,7 @@ def headline(df, sql: str = None, period: dict = None, label=None) -> dict | Non
         return None
     ordinals = sql_ordinal_columns(sql) if sql else set()
     kinds = {c: column_kind(c, df[c], ordinals) for c in df.columns}
-    measures = [c for c in df.columns if kinds[c] in ("money", "count", "number")
-                and c not in ordinals]
+    measures = [c for c in df.columns if kinds[c] in ("money", "count", "number") and c not in ordinals]
     # (a) single value
     if len(df) == 1:
         if len(measures) != 1:
@@ -1990,7 +2008,7 @@ def headline(df, sql: str = None, period: dict = None, label=None) -> dict | Non
         value = json_safe(df[col].iloc[0])
         if not isinstance(value, (int, float)):
             return None
-        years, other_bits = [], []     # years: (year, label, partial_year, through)
+        years, other_bits = [], []  # years: (year, label, partial_year, through)
         for c in df.columns:
             if c == col:
                 continue
@@ -2001,7 +2019,7 @@ def headline(df, sql: str = None, period: dict = None, label=None) -> dict | Non
                 y = year_of_label(v)
                 known, partial_year, through = axis_partial(period, axis_basis([v], c))
                 if period and not known:
-                    return None        # can't tell whether this year is complete
+                    return None  # can't tell whether this year is complete
                 years.append((y, _year_label(v, y, c), partial_year, through))
             elif kinds[c] == "text":
                 other_bits.append(str(v)[:60])
@@ -2023,8 +2041,7 @@ def headline(df, sql: str = None, period: dict = None, label=None) -> dict | Non
             head = f"{lo}–{hi} {label(str(col))}"
         else:
             head = label(str(col))
-        return {"value": float(value), "value_kind": kinds[col], "label": head,
-                "context": " · ".join(context) or None}
+        return {"value": float(value), "value_kind": kinds[col], "label": head, "context": " · ".join(context) or None}
 
     try:
         _, label_col, value_col = infer_chart(df, sql)
@@ -2050,7 +2067,7 @@ def headline(df, sql: str = None, period: dict = None, label=None) -> dict | Non
             return None
         years = [year_of_label(l) for l in labels]
         if len(set(years)) != len(years):
-            return None                    # year x something: not one series
+            return None  # year x something: not one series
         series = sorted(zip(years, labels, frame[value_col].astype(float).tolist()))
         complete = [s for s in series if s[0] != partial_year]
         if not complete:
@@ -2079,9 +2096,14 @@ def headline(df, sql: str = None, period: dict = None, label=None) -> dict | Non
         if partial_rows:
             partial_name = _year_label(partial_rows[0][1], partial_year, label_col)
             context.append(f"{partial_name} partial ({_through_phrase(through)})")
-        return {"value": last_v, "value_kind": kind, "label": f"{name} {measure}",
-                "context": " · ".join(context) or None,
-                "change": change, "partial_label": partial_name}
+        return {
+            "value": last_v,
+            "value_kind": kind,
+            "label": f"{name} {measure}",
+            "context": " · ".join(context) or None,
+            "change": change,
+            "partial_label": partial_name,
+        }
 
     # (c) a labelled list. A UNION ALL of separately filtered views (the
     # technology query's department view and category view) is not a list of
@@ -2104,8 +2126,7 @@ def headline(df, sql: str = None, period: dict = None, label=None) -> dict | Non
     if additive and kind in ("money", "count") and (vals >= 0).all() and vals.sum() > 0:
         share = top_v / float(vals.sum())
         context.append(f"{share * 100:.0f}% of the listed total")
-    return {"value": top_v, "value_kind": kind, "label": top_label[:80],
-            "context": " · ".join(context), "share": share}
+    return {"value": top_v, "value_kind": kind, "label": top_label[:80], "context": " · ".join(context), "share": share}
 
 
 def get_data_dictionary_text() -> str:
@@ -2138,10 +2159,12 @@ def _main() -> int:
     import time
 
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--materialize", metavar="PATH", required=True,
-                    help="write the built DuckDB database to this path")
-    ap.add_argument("--data-dir", default=os.environ.get("DATA_DIR", "data"),
-                    help="directory holding the city pack's CSVs (default: %(default)s)")
+    ap.add_argument("--materialize", metavar="PATH", required=True, help="write the built DuckDB database to this path")
+    ap.add_argument(
+        "--data-dir",
+        default=os.environ.get("DATA_DIR", "data"),
+        help="directory holding the city pack's CSVs (default: %(default)s)",
+    )
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -2161,8 +2184,10 @@ def _main() -> int:
     if not rows:
         print(f"FAILED: {path} has 0 expenditure rows", flush=True)
         return 1
-    print(f"Built {path} — {os.path.getsize(path) / 1e6:.0f} MB, {tables} tables, "
-          f"{rows:,} expenditure rows (build {build_s:.1f}s, open {open_s:.2f}s)")
+    print(
+        f"Built {path} — {os.path.getsize(path) / 1e6:.0f} MB, {tables} tables, "
+        f"{rows:,} expenditure rows (build {build_s:.1f}s, open {open_s:.2f}s)"
+    )
     return 0
 
 

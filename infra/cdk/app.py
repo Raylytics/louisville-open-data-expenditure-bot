@@ -10,6 +10,7 @@ budget filters on.
 The `lou0` qualifier matches the scoped bootstrap (CDKToolkit-Lou): without it
 CDK would look for the default-named bootstrap resources and fail.
 """
+
 import os
 
 import aws_cdk as cdk
@@ -22,7 +23,8 @@ env = cdk.Environment(
     region=os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
 )
 LouStack(
-    app, "LouStack",
+    app,
+    "LouStack",
     env=env,
     synthesizer=cdk.DefaultStackSynthesizer(qualifier="lou0"),
     description="Lou: Louisville open-data expenditure bot — Lambda + Function URL + CloudFront + DynamoDB",

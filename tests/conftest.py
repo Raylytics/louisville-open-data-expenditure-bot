@@ -2,6 +2,7 @@
 golden expenditure CSVs (gitignored) are absent: data-bound tests skip with a
 clear reason instead of erroring at collection, while every pure-function and
 in-memory-DuckDB test still runs."""
+
 import glob
 import os
 import tempfile
@@ -13,8 +14,9 @@ import pytest
 # (from_env() reads this at import), so a test run never appends fixtures to
 # the developer's real data/interactions.jsonl. Tests that need to read the
 # records swap in their own recorder (tests/test_ask_endpoint.py).
-os.environ.setdefault("INTERACTIONS_FILE",
-                      os.path.join(tempfile.mkdtemp(prefix="lou-test-interactions-"), "interactions.jsonl"))
+os.environ.setdefault(
+    "INTERACTIONS_FILE", os.path.join(tempfile.mkdtemp(prefix="lou-test-interactions-"), "interactions.jsonl")
+)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -34,10 +36,18 @@ def expenditure_data_present(data_dir: str | None = None) -> bool:
 # OpenRouter slugs against a Cerebras-shaped fake catalogue and fail. Tests that
 # want a provider set it explicitly with monkeypatch.
 PROVIDER_ENV = (
-    "OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "OPENROUTER_MODEL",
-    "CEREBRAS_API_KEY", "CEREBRAS_PAID_API_KEY", "GEMINI_API_KEY",
-    "MODEL", "MODEL_FALLBACKS", "LLM_BASE_URL",
-    "ANTHROPIC_API_KEY", "CLAUDE_MODELS", "CLAUDE_EFFORT",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_BASE_URL",
+    "OPENROUTER_MODEL",
+    "CEREBRAS_API_KEY",
+    "CEREBRAS_PAID_API_KEY",
+    "GEMINI_API_KEY",
+    "MODEL",
+    "MODEL_FALLBACKS",
+    "LLM_BASE_URL",
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_MODELS",
+    "CLAUDE_EFFORT",
 )
 
 

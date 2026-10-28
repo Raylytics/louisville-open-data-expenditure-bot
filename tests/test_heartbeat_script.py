@@ -105,8 +105,7 @@ class Harness:
     def state_dir(self):
         return self.home / "Library" / "Application Support" / "louisville-bot-heartbeat"
 
-    def run(self, health="", ask="000", state="", now=1000000, start_ok=True, day="2026-01-01",
-            extra_env=None):
+    def run(self, health="", ask="000", state="", now=1000000, start_ok=True, day="2026-01-01", extra_env=None):
         """One invocation of the script. Returns the list of outbound calls."""
         self.calls.write_text("")
         env = dict(
@@ -125,9 +124,7 @@ class Harness:
             FAKE_DAY=day,
             FAKE_START_OK="1" if start_ok else "0",
         )
-        proc = subprocess.run(
-            ["/bin/sh", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
-        )
+        proc = subprocess.run(["/bin/sh", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
         assert proc.returncode == 0, f"script exited {proc.returncode}: {proc.stderr}"
         return self.calls.read_text().split()
 
@@ -141,9 +138,7 @@ OK_BODY = '{"status":"ok","tables":{"expenditures":1}}'
 DEGRADED_BODY = '{"status":"degraded","errors":{"errors_last_hour":9}}'
 # The pre-fix gate substring-matched the whole body, so "max_tokens" (which
 # contains "ok") made an unhealthy app look healthy.
-UNHEALTHY_WITH_OK_SUBSTRING = (
-    '{"status":"unhealthy","errors":{"last_error":"max_tokens exceeded, broken pipe"}}'
-)
+UNHEALTHY_WITH_OK_SUBSTRING = '{"status":"unhealthy","errors":{"last_error":"max_tokens exceeded, broken pipe"}}'
 
 
 def test_healthy_pings(hb):
@@ -350,9 +345,7 @@ def _run_raw(hb, env_overrides, drop=("HEALTHCHECKS_PING_URL", "NTFY_TOPIC")):
     )
     env.update(env_overrides)
     hb.calls.write_text("")
-    return subprocess.run(
-        ["/bin/sh", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
-    )
+    return subprocess.run(["/bin/sh", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
 
 
 def test_missing_ping_url_fails_loudly(hb):

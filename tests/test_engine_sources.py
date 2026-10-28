@@ -33,12 +33,14 @@ def _touch(d, name, content="a,b\n1,2\n"):
 # cache version. Unordered DISTINCT scans once made it vary per process, so
 # every restart invalidated the whole response cache (louisville-open-data-xmf).
 
+
 def _schema_fixture_con():
     con = duckdb.connect()
     con.execute("CREATE TABLE expenditures (fund VARCHAR, amount DOUBLE)")
     # deliberately inserted out of alphabetical order
-    con.executemany("INSERT INTO expenditures VALUES (?, ?)",
-                    [("Zebra Fund", 1.0), ("Alpha Fund", 2.0), ("Middle Fund", 3.0)])
+    con.executemany(
+        "INSERT INTO expenditures VALUES (?, ?)", [("Zebra Fund", 1.0), ("Alpha Fund", 2.0), ("Middle Fund", 3.0)]
+    )
     return con
 
 
@@ -46,7 +48,7 @@ def test_compact_schema_enums_are_sorted_and_stable():
     con = _schema_fixture_con()
     out = get_compact_schema_description(con)
     assert out == get_compact_schema_description(con)
-    enums = out[out.index("{") + 1:out.index("}")].split(", ")
+    enums = out[out.index("{") + 1 : out.index("}")].split(", ")
     assert enums == sorted(enums), f"enum values must be ordered, got {enums}"
 
 
@@ -58,6 +60,7 @@ def test_full_schema_samples_are_sorted_and_stable():
 
 
 # ── _source_files ────────────────────────────────────────────────────────────
+
 
 def test_source_files_year_range(tmp_path):
     d = str(tmp_path)
@@ -93,6 +96,7 @@ def test_source_files_missing(tmp_path):
 
 # ── duckdb_union with column_map (the Cincinnati path) ───────────────────────
 
+
 def _cfg(tmp_path, sources):
     return CityConfig({"expenditures": {"table": "expenditures", "sources": sources}}, str(tmp_path))
 
@@ -100,12 +104,17 @@ def _cfg(tmp_path, sources):
 def test_duckdb_union_column_map_renames(tmp_path):
     d = str(tmp_path)
     _touch(d, "payments.csv", "VENDOR_NAME,AMOUNT,DEPT\nAcme,12.5,Parks\nBolt,3.25,Water\n")
-    cfg = _cfg(tmp_path, [{
-        "id": "s1",
-        "reader": "duckdb_union",
-        "files": "payments.csv",
-        "column_map": {"VENDOR_NAME": "payee", "AMOUNT": "amount", "DEPT": "DEPT"},  # identity entry skipped
-    }])
+    cfg = _cfg(
+        tmp_path,
+        [
+            {
+                "id": "s1",
+                "reader": "duckdb_union",
+                "files": "payments.csv",
+                "column_map": {"VENDOR_NAME": "payee", "AMOUNT": "amount", "DEPT": "DEPT"},  # identity entry skipped
+            }
+        ],
+    )
     con = duckdb.connect()
     _load_expenditures(con, cfg, d)
     cols = [c[0] for c in con.execute("DESCRIBE expenditures").fetchall()]
@@ -119,12 +128,17 @@ def test_duckdb_union_quoted_identifier_rename(tmp_path):
     # An embedded double quote in a source column must not produce broken SQL
     d = str(tmp_path)
     _touch(d, "q.csv", '"weird""name",x\n1,2\n')
-    cfg = _cfg(tmp_path, [{
-        "id": "s1",
-        "reader": "duckdb_union",
-        "files": "q.csv",
-        "column_map": {'weird"name': "clean_name"},
-    }])
+    cfg = _cfg(
+        tmp_path,
+        [
+            {
+                "id": "s1",
+                "reader": "duckdb_union",
+                "files": "q.csv",
+                "column_map": {'weird"name': "clean_name"},
+            }
+        ],
+    )
     con = duckdb.connect()
     _load_expenditures(con, cfg, d)
     cols = [c[0] for c in con.execute("DESCRIBE expenditures").fetchall()]
@@ -135,12 +149,17 @@ def test_pandas_mapped_yearless_source(tmp_path):
     # year-less sources are legal for pandas_mapped too; no 'None' year leakage
     d = str(tmp_path)
     _touch(d, "old.csv", "Old_A,Old_B\n5,6\n")
-    cfg = _cfg(tmp_path, [{
-        "id": "s1",
-        "reader": "pandas_mapped",
-        "files": "old.csv",
-        "column_map": {"Old_A": "a", "Old_B": "b"},
-    }])
+    cfg = _cfg(
+        tmp_path,
+        [
+            {
+                "id": "s1",
+                "reader": "pandas_mapped",
+                "files": "old.csv",
+                "column_map": {"Old_A": "a", "Old_B": "b"},
+            }
+        ],
+    )
     con = duckdb.connect()
     _load_expenditures(con, cfg, d)
     assert con.execute("SELECT a, b FROM expenditures").fetchone() == (5, 6)
@@ -150,6 +169,7 @@ def test_pandas_mapped_yearless_source(tmp_path):
 # Both warnings are operator-facing signals for a misconfigured city pack;
 # neither was covered, so a refactor could re-raise from the probe or drop the
 # empty warning with the suite still green.
+
 
 def _summary_cfg(tmp_path, summaries):
     return CityConfig({"summaries": summaries}, str(tmp_path))
@@ -163,29 +183,40 @@ def _seeded_con():
 
 
 def test_build_summaries_warns_when_a_summary_materializes_empty(tmp_path, caplog):
-    cfg = _summary_cfg(tmp_path, [{
-        "table": "summary_empty",
-        "sql": "CREATE TABLE summary_empty AS SELECT * FROM expenditures WHERE fiscal_year = 1900",
-    }])
+    cfg = _summary_cfg(
+        tmp_path,
+        [
+            {
+                "table": "summary_empty",
+                "sql": "CREATE TABLE summary_empty AS SELECT * FROM expenditures WHERE fiscal_year = 1900",
+            }
+        ],
+    )
     with caplog.at_level("WARNING"):
         _build_summaries(_seeded_con(), cfg)
     assert "materialized EMPTY" in caplog.text, caplog.text
     assert "summary_empty" in caplog.text
 
 
-@pytest.mark.parametrize("table_key,expected_exc", [
-    ("summary_wrong_name", "CatalogException"),      # valid identifier, no such table
-    ("not a bare identifier", "ParserException"),    # can't even be parsed as a name
-])
-def test_build_summaries_survives_a_table_key_that_does_not_match_its_sql(
-    tmp_path, caplog, table_key, expected_exc
-):
+@pytest.mark.parametrize(
+    "table_key,expected_exc",
+    [
+        ("summary_wrong_name", "CatalogException"),  # valid identifier, no such table
+        ("not a bare identifier", "ParserException"),  # can't even be parsed as a name
+    ],
+)
+def test_build_summaries_survives_a_table_key_that_does_not_match_its_sql(tmp_path, caplog, table_key, expected_exc):
     # The probe must never abort loading, and the warning must carry both
     # operator-facing details: which key was wrong and why it failed.
-    cfg = _summary_cfg(tmp_path, [{
-        "table": table_key,
-        "sql": "CREATE TABLE summary_actual AS SELECT * FROM expenditures",
-    }])
+    cfg = _summary_cfg(
+        tmp_path,
+        [
+            {
+                "table": table_key,
+                "sql": "CREATE TABLE summary_actual AS SELECT * FROM expenditures",
+            }
+        ],
+    )
     con = _seeded_con()
     with caplog.at_level("WARNING"):
         _build_summaries(con, cfg)  # must not raise
@@ -205,8 +236,10 @@ def test_build_summaries_survives_a_table_key_that_does_not_match_its_sql(
 # The source extract carries invoice dates in years 2102, 2502, 7202. They sort
 # to the newest end of every month series — the position a reader trusts most.
 
+
 def test_date_sanity_nulls_impossible_dates_and_keeps_the_amount():
     from data_model import _apply_data_quality
+
     con = duckdb.connect()
     con.execute("""
         CREATE TABLE expenditures AS SELECT * FROM (VALUES
@@ -217,15 +250,26 @@ def test_date_sanity_nulls_impossible_dates_and_keeps_the_amount():
             (2026, DATE '2027-06-30', DATE '2026-01-01', 'B', 'inv5', 7.0)
         ) t(fiscal_year, invoice_date, payment_date, payee, invoice_number, extended_amount)
     """)
-    cfg = CityConfig({"data_quality": {
-        "table": "expenditures", "amount_column": "extended_amount",
-        "date_sanity": {"columns": ["invoice_date", "payment_date"], "min": "2000-01-01",
-                        "max_years_after_newest": 1},
-    }}, "/nonexistent")
+    cfg = CityConfig(
+        {
+            "data_quality": {
+                "table": "expenditures",
+                "amount_column": "extended_amount",
+                "date_sanity": {
+                    "columns": ["invoice_date", "payment_date"],
+                    "min": "2000-01-01",
+                    "max_years_after_newest": 1,
+                },
+            }
+        },
+        "/nonexistent",
+    )
     _apply_data_quality(con, cfg)
-    rows = con.execute("SELECT invoice_number, invoice_date, extended_amount FROM expenditures ORDER BY invoice_number").fetchall()
+    rows = con.execute(
+        "SELECT invoice_number, invoice_date, extended_amount FROM expenditures ORDER BY invoice_number"
+    ).fetchall()
     dates = {r[0]: r[1] for r in rows}
-    assert dates["inv1"] is not None and dates["inv5"] is not None   # in window (newest FY 2026 + 1)
+    assert dates["inv1"] is not None and dates["inv5"] is not None  # in window (newest FY 2026 + 1)
     assert dates["inv2"] is None and dates["inv3"] is None and dates["inv4"] is None
     # The amounts are untouched: the row is still real spending.
     assert float(con.execute("SELECT ROUND(SUM(extended_amount), 2) FROM expenditures").fetchone()[0]) == 2431.08
@@ -235,7 +279,12 @@ def test_date_sanity_nulls_impossible_dates_and_keeps_the_amount():
 
 def test_date_sanity_is_off_unless_configured():
     from data_model import _apply_data_quality
+
     con = duckdb.connect()
-    con.execute("CREATE TABLE expenditures AS SELECT 2024 AS fiscal_year, DATE '7202-07-14' AS invoice_date, 1.0 AS extended_amount")
-    _apply_data_quality(con, CityConfig({"data_quality": {"table": "expenditures", "amount_column": "extended_amount"}}, "/x"))
+    con.execute(
+        "CREATE TABLE expenditures AS SELECT 2024 AS fiscal_year, DATE '7202-07-14' AS invoice_date, 1.0 AS extended_amount"
+    )
+    _apply_data_quality(
+        con, CityConfig({"data_quality": {"table": "expenditures", "amount_column": "extended_amount"}}, "/x")
+    )
     assert con.execute("SELECT invoice_date FROM expenditures").fetchone()[0] is not None

@@ -7,6 +7,7 @@ these run in CI without the gitignored data. The production failure that
 motivated the module — '%Vehicle%' matching nothing for a department whose
 vehicle spend sits under 'Automotive ...' categories — is reproduced here.
 """
+
 import duckdb
 import pytest
 
@@ -18,8 +19,7 @@ def _cfg(extra=None):
     raw = {
         "expenditures": {"table": "expenditures"},
         "data_quality": {"table": "expenditures", "amount_column": "extended_amount"},
-        "canonicalization": [{"table": "expenditures", "source_column": "payee",
-                              "target_column": "payee_canonical"}],
+        "canonicalization": [{"table": "expenditures", "source_column": "payee", "target_column": "payee_canonical"}],
         "grounding": extra or {},
     }
     return CityConfig(raw, "/nonexistent")
@@ -55,9 +55,9 @@ def con():
 
 # ── Index construction ───────────────────────────────────────────────────────
 
+
 def test_index_covers_categoricals_and_skips_the_raw_canonical_source(con):
-    cols = {(t, c) for t, c in con.execute(
-        f"SELECT DISTINCT tbl, col FROM {g.VALUE_INDEX_TABLE}").fetchall()}
+    cols = {(t, c) for t, c in con.execute(f"SELECT DISTINCT tbl, col FROM {g.VALUE_INDEX_TABLE}").fetchall()}
     assert ("expenditures", "spend_category") in cols
     assert ("expenditures", "fund") in cols
     assert ("expenditures", "payee_canonical") in cols
@@ -70,18 +70,19 @@ def test_index_covers_categoricals_and_skips_the_raw_canonical_source(con):
 
 def test_index_trims_and_merges_padded_variants_and_excludes_artifacts(con):
     rows = con.execute(
-        f"SELECT val, weight, n FROM {g.VALUE_INDEX_TABLE} "
-        "WHERE col = 'spend_category' AND val LIKE 'Automotive Fuel%'").fetchall()
+        f"SELECT val, weight, n FROM {g.VALUE_INDEX_TABLE} WHERE col = 'spend_category' AND val LIKE 'Automotive Fuel%'"
+    ).fetchall()
     assert rows == [("Automotive Fuel", 504000.0, 2)]
-    carpet = con.execute(
-        f"SELECT weight FROM {g.VALUE_INDEX_TABLE} WHERE val = 'Carpet Replacement'").fetchone()[0]
+    carpet = con.execute(f"SELECT weight FROM {g.VALUE_INDEX_TABLE} WHERE val = 'Carpet Replacement'").fetchone()[0]
     assert carpet == 50000.0  # the $224M artifact row does not weight the vocabulary
 
 
 def test_pack_can_exclude_and_include_columns():
     c = duckdb.connect()
-    c.execute("CREATE TABLE expenditures AS SELECT 'x' AS spend_category, 'GR001' AS grant_, 1.0 AS extended_amount, "
-              "'y' AS fund UNION ALL SELECT 'z', 'GR002', 2.0, 'w'")
+    c.execute(
+        "CREATE TABLE expenditures AS SELECT 'x' AS spend_category, 'GR001' AS grant_, 1.0 AS extended_amount, "
+        "'y' AS fund UNION ALL SELECT 'z', 'GR002', 2.0, 'w'"
+    )
     g.build_value_index(c, _cfg({"exclude_columns": ["expenditures.grant_"]}))
     cols = {r[0] for r in c.execute(f"SELECT DISTINCT col FROM {g.VALUE_INDEX_TABLE}").fetchall()}
     assert "grant_" not in cols and "spend_category" in cols
@@ -89,10 +90,19 @@ def test_pack_can_exclude_and_include_columns():
 
 # ── Question terms ───────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("word,stem", [
-    ("vehicles", "vehicle"), ("salaries", "salary"), ("buses", "bus"),
-    ("business", "business"), ("status", "status"), ("fire", "fire"), ("parks", "park"),
-])
+
+@pytest.mark.parametrize(
+    "word,stem",
+    [
+        ("vehicles", "vehicle"),
+        ("salaries", "salary"),
+        ("buses", "bus"),
+        ("business", "business"),
+        ("status", "status"),
+        ("fire", "fire"),
+        ("parks", "park"),
+    ],
+)
 def test_singularize(word, stem):
     assert g.singularize(word) == stem
 
@@ -112,6 +122,7 @@ def test_question_terms_keep_acronyms_and_quoted_phrases():
 
 
 # ── Lookup / block ───────────────────────────────────────────────────────────
+
 
 def test_grounding_block_surfaces_the_real_category_family(con, monkeypatch):
     monkeypatch.setattr(g, "VALUES_PER_GROUP", 2)  # force the "to cover all of them" tail
@@ -133,7 +144,7 @@ def test_short_tokens_match_on_word_boundaries(con):
 
 
 def test_entity_columns_only_contribute_specific_matches(con, monkeypatch):
-    monkeypatch.setattr(g, "ENTITY_COLUMN_DISTINCT", 5)      # payee_canonical has 9 values here
+    monkeypatch.setattr(g, "ENTITY_COLUMN_DISTINCT", 5)  # payee_canonical has 9 values here
     monkeypatch.setattr(g, "ENTITY_COLUMN_MAX_MATCHES", 1)
     # "fire" matches one payee (SEAGRAVE FIRE ...): specific, so it is kept.
     groups = g.lookup_terms(con, ["fire"], _cfg())
@@ -160,11 +171,14 @@ def test_block_respects_the_character_budget(con, monkeypatch):
 
 # ── Filter diagnosis ─────────────────────────────────────────────────────────
 
+
 def test_sql_literal_filters_extracts_positive_string_predicates():
-    sql = ("SELECT 1 FROM expenditures e WHERE e.agency_canonical = 'Louisville Fire' "
-           "AND LOWER(fund) = 'arp' AND spend_category ILIKE '%Vehicle%' "
-           "AND payee_canonical NOT LIKE '%INC%' AND region IN ('District 1', 'District 2') "
-           "AND program <> 'x' AND payee_canonical = 'O''REILLY'")
+    sql = (
+        "SELECT 1 FROM expenditures e WHERE e.agency_canonical = 'Louisville Fire' "
+        "AND LOWER(fund) = 'arp' AND spend_category ILIKE '%Vehicle%' "
+        "AND payee_canonical NOT LIKE '%INC%' AND region IN ('District 1', 'District 2') "
+        "AND program <> 'x' AND payee_canonical = 'O''REILLY'"
+    )
     assert g.sql_literal_filters(sql) == [
         ("agency_canonical", "=", "Louisville Fire"),
         ("fund", "=", "arp"),
@@ -188,8 +202,10 @@ def test_diagnosis_flags_a_literal_that_matches_nothing_with_close_values(con):
 def test_diagnosis_flags_a_narrow_literal_beside_a_wider_family(con):
     """The production case: '%Vehicle%' IS a real substring, but the query was
     empty because this department's vehicle spend sits under 'Automotive ...'."""
-    sql = ("SELECT SUM(extended_amount) FROM expenditures WHERE agency_canonical = 'Louisville Fire' "
-           "AND fiscal_year = 2024 AND spend_category ILIKE '%Vehicle%'")
+    sql = (
+        "SELECT SUM(extended_amount) FROM expenditures WHERE agency_canonical = 'Louisville Fire' "
+        "AND fiscal_year = 2024 AND spend_category ILIKE '%Vehicle%'"
+    )
     d = g.diagnose_filters(con, sql, _cfg())
     assert [x["literal"] for x in d] == ["%Vehicle%"]
     assert d[0]["narrow"] and d[0]["matched"] >= 1
@@ -248,7 +264,9 @@ def test_elsewhere_returns_table_column_value(con):
 def test_acronyms_and_capitalized_phrases_are_terms_in_their_own_right():
     cfg = _cfg({"synonyms": {"american rescue plan": ["arp"], "cares act": ["cares"]}})
     # A known phrase replaces its words: "plan" must not match 'Retirement Plan'.
-    assert g.question_terms("How much has the city spent from the American Rescue Plan?", cfg) == ["american rescue plan"]
+    assert g.question_terms("How much has the city spent from the American Rescue Plan?", cfg) == [
+        "american rescue plan"
+    ]
     terms = g.question_terms("How much CARES Act coronavirus relief money did the city spend?", cfg)
     assert terms[0] == "cares act" and "care" not in terms and "cares" not in terms  # phrase covers it
     # An unknown capitalized phrase is kept alongside its words.
@@ -257,8 +275,10 @@ def test_acronyms_and_capitalized_phrases_are_terms_in_their_own_right():
 
 
 def test_sql_tables_reads_from_and_join_targets():
-    assert g.sql_tables("SELECT 1 FROM summary_grant_funding s JOIN expenditures e ON 1=1") == \
-        ["summary_grant_funding", "expenditures"]
+    assert g.sql_tables("SELECT 1 FROM summary_grant_funding s JOIN expenditures e ON 1=1") == [
+        "summary_grant_funding",
+        "expenditures",
+    ]
     assert g.sql_tables("WITH x AS (SELECT * FROM salary_data) SELECT * FROM x") == ["salary_data", "x"]
 
 
@@ -266,8 +286,9 @@ def test_diagnosis_is_scoped_to_the_tables_the_sql_reads(con):
     """'ARP' is a real fund in expenditures; a query that looks for it in a
     summary table that does not carry it must be told so — and pointed at
     the table that does."""
-    con.execute("CREATE TABLE summary_grant_funding AS SELECT 'CDBG' AS fund, 1.0 AS total_amount "
-                "UNION ALL SELECT 'HOME', 2.0")
+    con.execute(
+        "CREATE TABLE summary_grant_funding AS SELECT 'CDBG' AS fund, 1.0 AS total_amount UNION ALL SELECT 'HOME', 2.0"
+    )
     g.build_value_index(con, _cfg())
     d = g.diagnose_filters(con, "SELECT SUM(total_amount) FROM summary_grant_funding WHERE fund = 'ARP'", _cfg())
     assert d and d[0]["matched"] == 0 and d[0]["total"] == 2
@@ -290,5 +311,9 @@ def test_diagnosis_reports_a_year_the_value_has_no_rows_in(con):
     hint = g.format_repair_hint(d, _cfg())
     assert "no rows in fiscal_year = 2024" in hint and "2023-2023" in hint
     # A year the value DOES have rows in is not a gap (the emptiness is real).
-    assert g.diagnose_filters(
-        con, "SELECT 1 FROM expenditures WHERE fund = 'ARP' AND fiscal_year = 2023 AND 1 = 0", _cfg()) == []
+    assert (
+        g.diagnose_filters(
+            con, "SELECT 1 FROM expenditures WHERE fund = 'ARP' AND fiscal_year = 2023 AND 1 = 0", _cfg()
+        )
+        == []
+    )

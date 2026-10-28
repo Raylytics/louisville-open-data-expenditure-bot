@@ -13,6 +13,7 @@ occurrence, so: this.
 
 Pure JSON parsing — no AWS credentials, no network, no data files.
 """
+
 import glob
 import json
 import os
@@ -76,6 +77,7 @@ def _deploy_statements() -> list:
 
 # ── Structural sanity ────────────────────────────────────────────────────────
 
+
 @pytest.mark.parametrize("name", ALL_POLICIES)
 def test_policy_is_valid_json_with_statements(name):
     doc = _load(name)
@@ -95,6 +97,7 @@ def test_templates_never_hardcode_an_account_id(name):
 
 
 # ── The invariant that broke twice ───────────────────────────────────────────
+
 
 @pytest.mark.parametrize("name", GRANTING_POLICIES)
 def test_every_s3_arn_is_account_scoped_by_name(name):
@@ -127,7 +130,8 @@ def test_s3_access_is_denied_outside_this_account(policy_set):
     """
     stmts = _deploy_statements() if policy_set == "deploy" else _statements(_load(BOUNDARY))
     pins = [
-        s for s in stmts
+        s
+        for s in stmts
         if s.get("Effect") == "Deny"
         and any(a == "s3:*" or a.startswith("s3:") for a in _actions(s))
         and "aws:ResourceAccount" in _condition_text(s)
@@ -165,12 +169,14 @@ def test_non_s3_arns_carry_an_account_field(name):
 
 # ── Privilege-escalation controls ────────────────────────────────────────────
 
+
 def test_created_roles_must_carry_the_permissions_boundary():
     """The deploy role can create IAM roles, which is normally an escalation
     path straight to admin. What closes it is the Deny requiring the boundary
     on every role it creates. Remove that and iam:CreateRole becomes iam:*."""
     denies = [
-        s for s in _deploy_statements()
+        s
+        for s in _deploy_statements()
         if s.get("Effect") == "Deny"
         and "iam:PermissionsBoundary" in _condition_text(s)
         and any(a == "iam:CreateRole" for a in _actions(s))
@@ -204,8 +210,9 @@ def test_every_constraining_policy_is_protected_from_edits():
     """
     expected = {_managed_policy_name(n) for n in DEPLOY_POLICIES + [BOUNDARY]}
 
-    protecting = [s for s in _deploy_statements() if s.get("Effect") == "Deny"
-                  and any(":policy/" in r for r in _resources(s))]
+    protecting = [
+        s for s in _deploy_statements() if s.get("Effect") == "Deny" and any(":policy/" in r for r in _resources(s))
+    ]
     assert protecting, "nothing prevents editing the policies that constrain the deploy role"
 
     guarded_arns = {r for s in protecting for r in _resources(s)}
@@ -224,8 +231,12 @@ def test_every_constraining_policy_is_protected_from_edits():
     )
 
     guarded_actions = {a for s in protecting for a in _actions(s)}
-    for action in ("iam:CreatePolicyVersion", "iam:DeletePolicy",
-                   "iam:SetDefaultPolicyVersion", "iam:DeleteRolePermissionsBoundary"):
+    for action in (
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:SetDefaultPolicyVersion",
+        "iam:DeleteRolePermissionsBoundary",
+    ):
         assert action in guarded_actions, f"{action} is not denied on the ceiling policies"
 
 
@@ -235,32 +246,34 @@ def test_iam_writes_are_confined_to_the_lou_path():
     for stmt in _deploy_statements():
         if stmt.get("Effect") != "Allow":
             continue
-        writes = [a for a in _actions(stmt)
-                  if a.startswith("iam:") and a != "iam:PassRole"
-                  and any(a.startswith(f"iam:{v}") for v in
-                          ("Create", "Delete", "Update", "Put", "Attach", "Detach", "Tag", "Untag"))]
+        writes = [
+            a
+            for a in _actions(stmt)
+            if a.startswith("iam:")
+            and a != "iam:PassRole"
+            and any(
+                a.startswith(f"iam:{v}")
+                for v in ("Create", "Delete", "Update", "Put", "Attach", "Detach", "Tag", "Untag")
+            )
+        ]
         if not writes:
             continue
         for r in _resources(stmt):
-            assert ":role/lou/" in r, (
-                f"IAM write {writes} granted on {r}, which is outside the /lou/ path"
-            )
+            assert ":role/lou/" in r, f"IAM write {writes} granted on {r}, which is outside the /lou/ path"
 
 
 def test_passrole_is_restricted_to_lou_roles_and_named_services():
     """Unrestricted iam:PassRole lets a principal hand any role to a service it
     controls, which is escalation by another route."""
-    passers = [s for s in _deploy_statements()
-               if s.get("Effect") == "Allow" and "iam:PassRole" in _actions(s)]
+    passers = [s for s in _deploy_statements() if s.get("Effect") == "Allow" and "iam:PassRole" in _actions(s)]
     assert passers, "no iam:PassRole grant found (the stack needs one)"
     for s in passers:
-        assert all(":role/lou/" in r for r in _resources(s)), \
-            "iam:PassRole is not confined to /lou/ roles"
-        assert "iam:PassedToService" in _condition_text(s), \
-            "iam:PassRole has no PassedToService condition"
+        assert all(":role/lou/" in r for r in _resources(s)), "iam:PassRole is not confined to /lou/ roles"
+        assert "iam:PassedToService" in _condition_text(s), "iam:PassRole has no PassedToService condition"
 
 
 # ── Runtime ceiling ──────────────────────────────────────────────────────────
+
 
 def test_runtime_boundary_forbids_escalation_and_lateral_movement():
     """The boundary is the ceiling for the Lambda execution role. It must not
@@ -299,6 +312,7 @@ def test_architecture_forbids_vpc_and_nat():
 
 # ── Identity chain ───────────────────────────────────────────────────────────
 
+
 def test_the_user_can_only_assume_the_role_and_needs_mfa():
     """lou-dev holds no standing permissions, so a leaked long-lived key is
     worth nothing without the MFA-gated assumption."""
@@ -311,8 +325,7 @@ def test_the_user_can_only_assume_the_role_and_needs_mfa():
     # No statement may grant anything beyond assumption and self-service MFA.
     for s in _statements(doc):
         for a in _actions(s):
-            assert a == "sts:AssumeRole" or a.startswith("iam:"), \
-                f"lou-dev granted unexpected action {a}"
+            assert a == "sts:AssumeRole" or a.startswith("iam:"), f"lou-dev granted unexpected action {a}"
 
 
 def test_the_deploy_role_is_not_assumable_by_the_whole_account():
@@ -320,13 +333,15 @@ def test_the_deploy_role_is_not_assumable_by_the_whole_account():
     lou-deploy. The trust must name the user."""
     for s in _statements(_load("lou-deploy-trust.json")):
         principals = json.dumps(s.get("Principal", {}))
-        assert ":root" not in principals, \
+        assert ":root" not in principals, (
             "lou-deploy trusts the account root — any principal in the shared account could assume it"
+        )
         assert "user/lou-dev" in principals
         assert "MultiFactorAuthPresent" in _condition_text(s)
 
 
 # ── Size limits (the failure that split this policy in two) ──────────────────
+
 
 @pytest.mark.parametrize("name", ALL_POLICIES)
 def test_policy_fits_the_iam_size_limit(name):

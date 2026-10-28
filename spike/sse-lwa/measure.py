@@ -10,6 +10,7 @@ duration, BATCHED if most of them landed together at the end.
 
 Acceptance for 4l4: INCREMENTAL through CloudFront, TTFB under 2s.
 """
+
 import argparse
 import hashlib
 import json
@@ -35,8 +36,7 @@ def run(url: str, method: str, n: int, interval: float, label: str) -> dict:
         # CloudFront OAC signs origin requests with SigV4; for a request WITH a
         # body the viewer must supply the body's SHA-256 or CloudFront answers
         # 403. Harmless on every other hop, so always send it for POST.
-        req_headers = {"Content-Type": "application/json",
-                       "x-amz-content-sha256": hashlib.sha256(body).hexdigest()}
+        req_headers = {"Content-Type": "application/json", "x-amz-content-sha256": hashlib.sha256(body).hexdigest()}
     with httpx.Client(timeout=httpx.Timeout(10.0, read=n * interval + 30)) as client:
         with client.stream(method, url, params=params, content=body, headers=req_headers) as resp:
             status = resp.status_code
@@ -67,19 +67,40 @@ def run(url: str, method: str, n: int, interval: float, label: str) -> dict:
     if status != 200:
         verdict = f"HTTP {status}"
     return {
-        "label": label, "url": url, "method": method, "status": status, "n": n, "interval": interval,
+        "label": label,
+        "url": url,
+        "method": method,
+        "status": status,
+        "n": n,
+        "interval": interval,
         "ttfb_s": round(ttfb, 3) if ttfb is not None else None,
         "total_s": round(total, 3),
-        "chunks": len(arrivals), "events": len(ticks),
-        "arrival_spread_s": round(spread, 3), "expected_spread_s": expected_duration,
+        "chunks": len(arrivals),
+        "events": len(ticks),
+        "arrival_spread_s": round(spread, 3),
+        "expected_spread_s": expected_duration,
         "max_gap_s": round(max(gaps), 3) if gaps else None,
         "median_gap_s": round(statistics.median(gaps), 3) if gaps else None,
         "max_lag_vs_server_s": round(max(lag), 3) if lag else None,
         "verdict": verdict,
-        "resp_headers": {k: headers[k] for k in sorted(headers)
-                         if k in ("content-type", "transfer-encoding", "content-length", "cache-control",
-                                  "x-cache", "via", "x-amz-cf-pop", "x-spike-method", "x-spike-instance",
-                                  "server", "x-amzn-requestid")},
+        "resp_headers": {
+            k: headers[k]
+            for k in sorted(headers)
+            if k
+            in (
+                "content-type",
+                "transfer-encoding",
+                "content-length",
+                "cache-control",
+                "x-cache",
+                "via",
+                "x-amz-cf-pop",
+                "x-spike-method",
+                "x-spike-instance",
+                "server",
+                "x-amzn-requestid",
+            )
+        },
         "arrivals_s": [round(a, 2) for a in arrivals],
     }
 
@@ -99,8 +120,10 @@ def main():
     else:
         print(f"[{r['label']}] {r['method']} -> HTTP {r['status']}  verdict={r['verdict']}")
         print(f"  ttfb={r['ttfb_s']}s  total={r['total_s']}s  chunks={r['chunks']}  events={r['events']}/{r['n']}")
-        print(f"  arrival spread={r['arrival_spread_s']}s (expected ~{r['expected_spread_s']}s)  "
-              f"max gap={r['max_gap_s']}s  median gap={r['median_gap_s']}s  max lag vs server={r['max_lag_vs_server_s']}s")
+        print(
+            f"  arrival spread={r['arrival_spread_s']}s (expected ~{r['expected_spread_s']}s)  "
+            f"max gap={r['max_gap_s']}s  median gap={r['median_gap_s']}s  max lag vs server={r['max_lag_vs_server_s']}s"
+        )
         print(f"  headers: {r['resp_headers']}")
         print(f"  arrivals: {r['arrivals_s']}")
     sys.exit(0 if r["verdict"] == "INCREMENTAL" else 1)

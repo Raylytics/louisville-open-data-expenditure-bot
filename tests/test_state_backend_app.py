@@ -6,6 +6,7 @@ table, the rate limit is the table's not the process's, /api/health keeps its
 shape, and the CloudFront client-IP mode cannot be spoofed from the first
 X-Forwarded-For hop.
 """
+
 import json
 import os
 
@@ -15,8 +16,7 @@ from fastapi.testclient import TestClient
 from moto import mock_aws
 
 import state_store as ss
-from test_ask_endpoint import (REAL_SQL, _events, _fake_generate_sql,
-                               _fake_interpret_stream, _fake_refine_stream, _types)
+from test_ask_endpoint import REAL_SQL, _events, _fake_generate_sql, _fake_interpret_stream, _fake_refine_stream, _types
 
 TABLE = "lou-state-app-test"
 
@@ -25,6 +25,7 @@ TABLE = "lou-state-app-test"
 def dyn_client(require_data, monkeypatch):
     """The API with app.STATE swapped for a DynamoState on a moto table."""
     import app
+
     os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
     os.environ.setdefault("AWS_ACCESS_KEY_ID", "testing")
     os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "testing")
@@ -46,6 +47,7 @@ def _post(c, q, **headers):
 
 def test_answer_is_cached_in_dynamodb_and_replayed_from_a_fresh_instance(dyn_client):
     import app
+
     c, state, ddb = dyn_client
     calls = []
     orig = app.generate_sql
@@ -68,6 +70,7 @@ def test_answer_is_cached_in_dynamodb_and_replayed_from_a_fresh_instance(dyn_cli
 
 def test_rate_limit_is_shared_across_instances(dyn_client):
     import app
+
     c, state, ddb = dyn_client
     limit = app.IP_RPM_LIMIT
     # Half the budget through "container A" ...
@@ -87,6 +90,7 @@ def test_health_shape_is_identical_on_the_dynamodb_backend(dyn_client, monkeypat
     the heartbeat parses the same object. Compare the full key sets with the
     local backend's, then prove a tracked error flows through the table."""
     import app
+
     c, state, ddb = dyn_client
     dyn = c.get("/api/health").json()
     monkeypatch.setattr(app, "STATE", None)
@@ -105,6 +109,7 @@ def test_health_shape_is_identical_on_the_dynamodb_backend(dyn_client, monkeypat
 
 def test_health_table_counts_are_served_from_the_startup_snapshot(dyn_client):
     import app
+
     c, *_ = dyn_client
     first = c.get("/api/health").json()["tables"]
     assert first["expenditures"] > 1_000_000
@@ -116,6 +121,7 @@ def test_cloudfront_ip_mode_keys_on_the_hop_cloudfront_appended(dyn_client, monk
     address to X-Forwarded-For. A client rotating its own (first-hop) value
     must still share one bucket; distinct viewers get distinct buckets."""
     import app
+
     c, state, ddb = dyn_client
     monkeypatch.setattr(app, "CLIENT_IP_SOURCE", "cloudfront")
     limit = app.IP_RPM_LIMIT
@@ -138,13 +144,17 @@ def _rl_pk(ip, ddb):
     raise AssertionError(f"no rate-limit bucket for {ip}: {[i['pk']['S'] for i in items]}")
 
 
-@pytest.mark.parametrize("header,expected", [
-    ("198.51.100.7:4433", "198.51.100.7"),
-    ("2001:db8::1:46532", "2001:db8::1"),   # IPv6 as CloudFront sends it: unbracketed, port appended
-    ("[2001:db8::1]:443", "2001:db8::1"),
-])
+@pytest.mark.parametrize(
+    "header,expected",
+    [
+        ("198.51.100.7:4433", "198.51.100.7"),
+        ("2001:db8::1:46532", "2001:db8::1"),  # IPv6 as CloudFront sends it: unbracketed, port appended
+        ("[2001:db8::1]:443", "2001:db8::1"),
+    ],
+)
 def test_cloudfront_viewer_address_header_wins_and_drops_the_port(dyn_client, monkeypatch, header, expected):
     import app
+
     c, state, ddb = dyn_client
     monkeypatch.setattr(app, "CLIENT_IP_SOURCE", "cloudfront")
     _post(c, "viewer header", **{"CloudFront-Viewer-Address": header, "X-Forwarded-For": "9.9.9.9, 8.8.8.8"})
@@ -153,6 +163,7 @@ def test_cloudfront_viewer_address_header_wins_and_drops_the_port(dyn_client, mo
 
 def test_missing_viewer_address_falls_back_loudly_once(dyn_client, monkeypatch, caplog):
     import app
+
     c, state, ddb = dyn_client
     monkeypatch.setattr(app, "CLIENT_IP_SOURCE", "cloudfront")
     monkeypatch.setattr(app, "_viewer_address_warned", False)
@@ -167,6 +178,7 @@ def test_dynamodb_outage_degrades_instead_of_500(dyn_client, monkeypatch):
     """The cache read runs before any LLM work on every question; an outage
     must be a miss, not a 500, and the answer must still stream."""
     import app
+
     c, state, ddb = dyn_client
     state.table = "no-such-table"
     r = _post(c, "during an outage")
@@ -183,6 +195,7 @@ def test_dynamodb_outage_degrades_instead_of_500(dyn_client, monkeypatch):
 
 def test_health_reports_the_local_backend_when_not_on_dynamodb(dyn_client, monkeypatch):
     import app
+
     c, *_ = dyn_client
     monkeypatch.setattr(app, "STATE", None)
     h = c.get("/api/health").json()
@@ -191,6 +204,7 @@ def test_health_reports_the_local_backend_when_not_on_dynamodb(dyn_client, monke
 
 def test_cache_admin_endpoints_use_the_table(dyn_client, monkeypatch):
     import app
+
     c, state, ddb = dyn_client
     monkeypatch.setattr(app, "ADMIN_TOKEN", "s3cret")
     auth = {"X-Admin-Token": "s3cret"}
@@ -198,8 +212,12 @@ def test_cache_admin_endpoints_use_the_table(dyn_client, monkeypatch):
     listing = c.get("/api/cache", headers=auth).json()
     assert listing["cached_questions"] == 1
     assert list(listing["entries"]) == [app._cache_key("admin listed")]
-    assert c.request("DELETE", "/api/cache", json={"question": "admin listed"}, headers=auth).json() == {"cleared": "admin listed"}
-    assert c.request("DELETE", "/api/cache", json={"question": "admin listed"}, headers=auth).json() == {"error": "Not in cache"}
+    assert c.request("DELETE", "/api/cache", json={"question": "admin listed"}, headers=auth).json() == {
+        "cleared": "admin listed"
+    }
+    assert c.request("DELETE", "/api/cache", json={"question": "admin listed"}, headers=auth).json() == {
+        "error": "Not in cache"
+    }
     _post(c, "one more")
     assert c.request("DELETE", "/api/cache", headers=auth).json() == {"cleared": "all"}
     assert state.cache_len() == 0
