@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "infra" / "cdk"))
 os.environ.setdefault("JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION", "1")
 
 cdk = pytest.importorskip("aws_cdk")
-from aws_cdk.assertions import Match, Template  # noqa: E402
+from aws_cdk.assertions import Template  # noqa: E402
 
 from lou_stack import LouStack  # noqa: E402
 

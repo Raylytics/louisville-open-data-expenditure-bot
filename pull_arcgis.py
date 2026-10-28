@@ -28,11 +28,10 @@ import argparse
 import json
 import os
 import re
-import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 import pandas as pd
 import requests

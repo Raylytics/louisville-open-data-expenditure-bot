@@ -12,7 +12,6 @@ reason in app.py or the migration issues (69m, bb0, far):
     errors_last_hour is a rolling hour.
 """
 
-import json
 import os
 import time
 

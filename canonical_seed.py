@@ -535,7 +535,7 @@ def write_report(
     merged = [c for c in clusters if len(c.members) > 1]
     fmt = (lambda v: f"${v:,.0f}") if unit == "dollars" else (lambda v: f"{v:,.0f} rows")
 
-    print(f"# Draft canonical map review\n", file=out)
+    print("# Draft canonical map review\n", file=out)
     print(
         f"{len(clusters):,} clusters from "
         f"{sum(len(c.members) for c in clusters):,} distinct raw values "
@@ -553,7 +553,7 @@ def write_report(
     if len(merged) > 60:
         print(f"\n_({len(merged) - 60:,} further merged clusters not listed; all are in the draft map.)_", file=out)
 
-    print(f"\n## Near-duplicate suggestions (NOT merged — curator decides)\n", file=out)
+    print("\n## Near-duplicate suggestions (NOT merged — curator decides)\n", file=out)
     print(
         f"_Compared the {min(limit, len(clusters)):,} heaviest of "
         f"{len(clusters):,} clusters at similarity >= {threshold}. "
@@ -570,7 +570,7 @@ def write_report(
     if len(pairs) > 60:
         print(f"\n_({len(pairs) - 60:,} further suggestions omitted.)_", file=out)
 
-    print(f"\n## Initialism suggestions (NOT merged — curator decides)\n", file=out)
+    print("\n## Initialism suggestions (NOT merged — curator decides)\n", file=out)
     print(
         "_A short name whose letters match a longer name's initials, e.g. "
         "APCD / Air Pollution Control District. Confirm each: matching "
@@ -584,7 +584,7 @@ def write_report(
     if len(initialisms) > 40:
         print(f"\n_({len(initialisms) - 40:,} further suggestions omitted.)_", file=out)
 
-    print(f"\n## Curation worklist: heaviest names the seeder could not merge\n", file=out)
+    print("\n## Curation worklist: heaviest names the seeder could not merge\n", file=out)
     print(
         "_Single-spelling clusters, biggest first. Automatic merging is "
         "already done; this is where a curator's time is worth spending._\n",
@@ -593,7 +593,7 @@ def write_report(
     for c in residual:
         print(f"- {fmt(c.weight)} — {c.canonical}", file=out)
 
-    print(f"\n## Prefix-rule candidates (for prefix_map, NOT in the draft)\n", file=out)
+    print("\n## Prefix-rule candidates (for prefix_map, NOT in the draft)\n", file=out)
     if not prefixes:
         print("_None found._", file=out)
     for prefix, canon, raws, weight in prefixes[:40]:

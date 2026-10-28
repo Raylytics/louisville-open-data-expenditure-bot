@@ -336,7 +336,7 @@ def main():
     csv_count = len([f for f in os.listdir(args.data_dir) if f.endswith(".csv")])
     print(f"\n  Data directory: {args.data_dir}")
     print(f"  CSV files: {csv_count}")
-    print(f"\n  IMPORTANT: Re-warm starter question caches after restarting the bot")
+    print("\n  IMPORTANT: Re-warm starter question caches after restarting the bot")
     # Exit code = the data steps only (see the two verdicts above). A failed
     # enrichment step is visible in the banner and the log, never fatal.
     return 0 if data_ok else 1
