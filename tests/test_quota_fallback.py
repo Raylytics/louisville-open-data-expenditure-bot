@@ -407,7 +407,6 @@ def test_empty_completion_without_a_fallback_raises_its_own_type():
 
 def _upstream_overloaded():
     req = httpx.Request("POST", "https://api.test/v1/chat/completions")
-    resp = httpx.Response(502, request=req)
     return openai.APIError("Upstream error from Nvidia: Service temporarily overloaded", request=req, body=None)
 
 

@@ -10,10 +10,7 @@ Usage:
 """
 
 import argparse
-import csv
-import json
 import os
-import re
 import sys
 import time
 
@@ -270,7 +267,7 @@ def main():
         # Get the ctr ID
         ctr = get_ctr_for_company(name, session)
         if not ctr:
-            print(f"    No SOS match found")
+            print("    No SOS match found")
             scraped += 1
             time.sleep(1)
             continue
@@ -289,7 +286,7 @@ def main():
             df.at[idx, "sos_officers"] = formatted
             print(f"    Found {len(officers)} officers: {formatted[:80]}...")
         else:
-            print(f"    No officers found")
+            print("    No officers found")
 
         scraped += 1
         time.sleep(1.5)

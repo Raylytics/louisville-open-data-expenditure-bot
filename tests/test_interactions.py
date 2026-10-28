@@ -16,7 +16,6 @@ Pinned here:
 
 import json
 import os
-import time
 
 import boto3
 import pytest

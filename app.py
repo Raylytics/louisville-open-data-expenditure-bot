@@ -141,7 +141,6 @@ from analytics_agent import (
 )
 from data_model import (
     CONFIG,
-    DATA_DICTIONARY,
     drop_total_rows,
     get_compact_schema_description,
     get_data_dictionary_text,

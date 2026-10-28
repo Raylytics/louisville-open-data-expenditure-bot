@@ -13,7 +13,6 @@ Usage: check_size.py <rendered-dir>
 """
 
 import glob
-import json
 import os
 import re
 import sys
