@@ -464,7 +464,7 @@ shared with an unrelated Airflow workload — decided 2026-08-28.
 
 ```bash
 # Run the test suite (known-answer + canonicalization invariants)
-python -m pytest -q
+uv run pytest -q
 
 # End-to-end accuracy eval against the REAL model (costs ~3 LLM calls/question)
 set -a; source .env; set +a      # .env is seeded from 1Password (see Secrets); or: op run --env-file=op.env -- ...
@@ -607,3 +607,14 @@ convention looks broken, or the workflow rubs wrong, file a bd issue (with
 an owner) and fix or hand it off — don't route around it silently.
 Friction with wyk is product data; surfacing it is the job.
 <!-- END WYK CONVENTIONS -->
+
+## Version control
+
+This repo follows the Raylytics Version Control Standard, tier 1, stack python. Source: STANDARD.md in the `raylytics` repo (2026-10-27); cite its section in a commit body when a rule decides something.
+
+- Branch from `main` as `type/short-kebab`. Every change lands as a squash-merged PR with CI green; the PR title is the Conventional Commit subject. Agent work always goes through a PR.
+- Commits follow Conventional Commits 1.0: `type(scope): subject`, subject at most 72 characters, imperative, no trailing period, then a body that says why. Types: feat, fix, perf, refactor, style, docs, test, build, ci, chore, revert. Scopes here: api, agent, data, grounding, rag, ui, eval, infra, lambda, monitoring, cache, ci, deps, release, docs, vc.
+- Never add `Co-Authored-By`, `Generated with`, or any AI byline; the commit-msg hook refuses them. Never use `--no-verify`. Never force-push `main`.
+- Secrets never enter the tree; `.env.example` lists the variables; gitleaks runs in pre-commit and CI.
+- Commands: `pre-commit install --hook-type pre-commit --hook-type commit-msg` once; lint `uv run ruff check . && uv run ruff format --check .`; test `uv run pytest -q` (data-bound tests skip without `data/`); release `scripts/release.sh X.Y.Z` (bumps `project.version` in `pyproject.toml`, regenerates CHANGELOG.md with git-cliff, tags `vX.Y.Z`; the AWS deploy is a separate step, see "Publishing to production").
+- Do not commit `.claude/settings.local.json`, `QUEUE.md`, `HANDOFF*`, `.beads/`, scratch notes or session logs.
