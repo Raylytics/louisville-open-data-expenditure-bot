@@ -53,6 +53,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The Dockerfile pulls its base from ECR Public, whose anonymous data
+      # quota GitHub's shared runner IPs exhaust (HTTP 429 on the first run of
+      # this job). Fetch the same official image from Docker Hub and tag it
+      # under the ECR name, so `docker build` resolves FROM locally and the
+      # Dockerfile stays exactly what ships.
+      - name: Base image from Docker Hub under the ECR name
+        run: |
+          base=$(sed -nE 's/^FROM public\.ecr\.aws\/docker\/library\/(.+)$/\1/p' Dockerfile | head -1)
+          docker pull "$base"
+          docker tag "$base" "public.ecr.aws/docker/library/$base"
       - name: Build the serving image
         run: docker build -t lou:ci .
 
