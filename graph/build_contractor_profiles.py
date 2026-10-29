@@ -11,7 +11,6 @@ Usage:
 """
 
 import argparse
-import csv
 import datetime as _dt
 import os
 import re
@@ -332,11 +331,10 @@ def main():
 
     # KY SOS lookups
     if not args.skip_sos:
-        print(f"\nLooking up top payees on KY Secretary of State...")
+        print("\nLooking up top payees on KY Secretary of State...")
         session = requests.Session()
         session.headers.update({"User-Agent": "Louisville-OpenData-Research/1.0"})
 
-        sos_fields = SOS_FIELDS
         for f in SOS_CARRY_FIELDS:
             merged[f] = None
 

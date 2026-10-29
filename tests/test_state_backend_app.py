@@ -177,7 +177,6 @@ def test_missing_viewer_address_falls_back_loudly_once(dyn_client, monkeypatch, 
 def test_dynamodb_outage_degrades_instead_of_500(dyn_client, monkeypatch):
     """The cache read runs before any LLM work on every question; an outage
     must be a miss, not a 500, and the answer must still stream."""
-    import app
 
     c, state, ddb = dyn_client
     state.table = "no-such-table"

@@ -43,10 +43,10 @@ SELECT ROUND(SUM(extended_amount), 2) AS total_vehicle_spend_2024
 FROM expenditures
 WHERE fiscal_year = 2024
   AND agency_canonical = 'Louisville Fire'
-  AND (spend_category ILIKE '%fleet%' 
-       OR spend_category ILIKE '%automotive%' 
-       OR spend_category ILIKE '%auto%' 
-       OR spend_category ILIKE '%vehicle%' 
+  AND (spend_category ILIKE '%fleet%'
+       OR spend_category ILIKE '%automotive%'
+       OR spend_category ILIKE '%auto%'
+       OR spend_category ILIKE '%vehicle%'
        OR spend_category ILIKE '%truck%')
   AND is_data_artifact = FALSE
   AND extended_amount IS NOT NULL;
@@ -81,11 +81,11 @@ WHERE fund = 'ARP'
   AND extended_amount IS NOT NULL;
 ```
 
-Louisville has spent $37.6M from the American Rescue Plan. These are vendor payments recorded in the city’s expenditure data.  
+Louisville has spent $37.6M from the American Rescue Plan. These are vendor payments recorded in the city’s expenditure data.
 
-Related city legislation:  
-- Resolution R-083-21 (passed 2021) established priority areas for use of the American Rescue Plan funds.  
-- Ordinance O-374-22 (held in committee 2022) addressed under‑budget ARP projects through reappropriations of ARP funding.  
+Related city legislation:
+- Resolution R-083-21 (passed 2021) established priority areas for use of the American Rescue Plan funds.
+- Ordinance O-374-22 (held in committee 2022) addressed under‑budget ARP projects through reappropriations of ARP funding.
 - Resolution R-062-22 (passed 2022) authorized the mayor to accept a grant from the American Rescue Plan to be administered by the Louisville Free Public Library for library services and technology.
 
 ### cares-total
@@ -147,16 +147,16 @@ LIMIT 10
 
 The vendors that received the largest payments for road‑paving work are:
 
-1. Hall Contracting of Kentucky Inc – $157.1 M  
-2. Louisville Gas & Electric Company – $80.9 M  
-3. Flynn Brothers Contracting Inc – $52.9 M  
-4. Louisville Paving Company Inc – $52.0 M  
-5. Cargill Inc – $16.5 M  
-6. MAC Construction & Excavating Inc – $11.0 M  
-7. Pace Contracting LLC – $10.5 M  
-8. Compass Minerals America Inc – $6.2 M  
-9. Strand Associates Inc – $6.2 M  
-10. HDR Engineering Inc – $5.7 M  
+1. Hall Contracting of Kentucky Inc – $157.1 M
+2. Louisville Gas & Electric Company – $80.9 M
+3. Flynn Brothers Contracting Inc – $52.9 M
+4. Louisville Paving Company Inc – $52.0 M
+5. Cargill Inc – $16.5 M
+6. MAC Construction & Excavating Inc – $11.0 M
+7. Pace Contracting LLC – $10.5 M
+8. Compass Minerals America Inc – $6.2 M
+9. Strand Associates Inc – $6.2 M
+10. HDR Engineering Inc – $5.7 M
 
 These amounts reflect payments recorded in the city’s expenditure data up through March 16 2026; the FY 2026 figures are partial, so totals could increase as more data are loaded.
 
@@ -173,16 +173,16 @@ ORDER BY total_spend DESC
 
 The ten agencies that have spent the most money are:
 
-1. Public Works & Assets – $1.036 B  
-2. Economic Development – $390.4 M  
-3. Facilities & Fleet Management – $368.8 M  
-4. Community Services & Revitalization – $351.4 M  
-5. Office of Housing & Community Development – $348.6 M  
-6. OMB Finance – $319.9 M  
-7. Develop Louisville – $288.1 M  
-8. Parks & Recreation – $276.3 M  
-9. Louisville Metro Police Department – $263.6 M  
-10. Public Health & Wellness – $262.4 M  
+1. Public Works & Assets – $1.036 B
+2. Economic Development – $390.4 M
+3. Facilities & Fleet Management – $368.8 M
+4. Community Services & Revitalization – $351.4 M
+5. Office of Housing & Community Development – $348.6 M
+6. OMB Finance – $319.9 M
+7. Develop Louisville – $288.1 M
+8. Parks & Recreation – $276.3 M
+9. Louisville Metro Police Department – $263.6 M
+10. Public Health & Wellness – $262.4 M
 
 These ten represent the highest spenders out of the 61 agencies listed in the data.
 
@@ -308,11 +308,11 @@ LIMIT 10
 
 The highest paid positions in Louisville Metro government are:
 
-1. Police Chief – Louisville Metro Police Department – $267,811.04 (1 employee)  
-2. Director – Louisville Zoo – $213,466.08 (1 employee)  
-3. Deputy Police Chief – Louisville Metro Police Department – average $202,891.98, maximum $204,679.22 (2 employees)  
-4. Fire Chief – Louisville Fire – $197,516.03 (1 employee)  
-5. Deputy Mayor – Chief of Staff, General Counsel – Mayor Office – $193,776.70 (1 employee)  
+1. Police Chief – Louisville Metro Police Department – $267,811.04 (1 employee)
+2. Director – Louisville Zoo – $213,466.08 (1 employee)
+3. Deputy Police Chief – Louisville Metro Police Department – average $202,891.98, maximum $204,679.22 (2 employees)
+4. Fire Chief – Louisville Fire – $197,516.03 (1 employee)
+5. Deputy Mayor – Chief of Staff, General Counsel – Mayor Office – $193,776.70 (1 employee)
 
 These figures reflect average total compensation for calendar year 2025, the most recent complete year of salary data. Compensation amounts do not include benefits.
 
@@ -344,15 +344,15 @@ LIMIT 10
 
 The registered agents for the ten contractors with the highest total spending are:
 
-1. Louisville Gas & Electric Company – $345.7 M – C T Corporation System, 306 W Main St Suite 512, Frankfort, KY 40601  
-2. Hall Contracting of Kentucky Inc – $161.0 M – Stephen M. Priebe, 3800 Crittenden Drive, Louisville, KY 40209  
-3. Motorola Solutions Inc – $89.1 M – C T Corporation System, 306 W Main St Suite 512, Frankfort, KY 40601  
-4. Flynn Brothers Contracting Inc – $73.0 M – Steve E. Mossholder, Jr., 4515 Bishop Ln Ste A, Louisville, KY 40218  
-5. Sullivan & Cozart Inc – $69.8 M – Thomas E. Roma, Jr., Manion Stigger, LLP, 2301 River Road Suite 101, Louisville, KY 40206  
-6. Humana Health Plan Inc – $67.0 M – C T Corporation System, 306 W Main St, Suite 512, Frankfort, KY 40601  
-7. Louisville Paving Company Inc – $62.1 M – Luke Fitzgerald, 15415 Shelbyville Road, Louisville, KY 40245  
-8. Genuine Parts Company – $61.5 M – C T Corporation System, 306 W Main Street Suite 512, Frankfort, KY 40601  
-9. Waste Management of Kentucky LLC – $54.6 M – C T Corporation System, 306 W Main St Suite 512, Frankfort, KY 40601  
+1. Louisville Gas & Electric Company – $345.7 M – C T Corporation System, 306 W Main St Suite 512, Frankfort, KY 40601
+2. Hall Contracting of Kentucky Inc – $161.0 M – Stephen M. Priebe, 3800 Crittenden Drive, Louisville, KY 40209
+3. Motorola Solutions Inc – $89.1 M – C T Corporation System, 306 W Main St Suite 512, Frankfort, KY 40601
+4. Flynn Brothers Contracting Inc – $73.0 M – Steve E. Mossholder, Jr., 4515 Bishop Ln Ste A, Louisville, KY 40218
+5. Sullivan & Cozart Inc – $69.8 M – Thomas E. Roma, Jr., Manion Stigger, LLP, 2301 River Road Suite 101, Louisville, KY 40206
+6. Humana Health Plan Inc – $67.0 M – C T Corporation System, 306 W Main St, Suite 512, Frankfort, KY 40601
+7. Louisville Paving Company Inc – $62.1 M – Luke Fitzgerald, 15415 Shelbyville Road, Louisville, KY 40245
+8. Genuine Parts Company – $61.5 M – C T Corporation System, 306 W Main Street Suite 512, Frankfort, KY 40601
+9. Waste Management of Kentucky LLC – $54.6 M – C T Corporation System, 306 W Main St Suite 512, Frankfort, KY 40601
 10. CDW LLC – $53.2 M – Corporation Service Company, 315 High Street, Frankfort, KY 40601
 
 ### grant-funding
@@ -371,10 +371,10 @@ Louisville has spent $1.174 billion from grant and federal funds (TOTAL - 
 
 The five largest individual funds, out of 102 grant‑fund rows, are:
 
-1. Grant Fund – $437.5 M  
-2. Federally Funded – $151.6 M  
-3. Pass Thru Federal Other – $122.9 M  
-4. CAP KACA Funding – $75.3 M  
+1. Grant Fund – $437.5 M
+2. Federally Funded – $151.6 M
+3. Pass Thru Federal Other – $122.9 M
+4. CAP KACA Funding – $75.3 M
 5. CARES Coronavirus Relief Fund (CRF) – $73.8 M
 
 ### largest-payments
@@ -391,11 +391,11 @@ LIMIT 10
 
 The five largest single payments recorded are:
 
-1. Louisville Arena Authority Inc – OMB Finance – $12.0M – 2022‑10‑31  
-2. Motorola Solutions Inc – Emergency Services & MetroSafe – $11.6M – 2009‑03‑13  
-3. Motorola Solutions Inc – Emergency Services & MetroSafe – $11.6M – 2009‑03‑13  
-4. Louisville Arena Authority Inc – OMB Finance – $10.8M – 2025‑10‑21  
-5. Louisville Arena Authority Inc – OMB Finance – $10.8M – 2023‑11‑03  
+1. Louisville Arena Authority Inc – OMB Finance – $12.0M – 2022‑10‑31
+2. Motorola Solutions Inc – Emergency Services & MetroSafe – $11.6M – 2009‑03‑13
+3. Motorola Solutions Inc – Emergency Services & MetroSafe – $11.6M – 2009‑03‑13
+4. Louisville Arena Authority Inc – OMB Finance – $10.8M – 2025‑10‑21
+5. Louisville Arena Authority Inc – OMB Finance – $10.8M – 2023‑11‑03
 
 These amounts come from the city’s expenditure records through FY 2025; FY 2026 data is incomplete.
 
@@ -412,11 +412,11 @@ ORDER BY Allocation DESC;
 
 The five largest capital projects by allocation are:
 
-1. Rhodia Brownfields Remediation – $10.0 M  
-2. Main Library – $8.0 M  
-3. Algonquin Swimming Pool – $7.5 M  
-4. Baxter Community Center – $6.0 M  
-5. Fern Creek Library – $5.0 M  
+1. Rhodia Brownfields Remediation – $10.0 M
+2. Main Library – $8.0 M
+3. Algonquin Swimming Pool – $7.5 M
+4. Baxter Community Center – $6.0 M
+5. Fern Creek Library – $5.0 M
 
 These amounts come directly from the city’s capital‑projects records.
 
@@ -430,11 +430,11 @@ SELECT payee_canonical, agency_canonical, COUNT(*) AS payments_just_under, ROUND
 
 Yes, the FY 2025 expenditure data includes many vendors that received a large number of invoices just under $5,000, a pattern that can indicate contract splitting.
 
-1. Louisville Computer Guys Inc – Parks & Recreation – 120 payments – total $528,000 – average $4,400.00  
-2. Overdrive Inc – Louisville Free Public Library – 99 payments – total $439,736 – average $4,441.78  
-3. Louisville Gas & Electric Company – Facilities & Fleet Management – 35 payments – total $156,149 – average $4,461.40  
-4. Strand Associates Inc – Public Works & Assets – 33 payments – total $146,420 – average $4,436.97  
-5. Walker Mechanical Contractors Inc – Department of Corrections – 32 payments – total $141,531 – average $4,422.84  
+1. Louisville Computer Guys Inc – Parks & Recreation – 120 payments – total $528,000 – average $4,400.00
+2. Overdrive Inc – Louisville Free Public Library – 99 payments – total $439,736 – average $4,441.78
+3. Louisville Gas & Electric Company – Facilities & Fleet Management – 35 payments – total $156,149 – average $4,461.40
+4. Strand Associates Inc – Public Works & Assets – 33 payments – total $146,420 – average $4,436.97
+5. Walker Mechanical Contractors Inc – Department of Corrections – 32 payments – total $141,531 – average $4,422.84
 
 These repeated small payments appear across several departments, which is a pattern sometimes examined for contract splitting, though the data alone does not confirm any improper activity.
 
@@ -451,10 +451,10 @@ WHERE fiscal_year = 2031
   AND is_data_artifact = FALSE;
 ```
 
-The expenditures table only contains fiscal years up to 2026 (with 2026 partial), so a query for fiscal year 2031 falls outside the available date range and returns no rows.  
+The expenditures table only contains fiscal years up to 2026 (with 2026 partial), so a query for fiscal year 2031 falls outside the available date range and returns no rows.
 
-Rephrased questions that should return data:  
-1. “How much did Louisville Fire spend in fiscal year 2025?”  
+Rephrased questions that should return data:
+1. “How much did Louisville Fire spend in fiscal year 2025?”
 2. “What is the total spend for Louisville Fire across all fiscal years in the dataset?”
 
 ### off-topic

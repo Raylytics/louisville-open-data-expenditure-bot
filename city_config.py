@@ -10,7 +10,6 @@ defaults to the Louisville pack.
 import csv
 import logging
 import os
-import re
 
 import yaml
 

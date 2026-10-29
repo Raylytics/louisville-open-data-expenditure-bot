@@ -14,7 +14,6 @@ occurrence, so: this.
 Pure JSON parsing — no AWS credentials, no network, no data files.
 """
 
-import glob
 import json
 import os
 import re
