@@ -23,7 +23,9 @@ _SPEC.loader.exec_module(set_env_key)
 @pytest.fixture
 def envfile(tmp_path):
     p = tmp_path / "dotenv"
-    p.write_text("FOO=1\nOPENROUTER_API_KEY=old-value\n# a comment about CEREBRAS_PAID_API_KEY\nCEREBRAS_PAID_API_KEY=sibling-secret\n")
+    p.write_text(
+        "FOO=1\nOPENROUTER_API_KEY=old-value\n# a comment about CEREBRAS_PAID_API_KEY\nCEREBRAS_PAID_API_KEY=sibling-secret\n"
+    )
     return p
 
 

@@ -64,8 +64,13 @@ def test_louisville_pack_matches_engine_expectations():
     # dictionary covers all seven curated source tables (summary-table entries
     # may be added on top, so no exact-count pin)
     source_tables = {
-        "expenditures", "salary_data", "capital_projects", "active_contractors",
-        "staff_demographics", "hr_requisitions", "contractor_profiles",
+        "expenditures",
+        "salary_data",
+        "capital_projects",
+        "active_contractors",
+        "staff_demographics",
+        "hr_requisitions",
+        "contractor_profiles",
     }
     assert source_tables <= set(cfg.dictionary)
     # all eight summary tables present
@@ -79,9 +84,7 @@ def test_city_config_env_override(monkeypatch):
     # Must point at a NON-default pack, or a broken env lookup would fall
     # through to the Louisville default and pass anyway. Loading a paper pack
     # through CityConfig is safe — only load_all_data needs a real reader.
-    monkeypatch.setenv(
-        "CITY_CONFIG", os.path.join(REPO, "cities", "cincinnati", "city.yaml")
-    )
+    monkeypatch.setenv("CITY_CONFIG", os.path.join(REPO, "cities", "cincinnati", "city.yaml"))
     cfg = load_city_config()
     assert cfg.city["name"] == "Cincinnati"
 
@@ -106,6 +109,7 @@ def test_branding_starter_questions_match_the_warm_cache_list():
     """warm_cache pre-answers the starter questions; if the chips drift from
     that list the UI offers questions that were never warmed."""
     import warm_cache
+
     cfg = load_city_config(LOUISVILLE)
     chip_qs = {c[1] for g in cfg.branding["starter_groups"] for c in g["chips"]}
     assert chip_qs <= set(warm_cache.STARTER_QUESTIONS), (
@@ -124,8 +128,7 @@ def test_frontend_city_literals_live_only_in_the_fallback_defaults():
     # Case-insensitive: lowercase leaks (data.louisvilleky.gov,
     # louisville.raylytics.io) are exactly the class of literal that just
     # moved out of the About block.
-    stray = [ln.strip() for ln in outside.splitlines()
-             if "louisville" in ln.lower() or "lmpd" in ln.lower()]
+    stray = [ln.strip() for ln in outside.splitlines() if "louisville" in ln.lower() or "lmpd" in ln.lower()]
     # Only nodes applyBranding() actually rewrites may keep Louisville text as
     # the pre-fetch first paint. The About block used to be whitelisted here
     # without being overridden anywhere — six lines of Louisville attribution,
@@ -134,21 +137,37 @@ def test_frontend_city_literals_live_only_in_the_fallback_defaults():
     # actually appear on a line carrying a city literal — "<h1>Lou<" did not
     # (the h1 is just "Lou"), so it read as covering the header while covering
     # nothing.
-    overridden = ("<title>Lou", 'class="subtitle"', 'id="hero-title"',
-                  'id="hero-blurb"', 'id="question"',
-                  # The project's own repository (footer GitHub / How it's
-                  # built links): the repo's name, not a claim about the city
-                  # being served, and identical on every deployment.
-                  "github.com/jimbottle/louisville-open-data-expenditure-bot")
+    overridden = (
+        "<title>Lou",
+        'class="subtitle"',
+        'id="hero-title"',
+        'id="hero-blurb"',
+        'id="question"',
+        # The project's own repository (footer GitHub / How it's
+        # built links): the repo's name, not a claim about the city
+        # being served, and identical on every deployment.
+        "github.com/jimbottle/louisville-open-data-expenditure-bot",
+    )
     unexpected = [ln for ln in stray if not any(tok in ln for tok in overridden)]
     assert not unexpected, f"city literals outside branding control: {unexpected}"
 
 
 def test_branding_covers_every_overridable_frontend_string():
     cfg = load_city_config(LOUISVILLE)
-    for key in ("bot_name", "tab_title", "subtitle", "hero_heading", "hero_blurb",
-                "input_placeholder", "input_aria_label", "about_html", "starter_groups",
-                "source_name", "source_url", "privacy_note"):
+    for key in (
+        "bot_name",
+        "tab_title",
+        "subtitle",
+        "hero_heading",
+        "hero_blurb",
+        "input_placeholder",
+        "input_aria_label",
+        "about_html",
+        "starter_groups",
+        "source_name",
+        "source_url",
+        "privacy_note",
+    ):
         assert cfg.branding.get(key), f"branding missing {key}"
 
 
@@ -157,10 +176,12 @@ def test_default_starter_groups_match_the_pack():
     questions AND order must agree, or a failed /api/config would render
     different buttons (and possibly un-warmed questions)."""
     import re
+
     cfg = load_city_config(LOUISVILLE)
     html = open(os.path.join(REPO, "static", "index.html")).read()
-    block = html[html.index("const DEFAULT_STARTER_GROUPS"):
-                 html.index("let STARTER_GROUPS = DEFAULT_STARTER_GROUPS;")]
+    block = html[
+        html.index("const DEFAULT_STARTER_GROUPS") : html.index("let STARTER_GROUPS = DEFAULT_STARTER_GROUPS;")
+    ]
     js_pairs = re.findall(r"\['([^']*)',\s*'([^']*)'\]", block)
     pack_pairs = [tuple(c) for g in cfg.branding["starter_groups"] for c in g["chips"]]
     # Count first, so a regex that failed to match reads as a regex problem
@@ -175,9 +196,20 @@ def test_default_starter_groups_match_the_pack():
 
 # ── GET /api/config (the contract applyBranding() depends on verbatim) ───────
 
-FRONTEND_KEYS = ("bot_name", "tab_title", "subtitle", "hero_heading", "hero_blurb",
-                 "input_placeholder", "input_aria_label", "about_html", "starter_groups",
-                 "source_name", "source_url", "privacy_note")
+FRONTEND_KEYS = (
+    "bot_name",
+    "tab_title",
+    "subtitle",
+    "hero_heading",
+    "hero_blurb",
+    "input_placeholder",
+    "input_aria_label",
+    "about_html",
+    "starter_groups",
+    "source_name",
+    "source_url",
+    "privacy_note",
+)
 
 
 def _get_config():
@@ -188,6 +220,7 @@ def _get_config():
     the frontend with the suite green."""
     from fastapi.testclient import TestClient
     import app
+
     resp = TestClient(app.app).get("/api/config")
     assert resp.status_code == 200
     return resp.json()
@@ -221,8 +254,11 @@ def test_api_config_defaults_use_the_packs_own_city(monkeypatch):
     never another city's identity or an empty About box."""
     import app
     from city_config import CityConfig
+
     monkeypatch.setattr(
-        app, "CONFIG", CityConfig({"city": {"name": "Cincinnati"}}, "."),
+        app,
+        "CONFIG",
+        CityConfig({"city": {"name": "Cincinnati"}}, "."),
     )
     cfg = _get_config()
     for key in FRONTEND_KEYS:
@@ -241,17 +277,19 @@ def test_api_config_defaults_use_the_packs_own_city(monkeypatch):
 def test_api_config_handles_a_pack_with_no_city_name(monkeypatch):
     import app
     from city_config import CityConfig
+
     monkeypatch.setattr(app, "CONFIG", CityConfig({}, "."))
     cfg = _get_config()
     assert cfg["bot_name"] == "Open Data Bot"
-    assert cfg["subtitle"] == ""          # suppressed, not a dangling sentence
-    assert cfg["about_html"]              # disclaimer still present
+    assert cfg["subtitle"] == ""  # suppressed, not a dangling sentence
+    assert cfg["about_html"]  # disclaimer still present
     # one name for one unknown city: the tab must not read "City Open Data"
     # while the header reads "Open Data Bot"
     assert cfg["tab_title"] == cfg["bot_name"]
 
 
 # ── "Lou is processing" must span the whole request ──────────────────────────
+
 
 def test_the_processing_indicator_survives_the_first_content():
     """The interpreting and refining phases run AFTER the results table has
@@ -266,16 +304,19 @@ def test_the_processing_indicator_survives_the_first_content():
     assert "processing-line" in html
     # torn down exactly once, on the path every outcome passes through
     assert "clearProcessing()" in html
-    finally_block = html[html.index("} finally {"):]
-    assert "clearProcessing()" in finally_block[:400], \
+    finally_block = html[html.index("} finally {") :]
+    assert "clearProcessing()" in finally_block[:400], (
         "the indicator must be cleared in the stream's finally, not only on success"
+    )
     # and it must not be swept away with the initial-wait UI
-    clear_waiting = html[html.index("const clearWaiting = () => {"):]
-    assert "clearProcessing" not in clear_waiting[:clear_waiting.index("};")], \
+    clear_waiting = html[html.index("const clearWaiting = () => {") :]
+    assert "clearProcessing" not in clear_waiting[: clear_waiting.index("};")], (
         "clearWaiting runs when the first content arrives — too early"
+    )
 
 
 # ── chart failures must not abort the answer (louisville-open-data-06t) ───────
+
 
 def test_chart_rendering_is_isolated_from_the_stream_loop():
     """A chart-render throw (Chart.js blocked by an ad/privacy blocker, offline
@@ -284,7 +325,7 @@ def test_chart_rendering_is_isolated_from_the_stream_loop():
     chart. The chart block must guard for Chart being undefined and wrap
     rendering in its own try/catch."""
     html = open(os.path.join(REPO, "static", "index.html")).read()
-    chart_block = html[html.index("event.type === 'chart'"):html.index("event.type === 'interpretation'")]
+    chart_block = html[html.index("event.type === 'chart'") : html.index("event.type === 'interpretation'")]
     # Guards Chart.js being unavailable and contains its own try + catch.
     assert "typeof Chart === 'undefined'" in chart_block
     assert "try {" in chart_block
@@ -299,7 +340,7 @@ def test_named_categories_are_drawn_as_horizontal_bars():
     orientation is keyed on the backend's label_kind, never guessed from the
     labels, and the box grows with the row count so 30 bars stay legible."""
     html = open(os.path.join(REPO, "static", "index.html")).read()
-    chart_block = html[html.index("event.type === 'chart'"):html.index("event.type === 'interpretation'")]
+    chart_block = html[html.index("event.type === 'chart'") : html.index("event.type === 'interpretation'")]
     assert "event.label_kind === 'category'" in chart_block
     assert "indexAxis: horizontal ? 'y' : 'x'" in chart_block
     # Axes are placed, not duplicated: one category axis, one value axis.
@@ -313,7 +354,7 @@ def test_chart_y_axis_respects_value_kind():
     html = open(os.path.join(REPO, "static", "index.html")).read()
     assert "event.value_kind" in html, "y-axis formatter ignores the value_kind flag"
     # The $ prefix is conditional on the measure being currency, not hardcoded.
-    axis = html[html.index("value_kind !== 'count'"):]
+    axis = html[html.index("value_kind !== 'count'") :]
     assert "money ?" in axis[:400]
 
 
@@ -321,7 +362,7 @@ def test_retry_supersedes_the_active_stream_no_concurrent_streams():
     """A retry / ask-again click must cancel the in-flight stream and the old
     stream must not reset shared state mid-flight (louisville-open-data-5hp)."""
     html = open(os.path.join(REPO, "static", "index.html")).read()
-    fn = html[html.index("async function streamAnswer"):]
+    fn = html[html.index("async function streamAnswer") :]
     # Supersede any active request at the top of a new stream.
     assert "abort('superseded')" in fn
     # Teardown is guarded by controller identity so a superseded stream is inert.
@@ -344,6 +385,7 @@ def test_frontend_has_no_external_cdn_and_ships_a_csp():
 def test_vendored_chartjs_is_served(monkeypatch):
     from fastapi.testclient import TestClient
     import app
+
     r = TestClient(app.app).get("/static/vendor/chart.umd.min.js")
     assert r.status_code == 200
     assert "Chart" in r.text[:5000] or "chart" in r.text[:5000].lower()
@@ -354,6 +396,7 @@ def test_vendored_fonts_are_served_as_woff2():
     text/plain a MIME table without .woff2 falls back to."""
     from fastapi.testclient import TestClient
     import app
+
     for name in ("vt323", "jetbrains-mono"):
         r = TestClient(app.app).get(f"/static/vendor/fonts/{name}.woff2")
         assert r.status_code == 200
@@ -368,19 +411,41 @@ def test_csv_export_neutralizes_formula_cells():
     import json
     import shutil
     import subprocess
+
     node = shutil.which("node")
     if not node:
         pytest.skip("node not installed")
     html = open(os.path.join(REPO, "static", "index.html")).read()
     start = html.index("function csvCell(v) {")
-    fn = html[start:html.index("\n}\n", start) + 2]
-    cases = ["=1+1", "+SUM(A1)", "-2+3", "@cmd", "\tx", "=HYPERLINK(\"http://x\",\"y\")",
-             "Parks, Inc.", "LG&E", -1500.5, 2026, None]
+    fn = html[start : html.index("\n}\n", start) + 2]
+    cases = [
+        "=1+1",
+        "+SUM(A1)",
+        "-2+3",
+        "@cmd",
+        "\tx",
+        '=HYPERLINK("http://x","y")',
+        "Parks, Inc.",
+        "LG&E",
+        -1500.5,
+        2026,
+        None,
+    ]
     script = fn + "\nconsole.log(JSON.stringify(" + json.dumps(cases) + ".map(csvCell)));"
     out = json.loads(subprocess.run([node, "-e", script], capture_output=True, text=True, check=True).stdout)
-    assert out == ["'=1+1", "'+SUM(A1)", "'-2+3", "'@cmd", "'\tx",
-                   '"\'=HYPERLINK(""http://x"",""y"")"',
-                   '"Parks, Inc."', "LG&E", "-1500.5", "2026", ""]
+    assert out == [
+        "'=1+1",
+        "'+SUM(A1)",
+        "'-2+3",
+        "'@cmd",
+        "'\tx",
+        '"\'=HYPERLINK(""http://x"",""y"")"',
+        '"Parks, Inc."',
+        "LG&E",
+        "-1500.5",
+        "2026",
+        "",
+    ]
 
 
 def test_stream_teardown_lives_in_finally_not_after_try():
@@ -388,18 +453,19 @@ def test_stream_teardown_lives_in_finally_not_after_try():
     finally but skips any post-try code, so the Ask-button/isStreaming reset
     must live in the finally or the UI soft-locks after a 429 (louisville-open-data 3696)."""
     html = open(os.path.join(REPO, "static", "index.html")).read()
-    fn = html[html.index("async function streamAnswer"):]
+    fn = html[html.index("async function streamAnswer") :]
     finally_start = fn.index("} finally {")
     # The finally block ends at the "// Answer-completion work below" epilogue
     # comment; assert the shared-state reset sits before that boundary (i.e.
     # inside the finally, which always runs), not after the try.
-    finally_block = fn[finally_start:fn.index("// Answer-completion work below")]
+    finally_block = fn[finally_start : fn.index("// Answer-completion work below")]
     assert "isStreaming = false;" in finally_block
     assert "resetAskButton();" in finally_block
     assert "clearProcessing();" in finally_block and "clearWaiting();" in finally_block
 
 
 # ── experience capture in the page (louisville-open-data-2jj) ───────────────
+
 
 def test_frontend_sends_the_tab_token_and_keeps_the_answer_id():
     """The question body carries the per-tab session token (minted client
@@ -421,17 +487,20 @@ def test_frontend_rates_with_five_stars_through_the_signed_feedback_post():
     assert "fetch('/api/feedback'" in html
     # Behind CloudFront OAC a POST body needs the SigV4 body hash, exactly as
     # /api/ask sends it (tests/test_sigv4_body_hash.py).
-    post = html[html.index("async function postRating"):html.index("function renderRating")]
+    post = html[html.index("async function postRating") : html.index("function renderRating")]
     assert "sigv4BodyHeader(body)" in post
     # The payload is the id, the tab token, stars, chips, note — nothing else.
-    send = html[html.index("async function send()"):html.index("row.append(el('span', 'rating-label'")]
+    send = html[html.index("async function send()") : html.index("row.append(el('span', 'rating-label'")]
     assert "answer_id: card.answerId, session_id: SESSION_ID, stars: state.stars" in send
     assert "reasons: [...state.reasons], comment: state.comment" in send
     assert "if (card.answerId) renderRating(card);" in html
     # Every chip token survives the server's normalisation (interactions.clean_rating).
     import re
     import interactions
-    tokens = re.findall(r"\['([a-z-]+)', '", html[html.index("const RATING_REASONS"):html.index("async function postRating")])
+
+    tokens = re.findall(
+        r"\['([a-z-]+)', '", html[html.index("const RATING_REASONS") : html.index("async function postRating")]
+    )
     assert len(tokens) >= 5
     aid = interactions.new_answer_id()
     assert interactions.clean_rating({"answer_id": aid, "stars": 3, "reasons": tokens})["reasons"] == tokens

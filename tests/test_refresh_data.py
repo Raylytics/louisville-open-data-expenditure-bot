@@ -1,4 +1,5 @@
 """Tests for refresh_data cache invalidation (louisville-open-data-hc5)."""
+
 import refresh_data
 
 
@@ -17,8 +18,7 @@ def test_pull_only_path_invalidates_the_cache(monkeypatch):
     Drive main() with every step stubbed and assert the cache clear ran."""
     called = {"cleared": False}
     monkeypatch.setattr(refresh_data, "pull_datasets", lambda *a, **k: True)
-    monkeypatch.setattr(refresh_data, "clear_response_cache",
-                        lambda *a, **k: called.__setitem__("cleared", True))
+    monkeypatch.setattr(refresh_data, "clear_response_cache", lambda *a, **k: called.__setitem__("cleared", True))
     monkeypatch.setattr("sys.argv", ["refresh_data.py", "--pull-only", "-o", "/tmp"])
     refresh_data.main()
     assert called["cleared"], "--pull-only returned without invalidating the cache"
@@ -30,11 +30,15 @@ def test_cache_clear_targets_lou_api_base_without_a_body(tmp_path, monkeypatch):
     and the endpoint's no-body branch (clear all) is what runs."""
     import refresh_data
     import requests
+
     seen = {}
 
     def fake_delete(url, **kw):
         seen.update(url=url, kw=kw)
-        class R: status_code = 200
+
+        class R:
+            status_code = 200
+
         return R()
 
     monkeypatch.setattr(requests, "delete", fake_delete)
@@ -48,6 +52,7 @@ def test_cache_clear_targets_lou_api_base_without_a_body(tmp_path, monkeypatch):
 
 def _stub_steps(monkeypatch, pull=True, profiles=True, sos=True, ingest=True):
     import refresh_data
+
     monkeypatch.setattr(refresh_data, "clear_response_cache", lambda *a, **k: None)
     monkeypatch.setattr(refresh_data, "pull_datasets", lambda *a, **k: pull)
     monkeypatch.setattr(refresh_data, "build_profiles", lambda *a, **k: profiles)

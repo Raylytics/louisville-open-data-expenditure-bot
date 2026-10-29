@@ -13,6 +13,7 @@ Pinned here:
     raising when the store fails;
   - from_env(): off switch, dynamodb without a table = off, local = file.
 """
+
 import json
 import os
 import time
@@ -27,11 +28,26 @@ TABLE = "lou-interactions-test"
 
 # The whole key set of a record. A new field is a deliberate decision, and
 # never one of these.
-RECORD_KEYS = {"schema", "answer_id", "session_id", "ts", "day", "question", "history",
-               "cache_hit", "cache_key", "cache_version", "outcome", "dev_mode", "steps",
-               "total_ms", "events", "trimmed", "recorded_at"}
-FORBIDDEN_KEYS = {"ip", "client_ip", "remote_addr", "user_agent", "ua", "headers", "cookie",
-                  "email", "user", "account"}
+RECORD_KEYS = {
+    "schema",
+    "answer_id",
+    "session_id",
+    "ts",
+    "day",
+    "question",
+    "history",
+    "cache_hit",
+    "cache_key",
+    "cache_version",
+    "outcome",
+    "dev_mode",
+    "steps",
+    "total_ms",
+    "events",
+    "trimmed",
+    "recorded_at",
+}
+FORBIDDEN_KEYS = {"ip", "client_ip", "remote_addr", "user_agent", "ua", "headers", "cookie", "email", "user", "account"}
 
 
 def _events(n_rows=3):
@@ -48,14 +64,23 @@ def _events(n_rows=3):
 
 def _record(aid=None, **kw):
     aid = aid or ix.new_answer_id()
-    base = dict(answer_id=aid, session_id="abcdefgh12345678", question="how much?",
-                history=[], events=_events(), cache_hit=False, cache_key="v:how much?",
-                cache_version="v", outcome="ok")
+    base = dict(
+        answer_id=aid,
+        session_id="abcdefgh12345678",
+        question="how much?",
+        history=[],
+        events=_events(),
+        cache_hit=False,
+        cache_key="v:how much?",
+        cache_version="v",
+        outcome="ok",
+    )
     base.update(kw)
     return ix.build_record(**base)
 
 
 # ── identifiers ─────────────────────────────────────────────────────────────
+
 
 def test_answer_ids_are_unique_sortable_and_self_locating():
     a = ix.new_answer_id(now=1_700_000_000.0)
@@ -71,26 +96,36 @@ def test_malformed_answer_ids_are_rejected(bad):
     assert ix.parse_answer_id(bad) is None
 
 
-@pytest.mark.parametrize("value,expected", [
-    ("abcdefgh12345678", "abcdefgh12345678"),
-    ("A-Z_09" * 3, "A-Z_09" * 3),
-    ("short", ""), ("", ""), (None, ""), (42, ""),
-    ("has space in it 12345", ""), ("x" * 65, ""),
-    ("evan@example.com-xx", ""),          # never anything shaped like an identity
-])
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("abcdefgh12345678", "abcdefgh12345678"),
+        ("A-Z_09" * 3, "A-Z_09" * 3),
+        ("short", ""),
+        ("", ""),
+        (None, ""),
+        (42, ""),
+        ("has space in it 12345", ""),
+        ("x" * 65, ""),
+        ("evan@example.com-xx", ""),  # never anything shaped like an identity
+    ],
+)
 def test_session_ids_are_accepted_only_in_the_browsers_shape(value, expected):
     assert ix.clean_session_id(value) == expected
 
 
 # ── the record ──────────────────────────────────────────────────────────────
 
+
 def test_record_has_a_closed_key_set_and_nothing_identifying():
     rec = _record()
     assert set(rec) == RECORD_KEYS
     assert not (set(rec) & FORBIDDEN_KEYS)
     assert rec["day"] == ix._day_of(ix.parse_answer_id(rec["answer_id"]))
-    assert rec["steps"] == [{"id": "grounding", "status": "ok", "ms": 4, "model": None, "tier": None},
-                            {"id": "generate_sql", "status": "ok", "ms": 1200, "model": "m", "tier": "claude"}]
+    assert rec["steps"] == [
+        {"id": "grounding", "status": "ok", "ms": 4, "model": None, "tier": None},
+        {"id": "generate_sql", "status": "ok", "ms": 1200, "model": "m", "tier": "claude"},
+    ]
     assert rec["total_ms"] == 1204
     assert rec["trimmed"] is False and rec["events"] == _events()
 
@@ -111,7 +146,7 @@ def test_outcome_reads_the_stream():
 
 def test_oversized_answers_are_trimmed_under_the_item_limit_rows_first():
     big = _events(n_rows=1)
-    big[3]["rows"] = [["x" * 1000] for _ in range(400)]   # ~400 KB of rows
+    big[3]["rows"] = [["x" * 1000] for _ in range(400)]  # ~400 KB of rows
     kept, trimmed = ix.trim_events(big)
     assert trimmed is True
     results = next(e for e in kept if e["type"] == "results")
@@ -137,30 +172,48 @@ def test_trim_drops_chatter_then_chart_when_rows_are_not_enough():
 
 # ── rating bodies ───────────────────────────────────────────────────────────
 
+
 def test_clean_rating_accepts_a_five_star_body_and_normalises_it():
     aid = ix.new_answer_id()
-    r = ix.clean_rating({"answer_id": aid, "stars": "4", "reasons": ["Wrong Number", "slow!", 7, ""],
-                         "comment": "  nice  " + "x" * 1000, "session_id": "abcdefgh12345678"})
+    r = ix.clean_rating(
+        {
+            "answer_id": aid,
+            "stars": "4",
+            "reasons": ["Wrong Number", "slow!", 7, ""],
+            "comment": "  nice  " + "x" * 1000,
+            "session_id": "abcdefgh12345678",
+        }
+    )
     assert r["answer_id"] == aid and r["stars"] == 4
     assert r["reasons"] == ["wrongnumber", "slow"]
     assert len(r["comment"]) == ix.COMMENT_CHARS and r["comment"].startswith("nice")
     assert r["session_id"] == "abcdefgh12345678"
 
 
-@pytest.mark.parametrize("body", [
-    None, [], {}, {"stars": 5}, {"answer_id": "nope", "stars": 5},
-    {"answer_id": ix.new_answer_id(), "stars": 0}, {"answer_id": ix.new_answer_id(), "stars": 6},
-    {"answer_id": ix.new_answer_id(), "stars": "five"}, {"answer_id": ix.new_answer_id(), "stars": 3, "reasons": "x"},
-    {"answer_id": ix.new_answer_id(), "stars": 3, "comment": ["x"]},
-])
+@pytest.mark.parametrize(
+    "body",
+    [
+        None,
+        [],
+        {},
+        {"stars": 5},
+        {"answer_id": "nope", "stars": 5},
+        {"answer_id": ix.new_answer_id(), "stars": 0},
+        {"answer_id": ix.new_answer_id(), "stars": 6},
+        {"answer_id": ix.new_answer_id(), "stars": "five"},
+        {"answer_id": ix.new_answer_id(), "stars": 3, "reasons": "x"},
+        {"answer_id": ix.new_answer_id(), "stars": 3, "comment": ["x"]},
+    ],
+)
 def test_clean_rating_rejects_anything_else(body):
     assert ix.clean_rating(body) is None
 
 
 # ── file backend ────────────────────────────────────────────────────────────
 
+
 def test_file_backend_writes_reads_and_folds_ratings(tmp_path):
-    store = ix.FileInteractions(str(tmp_path / "sub" / "ix.jsonl"))   # dir is created
+    store = ix.FileInteractions(str(tmp_path / "sub" / "ix.jsonl"))  # dir is created
     a = _record(ix.new_answer_id(now=1_700_000_000.0))
     b = _record(ix.new_answer_id(now=1_700_000_001.0), outcome="error")
     other_day = _record(ix.new_answer_id(now=1_700_100_000.0))
@@ -168,7 +221,12 @@ def test_file_backend_writes_reads_and_folds_ratings(tmp_path):
     assert store.rate({"answer_id": a["answer_id"], "stars": 2, "reasons": ["slow"], "comment": "meh"}, now=5.0)
     day = store.query_day("2023-11-14")
     assert [r["answer_id"] for r in day] == [a["answer_id"], b["answer_id"]]
-    assert day[0]["stars"] == 2 and day[0]["reasons"] == ["slow"] and day[0]["comment"] == "meh" and day[0]["rated_at"] == 5.0
+    assert (
+        day[0]["stars"] == 2
+        and day[0]["reasons"] == ["slow"]
+        and day[0]["comment"] == "meh"
+        and day[0]["rated_at"] == 5.0
+    )
     assert "stars" not in day[1]
     assert [r["answer_id"] for r in store.query_day("2023-11-16")] == [other_day["answer_id"]]
     assert store.status()["writes"] == 4 and store.status()["status"] == "ok"
@@ -194,6 +252,7 @@ def test_file_backend_degrades_instead_of_raising(tmp_path):
 
 # ── DynamoDB backend ────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def dynamo():
     os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
@@ -202,7 +261,7 @@ def dynamo():
     with mock_aws():
         client = boto3.client("dynamodb", region_name="us-east-1")
         ix.ensure_table(client, TABLE)
-        ix.ensure_table(client, TABLE)   # idempotent
+        ix.ensure_table(client, TABLE)  # idempotent
         yield client
 
 
@@ -210,8 +269,9 @@ def test_dynamo_backend_round_trips_a_record_with_ttl(dynamo):
     store = ix.DynamoInteractions(TABLE, client=dynamo, ttl_days=10)
     rec = _record(ix.new_answer_id(now=1_700_000_000.0), history=[{"role": "user", "content": "hi"}])
     assert store.put(rec)
-    item = dynamo.get_item(TableName=TABLE, Key={"pk": {"S": "day#2023-11-14"},
-                                                  "sk": {"S": f"1700000000000#{rec['answer_id']}"}})["Item"]
+    item = dynamo.get_item(
+        TableName=TABLE, Key={"pk": {"S": "day#2023-11-14"}, "sk": {"S": f"1700000000000#{rec['answer_id']}"}}
+    )["Item"]
     assert int(item["ttl"]["N"]) == 1_700_000_000 + 10 * 86400
     assert set(item) - {"pk", "sk", "ttl"} == RECORD_KEYS
     back = store.query_day("2023-11-14")
@@ -233,12 +293,11 @@ def test_dynamo_backend_keeps_records_for_good_by_default(dynamo):
     assert store.put(rec)
     stub = ix.new_answer_id(now=1_700_000_001.0)
     assert store.rate({"answer_id": stub, "stars": 2, "reasons": [], "comment": ""}, now=1_700_000_002.0)
-    assert store.rate({"answer_id": rec["answer_id"], "stars": 4, "reasons": [], "comment": ""},
-                      now=1_700_000_003.0)
+    assert store.rate({"answer_id": rec["answer_id"], "stars": 4, "reasons": [], "comment": ""}, now=1_700_000_003.0)
     items = {it["answer_id"]["S"]: it for it in dynamo.scan(TableName=TABLE)["Items"]}
     assert len(items) == 2
-    assert "ttl" not in items[rec["answer_id"]]                  # a rating never puts a TTL on a record
-    assert int(items[stub]["ttl"]["N"]) == 1_700_000_001 + ix.STUB_TTL_DAYS * 86400   # a stub always expires
+    assert "ttl" not in items[rec["answer_id"]]  # a rating never puts a TTL on a record
+    assert int(items[stub]["ttl"]["N"]) == 1_700_000_001 + ix.STUB_TTL_DAYS * 86400  # a stub always expires
     assert sorted(r["stars"] for r in store.query_day("2023-11-14")) == [2, 4]
 
 
@@ -247,11 +306,13 @@ def test_dynamo_backend_reads_a_day_in_order_and_pages(dynamo, monkeypatch):
     ids = [ix.new_answer_id(now=1_700_000_000.0 + i) for i in (3, 1, 2)]
     for aid in ids:
         assert store.put(_record(aid))
-    assert store.put(_record(ix.new_answer_id(now=1_700_100_000.0)))   # the next day
+    assert store.put(_record(ix.new_answer_id(now=1_700_100_000.0)))  # the next day
     # Force pagination through the Query loop.
     real = dynamo.query
+
     def paged(**kw):
         return real(**kw, Limit=2) if "Limit" not in kw else real(**kw)
+
     monkeypatch.setattr(dynamo, "query", paged)
     day = store.query_day("2023-11-14")
     assert [r["answer_id"] for r in day] == sorted(ids)
@@ -261,14 +322,17 @@ def test_dynamo_backend_upserts_a_rating_onto_the_record(dynamo):
     store = ix.DynamoInteractions(TABLE, client=dynamo, ttl_days=3)
     rec = _record(ix.new_answer_id(now=1_700_000_000.0))
     assert store.put(rec)
-    assert store.rate({"answer_id": rec["answer_id"], "stars": 3, "reasons": ["slow", "wrongperiod"],
-                       "comment": "hm"}, now=1_700_000_100.0)
-    assert store.rate({"answer_id": rec["answer_id"], "stars": 5, "reasons": [], "comment": ""},
-                      now=1_700_000_200.0)                       # the latest rating wins
+    assert store.rate(
+        {"answer_id": rec["answer_id"], "stars": 3, "reasons": ["slow", "wrongperiod"], "comment": "hm"},
+        now=1_700_000_100.0,
+    )
+    assert store.rate(
+        {"answer_id": rec["answer_id"], "stars": 5, "reasons": [], "comment": ""}, now=1_700_000_200.0
+    )  # the latest rating wins
     [b] = store.query_day("2023-11-14")
     assert b["stars"] == 5 and b["reasons"] == [] and b["comment"] == "" and b["rated_at"] == 1_700_000_200
-    assert b["question"] == "how much?" and b["events"] == _events()   # the record is intact
-    assert b["ttl"] == 1_700_000_000 + 3 * 86400                       # the record's TTL kept
+    assert b["question"] == "how much?" and b["events"] == _events()  # the record is intact
+    assert b["ttl"] == 1_700_000_000 + 3 * 86400  # the record's TTL kept
 
 
 def test_dynamo_backend_rating_before_a_record_lands_as_a_stub(dynamo):
@@ -290,6 +354,7 @@ def test_dynamo_backend_degrades_when_the_table_is_gone(dynamo):
 
 
 # ── from_env ────────────────────────────────────────────────────────────────
+
 
 def test_from_env_off_switch(monkeypatch):
     monkeypatch.setenv("RECORD_INTERACTIONS", "0")

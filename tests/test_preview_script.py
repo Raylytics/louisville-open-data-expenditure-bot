@@ -1,6 +1,7 @@
 """infra/preview.sh `ok` against stubbed docker/curl (roborev 6026): the
 health snapshot deploy.sh decides on must come from a container built from
 HEAD, never from one left running at an earlier commit."""
+
 import json
 import os
 import subprocess
@@ -19,14 +20,17 @@ def _head():
 
 @pytest.fixture
 def ok(tmp_path):
-    if (subprocess.run(["git", "-C", str(REPO), "diff", "--quiet"]).returncode != 0
-            or subprocess.run(["git", "-C", str(REPO), "diff", "--cached", "--quiet"]).returncode != 0):
+    if (
+        subprocess.run(["git", "-C", str(REPO), "diff", "--quiet"]).returncode != 0
+        or subprocess.run(["git", "-C", str(REPO), "diff", "--cached", "--quiet"]).returncode != 0
+    ):
         pytest.skip("working tree is dirty; `ok` (correctly) refuses first")
     files = [REPO / ".preview-ok", REPO / ".preview-health.json"]
     saved = {p: (p.read_text() if p.exists() else None) for p in files}
     for p in files:
         p.unlink(missing_ok=True)
-    bin_ = tmp_path / "bin"; bin_.mkdir()
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
     (bin_ / "docker").write_text('#!/bin/sh\nprintf "%s" "$LABEL"\n')
     (bin_ / "curl").write_text(f"#!/bin/sh\nprintf '%s' '{json.dumps(HEALTH)}'\n")
     for f in bin_.iterdir():
@@ -35,6 +39,7 @@ def ok(tmp_path):
     def run(label):
         env = dict(os.environ, PATH=f"{bin_}:{os.environ['PATH']}", LABEL=label)
         return subprocess.run(["/bin/bash", str(SCRIPT), "ok"], env=env, capture_output=True, text=True, timeout=30)
+
     yield run, files
     for p, before in saved.items():
         if before is None:

@@ -22,9 +22,16 @@ def _clean_provider_env(monkeypatch):
     """Env AND module state. A 402 driven through _call_with_retry sets the
     exhaustion latch for 15 minutes of wall clock, which outlives the test and
     silently sends any later test straight to its fallback."""
-    for var in ("OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "OPENROUTER_MODEL",
-                "CEREBRAS_API_KEY", "CEREBRAS_PAID_API_KEY", "GEMINI_API_KEY",
-                "MODEL", "LLM_BASE_URL"):
+    for var in (
+        "OPENROUTER_API_KEY",
+        "OPENROUTER_BASE_URL",
+        "OPENROUTER_MODEL",
+        "CEREBRAS_API_KEY",
+        "CEREBRAS_PAID_API_KEY",
+        "GEMINI_API_KEY",
+        "MODEL",
+        "LLM_BASE_URL",
+    ):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(aa, "_active_model", None)
     aa._mark_primary_unusable(False)
@@ -72,6 +79,7 @@ def test_fallback_gets_its_own_model_not_the_openrouter_slug():
 
     def mk(client, model):
         seen.append((client, model))
+
         def _call():
             if client == "primary":
                 raise openai.APIStatusError(
@@ -80,11 +88,15 @@ def test_fallback_gets_its_own_model_not_the_openrouter_slug():
                     body={"code": "payment_required"},
                 )
             return f"ok:{model}"
+
         return _call
 
     out = aa._call_with_model_fallback(
-        mk, "primary", "vendor/model:free",
-        fallback_client="cerebras", fallback_model="gpt-oss-120b",
+        mk,
+        "primary",
+        "vendor/model:free",
+        fallback_client="cerebras",
+        fallback_model="gpt-oss-120b",
     )
     assert out == "ok:gpt-oss-120b"
     assert ("cerebras", "vendor/model:free") not in seen
@@ -105,6 +117,7 @@ def test_explicit_base_url_still_wins(monkeypatch):
 def test_empty_reply_raises_a_named_error_not_a_typeerror():
     """A model that returns content=None (all budget spent on reasoning) used to
     blow up with TypeError deep in strip_sql_fences."""
+
     class _Msg:
         content = None
 
@@ -120,6 +133,7 @@ def test_empty_reply_raises_a_named_error_not_a_typeerror():
 
 
 # ── Deprecation replacement on OpenRouter ────────────────────────────────────
+
 
 class _FakeModels:
     def __init__(self, ids):
@@ -139,13 +153,14 @@ def test_replacement_is_never_an_arbitrary_paid_openrouter_model(monkeypatch):
     preference ids can never match a 'vendor/model:free' slug, so the old
     'anything available' last resort picked whatever happened to be first."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
-    client = _FakeClient([
-        "openai/gpt-5.6-sol-ultrafast",      # first in the catalogue, paid
-        "anthropic/claude-opus-5",           # paid
-        "poolside/laguna-s-2.1:free",        # a known-good free slug
-    ])
-    assert aa._resolve_fallback_model(client, "nvidia/nemotron-3-super-120b-a12b:free") \
-        == "poolside/laguna-s-2.1:free"
+    client = _FakeClient(
+        [
+            "openai/gpt-5.6-sol-ultrafast",  # first in the catalogue, paid
+            "anthropic/claude-opus-5",  # paid
+            "poolside/laguna-s-2.1:free",  # a known-good free slug
+        ]
+    )
+    assert aa._resolve_fallback_model(client, "nvidia/nemotron-3-super-120b-a12b:free") == "poolside/laguna-s-2.1:free"
 
 
 def test_unknown_free_slug_beats_a_paid_model(monkeypatch):
@@ -191,12 +206,16 @@ def test_switch_is_not_recorded_when_the_other_provider_served_the_call(monkeypa
                     body={"code": "payment_required"},
                 )
             return "answer from cerebras"
+
         return _call
 
     monkeypatch.setattr(aa, "_resolve_fallback_model", lambda c, m: "other/model:free")
     out = aa._call_with_model_fallback(
-        mk, "primary", "dead/model:free",
-        fallback_client="cerebras", fallback_model="gpt-oss-120b",
+        mk,
+        "primary",
+        "dead/model:free",
+        fallback_client="cerebras",
+        fallback_model="gpt-oss-120b",
     )
     assert out == "answer from cerebras"
     assert aa.get_active_model("dead/model:free") == "dead/model:free", "unproven model must not be pinned"
@@ -221,11 +240,15 @@ def test_no_replacement_model_uses_the_other_provider(monkeypatch):
                     body={"code": "model_not_found"},
                 )
             return f"answer from {model}"
+
         return _call
 
     out = aa._call_with_model_fallback(
-        mk, "primary", "dead/model:free",
-        fallback_client="cerebras", fallback_model="gpt-oss-120b",
+        mk,
+        "primary",
+        "dead/model:free",
+        fallback_client="cerebras",
+        fallback_model="gpt-oss-120b",
     )
     assert out == "answer from gpt-oss-120b"
     assert aa.get_active_model("dead/model:free") == "dead/model:free"
@@ -244,6 +267,7 @@ def test_no_replacement_and_no_fallback_still_raises(monkeypatch):
                 response=httpx.Response(404, request=httpx.Request("POST", "https://api.test/v1")),
                 body={"code": "model_not_found"},
             )
+
         return _call
 
     with pytest.raises(openai.NotFoundError):
@@ -267,11 +291,13 @@ def test_a_failing_fallback_keeps_the_model_not_found_classification(monkeypatch
                     body={"code": "model_not_found"},
                 )
             raise RuntimeError("cerebras unreachable")
+
         return _call
 
     with pytest.raises(openai.NotFoundError) as exc:
-        aa._call_with_model_fallback(mk, "primary", "dead/model:free",
-                                     fallback_client="cerebras", fallback_model="gpt-oss-120b")
+        aa._call_with_model_fallback(
+            mk, "primary", "dead/model:free", fallback_client="cerebras", fallback_model="gpt-oss-120b"
+        )
     assert isinstance(exc.value.__cause__, RuntimeError)
 
 
@@ -291,6 +317,7 @@ def test_provenance_is_per_call_not_a_shared_global():
 
 def _not_found():
     import httpx
+
     return openai.NotFoundError(
         "model_not_found",
         response=httpx.Response(404, request=httpx.Request("POST", "https://api.test/v1")),
@@ -314,18 +341,23 @@ def test_no_replacement_recovery_gets_the_retry_ladder(monkeypatch):
             fallback_attempts.append(model)
             if len(fallback_attempts) == 1:
                 import httpx
+
                 raise openai.RateLimitError(
                     "429 slow down",
                     response=httpx.Response(429, request=httpx.Request("POST", "https://api.test/v1")),
                     body=None,
                 )
             return f"answer from {model}"
+
         return _call
 
     out = aa._call_with_model_fallback(
-        mk, "primary", "dead/model:free",
+        mk,
+        "primary",
+        "dead/model:free",
         on_retry=lambda *a: progress.append(a),
-        fallback_client="cerebras", fallback_model="gpt-oss-120b",
+        fallback_client="cerebras",
+        fallback_model="gpt-oss-120b",
     )
     assert out == "answer from gpt-oss-120b"
     assert len(fallback_attempts) == 2, "the fallback should have been retried"
@@ -349,13 +381,20 @@ def test_no_replacement_latches_so_the_catalogue_is_not_re_listed(monkeypatch):
             if client == "primary":
                 raise _not_found()
             return "answer from cerebras"
+
         return _call
 
     for _ in range(3):
-        assert aa._call_with_model_fallback(
-            mk, "primary", "dead/model:free",
-            fallback_client="cerebras", fallback_model="gpt-oss-120b",
-        ) == "answer from cerebras"
+        assert (
+            aa._call_with_model_fallback(
+                mk,
+                "primary",
+                "dead/model:free",
+                fallback_client="cerebras",
+                fallback_model="gpt-oss-120b",
+            )
+            == "answer from cerebras"
+        )
     assert len(listings) == 1, f"catalogue listed {len(listings)} times; should be latched after the first"
     assert aa._primary_is_unusable()
 
@@ -369,10 +408,16 @@ def test_latch_expires_so_a_restored_slug_is_picked_back_up(monkeypatch):
     def mk(client, model):
         return lambda: f"answer from {client}"
 
-    assert aa._call_with_model_fallback(
-        mk, "primary", "back/from/the/dead:free",
-        fallback_client="cerebras", fallback_model="gpt-oss-120b",
-    ) == "answer from primary"
+    assert (
+        aa._call_with_model_fallback(
+            mk,
+            "primary",
+            "back/from/the/dead:free",
+            fallback_client="cerebras",
+            fallback_model="gpt-oss-120b",
+        )
+        == "answer from primary"
+    )
 
 
 def test_out_of_credit_fallback_surfaces_as_a_quota_error(monkeypatch):
@@ -392,11 +437,13 @@ def test_out_of_credit_fallback_surfaces_as_a_quota_error(monkeypatch):
                 response=httpx.Response(402, request=httpx.Request("POST", "https://api.test/v1")),
                 body={"code": "payment_required"},
             )
+
         return _call
 
     with pytest.raises(Exception) as exc:
-        aa._call_with_model_fallback(mk, "primary", "dead/model:free",
-                                    fallback_client="cerebras", fallback_model="gpt-oss-120b")
+        aa._call_with_model_fallback(
+            mk, "primary", "dead/model:free", fallback_client="cerebras", fallback_model="gpt-oss-120b"
+        )
     assert aa.is_quota_error(exc.value)
 
 
@@ -417,13 +464,20 @@ def test_a_failed_catalogue_listing_does_not_latch_the_primary_out(monkeypatch):
             if client == "primary":
                 raise _not_found()
             return "answer from cerebras"
+
         return _call
 
     for _ in range(2):
-        assert aa._call_with_model_fallback(
-            mk, "primary", "dead/model:free",
-            fallback_client="cerebras", fallback_model="gpt-oss-120b",
-        ) == "answer from cerebras"
+        assert (
+            aa._call_with_model_fallback(
+                mk,
+                "primary",
+                "dead/model:free",
+                fallback_client="cerebras",
+                fallback_model="gpt-oss-120b",
+            )
+            == "answer from cerebras"
+        )
 
     assert not aa._primary_is_unusable(), "a listing failure is not evidence the primary is dead"
     # Re-resolution is throttled by the short catalogue cooldown, NOT by the
@@ -434,24 +488,33 @@ def test_a_failed_catalogue_listing_does_not_latch_the_primary_out(monkeypatch):
 def test_a_listing_failure_still_answers_the_question(monkeypatch):
     """Falling back is right either way; only the latch differs."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
-    monkeypatch.setattr(aa, "_resolve_fallback_model",
-                        lambda c, m: (_ for _ in ()).throw(aa.ModelCatalogueUnavailable("500")))
+    monkeypatch.setattr(
+        aa, "_resolve_fallback_model", lambda c, m: (_ for _ in ()).throw(aa.ModelCatalogueUnavailable("500"))
+    )
 
     def mk(client, model):
         def _call():
             if client == "primary":
                 raise _not_found()
             return f"answer from {model}"
+
         return _call
 
-    assert aa._call_with_model_fallback(
-        mk, "primary", "dead/model:free",
-        fallback_client="cerebras", fallback_model="gpt-oss-120b",
-    ) == "answer from gpt-oss-120b"
+    assert (
+        aa._call_with_model_fallback(
+            mk,
+            "primary",
+            "dead/model:free",
+            fallback_client="cerebras",
+            fallback_model="gpt-oss-120b",
+        )
+        == "answer from gpt-oss-120b"
+    )
 
 
 def test_resolver_raises_rather_than_returning_none_when_it_cannot_ask():
     """The two outcomes must stay distinguishable at the source."""
+
     class _Broken:
         class models:
             @staticmethod
@@ -480,13 +543,20 @@ def test_a_sustained_listing_outage_is_only_probed_once_a_minute(monkeypatch):
             if client == "primary":
                 raise _not_found()
             return "answer from cerebras"
+
         return _call
 
-    for _ in range(6):   # ~two questions' worth of LLM calls
-        assert aa._call_with_model_fallback(
-            mk, "primary", "dead/model:free",
-            fallback_client="cerebras", fallback_model="gpt-oss-120b",
-        ) == "answer from cerebras"
+    for _ in range(6):  # ~two questions' worth of LLM calls
+        assert (
+            aa._call_with_model_fallback(
+                mk,
+                "primary",
+                "dead/model:free",
+                fallback_client="cerebras",
+                fallback_model="gpt-oss-120b",
+            )
+            == "answer from cerebras"
+        )
 
     assert len(attempts) == 1, f"catalogue probed {len(attempts)} times inside the cooldown"
     assert not aa._primary_is_unusable(), "a listing failure still must not latch the primary"
@@ -508,14 +578,17 @@ def test_the_listing_cooldown_expires(monkeypatch):
             if client == "primary":
                 raise _not_found()
             return "answer from cerebras"
+
         return _call
 
-    aa._call_with_model_fallback(mk, "primary", "dead/model:free",
-                                 fallback_client="cerebras", fallback_model="gpt-oss-120b")
+    aa._call_with_model_fallback(
+        mk, "primary", "dead/model:free", fallback_client="cerebras", fallback_model="gpt-oss-120b"
+    )
     real_time = aa.time.time
     monkeypatch.setattr(aa.time, "time", lambda: real_time() + aa.CATALOGUE_RETRY_SECONDS + 1)
-    aa._call_with_model_fallback(mk, "primary", "dead/model:free",
-                                 fallback_client="cerebras", fallback_model="gpt-oss-120b")
+    aa._call_with_model_fallback(
+        mk, "primary", "dead/model:free", fallback_client="cerebras", fallback_model="gpt-oss-120b"
+    )
     assert len(attempts) == 2
 
 
@@ -529,20 +602,33 @@ def test_a_successful_listing_clears_the_cooldown(monkeypatch):
             if model == "dead/model:free":
                 raise _not_found()
             return f"answer from {model}"
+
         return _call
 
     # Cooling down, so this call does not re-resolve and falls back...
-    assert aa._call_with_model_fallback(
-        mk, "primary", "dead/model:free",
-        fallback_client="cerebras", fallback_model="gpt-oss-120b",
-    ) == "answer from gpt-oss-120b"
+    assert (
+        aa._call_with_model_fallback(
+            mk,
+            "primary",
+            "dead/model:free",
+            fallback_client="cerebras",
+            fallback_model="gpt-oss-120b",
+        )
+        == "answer from gpt-oss-120b"
+    )
     # ...but once the window passes, a good listing clears the flag for good.
     real_time = aa.time.time
     monkeypatch.setattr(aa.time, "time", lambda: real_time() + aa.CATALOGUE_RETRY_SECONDS + 1)
-    assert aa._call_with_model_fallback(
-        mk, "primary", "dead/model:free",
-        fallback_client="cerebras", fallback_model="gpt-oss-120b",
-    ) == "answer from other/model:free"
+    assert (
+        aa._call_with_model_fallback(
+            mk,
+            "primary",
+            "dead/model:free",
+            fallback_client="cerebras",
+            fallback_model="gpt-oss-120b",
+        )
+        == "answer from other/model:free"
+    )
     assert not aa._catalogue_is_cooling_down()
 
 
@@ -566,6 +652,7 @@ def test_the_cooldown_never_skips_the_only_route_to_an_answer(monkeypatch):
             if model == "deprecated-model":
                 raise _not_found()
             return f"answer from {model}"
+
         return _call
 
     # The blip fails this question...
@@ -587,6 +674,7 @@ def test_the_cooldown_never_skips_the_only_route_to_an_answer(monkeypatch):
 
 def _quota_402():
     import httpx
+
     return openai.APIStatusError(
         "402 payment_required",
         response=httpx.Response(402, request=httpx.Request("POST", "https://api.test/v1")),
@@ -601,8 +689,8 @@ def test_swapped_call_runs_the_paid_client_first(monkeypatch):
         return lambda: f"ok:{client}:{model}"
 
     out = aa._call_with_model_fallback(
-        mk, "cerebras", "gpt-oss-120b",
-        fallback_client="openrouter", fallback_model="vendor/model:free", swapped=True)
+        mk, "cerebras", "gpt-oss-120b", fallback_client="openrouter", fallback_model="vendor/model:free", swapped=True
+    )
     assert out == "ok:cerebras:gpt-oss-120b"
     assert aa.get_last_tier_used() == "paid"
 
@@ -618,11 +706,12 @@ def test_swapped_call_crosses_to_the_free_primary_on_402_without_latching(monkey
             if client == "cerebras":
                 raise _quota_402()
             return f"ok:{client}:{model}"
+
         return _call
 
     out = aa._call_with_model_fallback(
-        mk, "cerebras", "gpt-oss-120b",
-        fallback_client="openrouter", fallback_model="vendor/model:free", swapped=True)
+        mk, "cerebras", "gpt-oss-120b", fallback_client="openrouter", fallback_model="vendor/model:free", swapped=True
+    )
     assert out == "ok:openrouter:vendor/model:free"
     assert not aa._primary_is_unusable()
     assert aa.get_last_tier_used() == "openrouter"
@@ -639,11 +728,12 @@ def test_swapped_call_ignores_the_default_primarys_model_pin(monkeypatch):
         def _call():
             sent.append((client, model))
             return "ok"
+
         return _call
 
     aa._call_with_model_fallback(
-        mk, "cerebras", "gpt-oss-120b",
-        fallback_client="openrouter", fallback_model="vendor/model:free", swapped=True)
+        mk, "cerebras", "gpt-oss-120b", fallback_client="openrouter", fallback_model="vendor/model:free", swapped=True
+    )
     assert sent[0] == ("cerebras", "gpt-oss-120b")
 
 
@@ -659,11 +749,12 @@ def test_swapped_call_ignores_a_latched_default_primary(monkeypatch):
         def _call():
             sent.append((client, model))
             return "ok"
+
         return _call
 
     aa._call_with_model_fallback(
-        mk, "cerebras", "gpt-oss-120b",
-        fallback_client="openrouter", fallback_model="vendor/model:free", swapped=True)
+        mk, "cerebras", "gpt-oss-120b", fallback_client="openrouter", fallback_model="vendor/model:free", swapped=True
+    )
     assert sent == [("cerebras", "gpt-oss-120b")]
     assert aa._primary_is_unusable(), "and it must not clear the latch either"
 
@@ -673,22 +764,25 @@ def test_swapped_call_model_not_found_uses_the_free_primary_without_pinning(monk
     primary directly — the resolver's preference list and the _active_model pin
     are both keyed to the DEFAULT primary's catalogue and must stay untouched."""
     import httpx
+
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
     nf = openai.NotFoundError(
         "model gpt-oss-120b does not exist. model_not_found",
         response=httpx.Response(404, request=httpx.Request("POST", "https://api.test/v1")),
-        body={"code": "model_not_found"})
+        body={"code": "model_not_found"},
+    )
 
     def mk(client, model):
         def _call():
             if client == "cerebras":
                 raise nf
             return f"ok:{client}:{model}"
+
         return _call
 
     out = aa._call_with_model_fallback(
-        mk, "cerebras", "gpt-oss-120b",
-        fallback_client="openrouter", fallback_model="vendor/model:free", swapped=True)
+        mk, "cerebras", "gpt-oss-120b", fallback_client="openrouter", fallback_model="vendor/model:free", swapped=True
+    )
     assert out == "ok:openrouter:vendor/model:free"
     assert aa._active_model is None
     assert not aa._primary_is_unusable()

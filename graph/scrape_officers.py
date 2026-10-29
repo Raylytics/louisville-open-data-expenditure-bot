@@ -111,10 +111,24 @@ def scrape_officers_from_page(ctr: str, session: requests.Session) -> list[dict]
                 i += 1
                 continue
             title = lines[i]
-            if i + 1 < len(lines) and title in ("President", "Vice President", "Secretary",
-                "Treasurer", "Director", "Member", "Manager", "CEO", "CFO", "COO",
-                "Chairman", "Chief Executive Officer", "Chief Financial Officer",
-                "General Counsel", "Partner", "Organizer"):
+            if i + 1 < len(lines) and title in (
+                "President",
+                "Vice President",
+                "Secretary",
+                "Treasurer",
+                "Director",
+                "Member",
+                "Manager",
+                "CEO",
+                "CFO",
+                "COO",
+                "Chairman",
+                "Chief Executive Officer",
+                "Chief Financial Officer",
+                "General Counsel",
+                "Partner",
+                "Organizer",
+            ):
                 name = lines[i + 1] if i + 1 < len(lines) else ""
                 if name and name not in ("Kentucky Unbridled Spirit", "Privacy", "Security"):
                     officers.append({"title": title, "name": name})
@@ -132,9 +146,7 @@ def scrape_officers_browser(ctr: str) -> list[dict]:
     """
     try:
         # Browse to profile page
-        resp = requests.post("http://localhost:3002/browse", json={
-            "url": f"{SOS_PROFILE_URL}/?ctr={ctr}"
-        }, timeout=30)
+        resp = requests.post("http://localhost:3002/browse", json={"url": f"{SOS_PROFILE_URL}/?ctr={ctr}"}, timeout=30)
         data = resp.json()
         session_id = data.get("session_id", "")
 
@@ -142,10 +154,11 @@ def scrape_officers_browser(ctr: str) -> list[dict]:
             return []
 
         # Click "Show Current Officers" button
-        resp = requests.post("http://localhost:3002/click", json={
-            "session_id": session_id,
-            "selector": "#MainContent_BtnCurrent"
-        }, timeout=30)
+        resp = requests.post(
+            "http://localhost:3002/click",
+            json={"session_id": session_id, "selector": "#MainContent_BtnCurrent"},
+            timeout=30,
+        )
         data = resp.json()
 
         # Extract officers from the page text
@@ -161,10 +174,24 @@ def scrape_officers_browser(ctr: str) -> list[dict]:
                     i += 1
                     continue
                 title = lines[i]
-                if title in ("President", "Vice President", "Secretary",
-                    "Treasurer", "Director", "Member", "Manager", "CEO", "CFO", "COO",
-                    "Chairman", "Chief Executive Officer", "Chief Financial Officer",
-                    "General Counsel", "Partner", "Organizer"):
+                if title in (
+                    "President",
+                    "Vice President",
+                    "Secretary",
+                    "Treasurer",
+                    "Director",
+                    "Member",
+                    "Manager",
+                    "CEO",
+                    "CFO",
+                    "COO",
+                    "Chairman",
+                    "Chief Executive Officer",
+                    "Chief Financial Officer",
+                    "General Counsel",
+                    "Partner",
+                    "Organizer",
+                ):
                     name = lines[i + 1] if i + 1 < len(lines) else ""
                     if name and name not in ("Kentucky Unbridled Spirit", "Privacy", "Security"):
                         officers.append({"title": title, "name": name})
@@ -203,11 +230,15 @@ def main():
     parser.add_argument("--input", default="data/contractor_profiles.csv")
     parser.add_argument("--output", default="data/contractor_profiles.csv")
     parser.add_argument("--use-browser", action="store_true", help="Use spagents browser for officer scraping")
-    parser.add_argument("--refresh-existing", action="store_true",
-                        help="Re-scrape companies that already have sos_officers (default: skip them)")
+    parser.add_argument(
+        "--refresh-existing",
+        action="store_true",
+        help="Re-scrape companies that already have sos_officers (default: skip them)",
+    )
     args = parser.parse_args()
 
     import pandas as pd
+
     df = pd.read_csv(args.input)
 
     if "sos_registered_agent" not in df.columns:

@@ -59,8 +59,8 @@ DEFAULT_WORKERS = int(os.environ.get("ARCGIS_WORKERS", "6") or 6)
 DEFAULT_PAGES_PER_MINUTE = float(os.environ.get("ARCGIS_PAGES_PER_MINUTE", "100") or 100)
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds
-QUOTA_RETRIES = 10          # 429s tolerated per request (10 x ~60 s)
-QUOTA_DEFAULT_WAIT = 60     # seconds, when the 429 carries no "Retry after N sec"
+QUOTA_RETRIES = 10  # 429s tolerated per request (10 x ~60 s)
+QUOTA_DEFAULT_WAIT = 60  # seconds, when the 429 carries no "Retry after N sec"
 
 _thread_local = threading.local()
 
@@ -153,10 +153,9 @@ def fetch_json(url: str, params: dict, retries: int = MAX_RETRIES) -> dict:
                 wait = _quota_error(data)
                 if wait is not None and quota_hits < QUOTA_RETRIES:
                     quota_hits += 1
-                    print(f"  ArcGIS quota exceeded (429); waiting {wait}s "
-                          f"[{quota_hits}/{QUOTA_RETRIES}]")
+                    print(f"  ArcGIS quota exceeded (429); waiting {wait}s [{quota_hits}/{QUOTA_RETRIES}]")
                     time.sleep(wait)
-                    attempt -= 1   # a quota stall is not a failed attempt
+                    attempt -= 1  # a quota stall is not a failed attempt
                     continue
                 raise RuntimeError(f"ArcGIS error: {data['error']}")
             return data
@@ -210,14 +209,17 @@ def pull_records(
 
     def fetch_page(offset: int) -> dict:
         limiter.acquire()
-        return fetch_json(query_url, {
-            "where": where,
-            "outFields": out_fields,
-            "outSR": "4326",
-            "f": "json",
-            "resultOffset": offset,
-            "resultRecordCount": batch_size,
-        })
+        return fetch_json(
+            query_url,
+            {
+                "where": where,
+                "outFields": out_fields,
+                "outSR": "4326",
+                "f": "json",
+                "resultOffset": offset,
+                "resultRecordCount": batch_size,
+            },
+        )
 
     all_records = []
     offset = 0
@@ -258,10 +260,12 @@ def pull_records(
         # A correct pull collects exactly `total`; overshooting it by more than a
         # page means the server is not honoring the offset — stop loudly.
         if total and len(all_records) > total + batch_size:
-            print(f"  ⚠️  Stopping at {len(all_records):,} records, past the expected "
-                  f"{total:,}: the layer appears to ignore pagination (resultOffset) "
-                  "and is returning duplicates. Data was NOT saved reliably — verify "
-                  "the layer supports paging.")
+            print(
+                f"  ⚠️  Stopping at {len(all_records):,} records, past the expected "
+                f"{total:,}: the layer appears to ignore pagination (resultOffset) "
+                "and is returning duplicates. Data was NOT saved reliably — verify "
+                "the layer supports paging."
+            )
             raise RuntimeError(
                 f"pagination not honored by {base_url}: fetched {len(all_records):,} "
                 f"rows for an expected {total:,}; aborting to avoid a duplicate-laden dump."
@@ -295,8 +299,10 @@ def pull_records(
         # total is a pre-count snapshot; a smaller final tally usually means the
         # source changed mid-pull, but it can also mean a truncated pull — say so
         # loudly rather than writing a short file that reads as complete.
-        print(f"  ⚠️  Pulled {len(all_records):,} of {total:,} expected records — "
-              "source may have changed, or the pull was truncated.")
+        print(
+            f"  ⚠️  Pulled {len(all_records):,} of {total:,} expected records — "
+            "source may have changed, or the pull was truncated."
+        )
     print(f"Done. {len(all_records):,} records pulled.")
     return all_records
 
@@ -318,9 +324,7 @@ def save_metadata(meta: dict, output_dir: str, name: str) -> str:
         domain = field.get("domain")
         domain_values = ""
         if domain and domain.get("type") == "codedValue":
-            domain_values = "; ".join(
-                f"{cv['code']}={cv['name']}" for cv in domain.get("codedValues", [])
-            )
+            domain_values = "; ".join(f"{cv['code']}={cv['name']}" for cv in domain.get("codedValues", []))
         rows.append(
             {
                 "field_name": field.get("name"),
@@ -444,8 +448,7 @@ def main():
         print()
 
     if not args.no_data:
-        records = pull_records(base_url, args.where, args.fields, args.batch_size, args.workers,
-                               args.pages_per_minute)
+        records = pull_records(base_url, args.where, args.fields, args.batch_size, args.workers, args.pages_per_minute)
         if records:
             save_data(records, args.output_dir, name, args.format)
 

@@ -31,6 +31,7 @@ def _pack_chip_questions() -> list:
     """The active city pack's starter-chip questions, in pack order."""
     try:
         from city_config import load_city_config
+
         groups = (load_city_config().branding or {}).get("starter_groups", [])
         return [c[1] for g in groups for c in g.get("chips", []) if len(c) == 2]
     except Exception as e:
@@ -74,7 +75,7 @@ def fetch_entries(host: str) -> dict:
     if not version:
         return {k.split(":", 1)[-1]: v for k, v in entries.items()}
     prefix = f"{version}:"
-    return {k[len(prefix):]: v for k, v in entries.items() if k.startswith(prefix)}
+    return {k[len(prefix) :]: v for k, v in entries.items() if k.startswith(prefix)}
 
 
 def main():
@@ -90,9 +91,11 @@ def main():
     # cold-but-looks-warm state that masked the Cerebras model-404 outage. Refuse
     # rather than warm a degraded list.
     if not _pack_chip_questions():
-        print("ERROR: no starter-chip questions could be read from the city pack — "
-              "refusing to run (would warm only the extras and leave every chip cold). "
-              "Check CITY_CONFIG and cities/*/city.yaml.")
+        print(
+            "ERROR: no starter-chip questions could be read from the city pack — "
+            "refusing to run (would warm only the extras and leave every chip cold). "
+            "Check CITY_CONFIG and cities/*/city.yaml."
+        )
         sys.exit(1)
 
     # Check current cache status
@@ -129,7 +132,7 @@ def main():
 
     print(f"\nWarming {len(need_warming)} questions ({args.delay}s delay between each):\n")
     for i, q in enumerate(need_warming):
-        print(f"  [{i+1}/{len(need_warming)}] {q[:55]}...")
+        print(f"  [{i + 1}/{len(need_warming)}] {q[:55]}...")
         try:
             # Behind CloudFront Origin Access Control the origin request is
             # SigV4-signed with whatever body hash the viewer supplied; a POST

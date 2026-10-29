@@ -40,6 +40,7 @@ if LOG_DIR:
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
         from logging.handlers import RotatingFileHandler
+
         file_handler = RotatingFileHandler(
             os.path.join(LOG_DIR, "louisville-bot.log"),
             maxBytes=10 * 1024 * 1024,  # 10 MB
@@ -79,6 +80,7 @@ def _load_secrets_from_ssm() -> int:
         log.info("All %d secrets already set in the environment; SSM not consulted", len(names))
         return 0
     import boto3
+
     resp = boto3.client("ssm").get_parameters(Names=[f"{path}/{n}" for n in wanted], WithDecryption=True)
     loaded = 0
     for prm in resp.get("Parameters", []):
@@ -91,7 +93,6 @@ def _load_secrets_from_ssm() -> int:
         log.warning("SSM parameter(s) not found under %s: %s", path, ", ".join(missing))
     log.info("Loaded %d secret(s) from SSM under %s", loaded, path)
     return loaded
-
 
 
 _load_secrets_from_ssm()
@@ -181,7 +182,9 @@ FALLBACK_MODEL = get_fallback_model()
 RAG_SETTINGS = {"min_score": 3.0, "k": 3}
 RAG_DB = ""
 
-RATE_LIMIT_MSG = "Evan buys his inference on the cheap and we just hit the provider's rate limit. Try again in a few minutes."
+RATE_LIMIT_MSG = (
+    "Evan buys his inference on the cheap and we just hit the provider's rate limit. Try again in a few minutes."
+)
 
 # Seconds to idle between back-to-back LLM calls on one request. A hold-over
 # from the Cerebras free tier's per-minute cap, when every question paid 5s of
@@ -232,6 +235,7 @@ def _is_vacuous(df) -> bool:
     no rows returns — one row, one NaN — and it used to sail past the
     `len == 0` check into an interpretation of "no recorded spending"."""
     return len(df) == 0 or bool(df.isna().all().all())
+
 
 # Shown when the LLM account is out of credit (HTTP 402). Deliberately explicit
 # that this is a funding problem on our end: it does NOT clear on its own like a
@@ -327,9 +331,11 @@ def _warn_missing_viewer_address_once() -> None:
     global _viewer_address_warned
     if not _viewer_address_warned:
         _viewer_address_warned = True
-        log.error("CLIENT_IP_SOURCE=cloudfront but no CloudFront-Viewer-Address header arrived; "
-                  "falling back to the last X-Forwarded-For hop. Check the distribution's origin "
-                  "request policy forwards CloudFront-Viewer-Address (infra/cdk/lou_stack.py).")
+        log.error(
+            "CLIENT_IP_SOURCE=cloudfront but no CloudFront-Viewer-Address header arrived; "
+            "falling back to the last X-Forwarded-For hop. Check the distribution's origin "
+            "request policy forwards CloudFront-Viewer-Address (infra/cdk/lou_stack.py)."
+        )
 
 
 def _client_ip(request: Request) -> str:
@@ -343,7 +349,7 @@ def _client_ip(request: Request) -> str:
             # "v6:port" (or "[v6]:port") for IPv6. Strip exactly one.
             v = viewer.strip()
             if v.startswith("["):
-                return v[1:v.index("]")] if "]" in v else v
+                return v[1 : v.index("]")] if "]" in v else v
             return v.rsplit(":", 1)[0]
         xff = request.headers.get("x-forwarded-for")
         if xff:
@@ -383,10 +389,10 @@ def check_ip_rate_limit(ip: str, limit: int | None = None) -> bool:
     # simply many distinct visitors over time) cannot grow ip_requests without
     # bound — the per-bucket pruning above only trims timestamps, never keys.
     if len(ip_requests) > IP_RPM_LIMIT * 64:
-        for stale in [k for k, v in ip_requests.items()
-                      if k != ip and (not v or now - v[-1] >= 60)]:
+        for stale in [k for k, v in ip_requests.items() if k != ip and (not v or now - v[-1] >= 60)]:
             del ip_requests[stale]
     return True
+
 
 # ── Persistent Stats ─────────────────────────────────────────────────────────
 # Stats persist to a JSON file in the data directory so they survive restarts.
@@ -500,7 +506,7 @@ def get_error_summary() -> dict:
         "quota_errors": errs.get("quota_errors", 0) + errs.get("daily_cap_errors", 0),
         "last_quota_error": errs.get("last_quota_error"),
         "quota_error_recent": bool(errs.get("last_quota_error_time"))
-                              and now - errs["last_quota_error_time"] < QUOTA_DEGRADE_SECONDS,
+        and now - errs["last_quota_error_time"] < QUOTA_DEGRADE_SECONDS,
         "last_error": errs.get("last_error"),
         "last_error_time": errs.get("last_error_time"),
     }
@@ -509,6 +515,7 @@ def get_error_summary() -> dict:
 # ── Usage Tracking ───────────────────────────────────────────────────────────
 # Tracks usage from API response headers (Cerebras provides x-ratelimit-* headers)
 # Falls back to local counting if headers aren't available.
+
 
 def track_usage(prompt_tokens: int = 0, completion_tokens: int = 0, tier: str | None = None):
     """Record one LLM call's token usage, attributed to the provider that
@@ -644,15 +651,21 @@ def is_service_error(e: Exception) -> bool:
     unreachable (5xx / connection / timeout). These are problems on our end, so
     we should say so plainly rather than blame the question or imply a rate limit.
     """
-    if isinstance(e, (
-        openai.AuthenticationError, openai.PermissionDeniedError,
-        openai.NotFoundError, openai.APIConnectionError,
-        openai.APITimeoutError, openai.InternalServerError,
-        # A provider that answers with no content at all is our problem too.
-        # Without this it fell through to the generic branch and told the user
-        # to reword a question they had written perfectly well.
-        EmptyCompletionError,
-    )) or claude_provider.is_claude_error(e):
+    if isinstance(
+        e,
+        (
+            openai.AuthenticationError,
+            openai.PermissionDeniedError,
+            openai.NotFoundError,
+            openai.APIConnectionError,
+            openai.APITimeoutError,
+            openai.InternalServerError,
+            # A provider that answers with no content at all is our problem too.
+            # Without this it fell through to the generic branch and told the user
+            # to reword a question they had written perfectly well.
+            EmptyCompletionError,
+        ),
+    ) or claude_provider.is_claude_error(e):
         return True
     # String fallback ONLY for LLM-specific phrasings. Deliberately narrow: the
     # SQL-retry path can hand us DuckDB errors like 'Table "x" does not exist',
@@ -671,6 +684,7 @@ SERVICE_ERROR_MSG = (
 
 
 # ── Startup ──────────────────────────────────────────────────────────────────
+
 
 def _salary_status(yc: dict) -> str:
     """One operator-facing line describing what salary guidance was derived.
@@ -709,9 +723,11 @@ def startup():
     RAG_SETTINGS = rag.corpus_settings(CONFIG)
     RAG_DB = rag.db_path(CONFIG, DATA_DIR)
     if not os.path.exists(RAG_DB):
-        log.info("No document corpus at %s — answers will carry no citations "
-                 "(run: python rag.py ingest --city %s)", RAG_DB,
-                 os.environ.get("CITY_CONFIG", "cities/<city>/city.yaml"))
+        log.info(
+            "No document corpus at %s — answers will carry no citations (run: python rag.py ingest --city %s)",
+            RAG_DB,
+            os.environ.get("CITY_CONFIG", "cities/<city>/city.yaml"),
+        )
     else:
         # Probe rather than just stat the file. A present corpus can still be
         # unqueryable — a container without the DuckDB FTS extension answered
@@ -722,17 +738,25 @@ def startup():
             n_docs = rag.corpus_size(RAG_DB)
             rag.retrieve("budget", k=1, db_path=RAG_DB, min_score=0.0)
             if n_docs:
-                log.info("Document corpus ready: %s (%d docs, min_score=%.1f, k=%d)",
-                         RAG_DB, n_docs, RAG_SETTINGS["min_score"], RAG_SETTINGS["k"])
+                log.info(
+                    "Document corpus ready: %s (%d docs, min_score=%.1f, k=%d)",
+                    RAG_DB,
+                    n_docs,
+                    RAG_SETTINGS["min_score"],
+                    RAG_SETTINGS["k"],
+                )
             else:
                 # Queryable but empty reads as healthy otherwise — exactly the
                 # false confidence the probe exists to remove. A truncated
                 # ingest or an empty Legistar filter lands here.
-                log.warning("Document corpus at %s is EMPTY (0 documents) — "
-                            "answers will carry no citations", RAG_DB)
+                log.warning("Document corpus at %s is EMPTY (0 documents) — answers will carry no citations", RAG_DB)
         except Exception as e:
-            log.error("Document corpus at %s is UNQUERYABLE (%s: %s) — answers "
-                      "will carry no citations", RAG_DB, type(e).__name__, e)
+            log.error(
+                "Document corpus at %s is UNQUERYABLE (%s: %s) — answers will carry no citations",
+                RAG_DB,
+                type(e).__name__,
+                e,
+            )
 
     # Prefer a prebuilt artifact when one is configured: opening a finished
     # database is ~0.4s against ~6s to rebuild it from 531MB of CSVs, and it
@@ -782,7 +806,8 @@ def startup():
     # prompt never references guidance that isn't in it.
     salary_year_clause = (
         f", filtered to CalYear = {yc['salary']['last_complete_year']} (see the CalYear rule above)"
-        if yc["salary"] else ""
+        if yc["salary"]
+        else ""
     )
     years = yc["values"]
     first_year = years["first_year"]
@@ -908,8 +933,9 @@ This data covers expenditures from FY{first_year}-FY{newest_year}, employee sala
     global CITY_FACTS
     CITY_FACTS = CONFIG.data_facts_for(years) + yc["facts"]
     if CITY_FACTS:
-        interpret_system += "\n## Facts about this city's data (enforce these)\n" + \
-            "\n".join(f"- {f}" for f in CITY_FACTS) + "\n"
+        interpret_system += (
+            "\n## Facts about this city's data (enforce these)\n" + "\n".join(f"- {f}" for f in CITY_FACTS) + "\n"
+        )
 
     # Cache entries are keyed with a version derived from the prompts, so any
     # prompt change automatically invalidates stale cached answers (re-warm
@@ -922,15 +948,24 @@ This data covers expenditures from FY{first_year}-FY{newest_year}, employee sala
     # where two verification runs replayed a pre-fix answer and looked like the
     # fix had failed. A stale answer here misquotes a row count to a reader.
     CACHE_VERSION = hashlib.sha1(
-        (sql_system + interpret_system + REFINE_SYSTEM_PROMPT + BACKGROUND_SYSTEM_PROMPT
-         + json.dumps(CITY_FACTS)
-         + CITATION_FORMAT + TRUNCATION_NOTE + TRUNCATION_COUNTS
-         + TRUNCATION_COUNTS_WITH_TOTALS + TOTALS_MOVED_NOTE
-         + str(MAX_DISPLAY_ROWS) + grounding.GROUNDING_VERSION
-         + EVENT_SCHEMA_VERSION
-         # The table notes ride in the cached frames, so a note edit must
-         # orphan the answers that carry the old one.
-         + json.dumps(CONFIG.table_notes, sort_keys=True)).encode()
+        (
+            sql_system
+            + interpret_system
+            + REFINE_SYSTEM_PROMPT
+            + BACKGROUND_SYSTEM_PROMPT
+            + json.dumps(CITY_FACTS)
+            + CITATION_FORMAT
+            + TRUNCATION_NOTE
+            + TRUNCATION_COUNTS
+            + TRUNCATION_COUNTS_WITH_TOTALS
+            + TOTALS_MOVED_NOTE
+            + str(MAX_DISPLAY_ROWS)
+            + grounding.GROUNDING_VERSION
+            + EVENT_SCHEMA_VERSION
+            # The table notes ride in the cached frames, so a note edit must
+            # orphan the answers that carry the old one.
+            + json.dumps(CONFIG.table_notes, sort_keys=True)
+        ).encode()
     ).hexdigest()[:8]
     # On DynamoDB, keys of older versions simply never match again and the
     # 30-day TTL reclaims them; a scan-and-delete on every cold start would be
@@ -945,11 +980,13 @@ This data covers expenditures from FY{first_year}-FY{newest_year}, employee sala
     client = make_client()
     paid_client = make_paid_client()
     if claude_provider.is_configured():
-        log.info("First choice: Claude %s (effort %s), then the providers below",
-                 ", ".join(claude_provider.models()), claude_provider.effort())
+        log.info(
+            "First choice: Claude %s (effort %s), then the providers below",
+            ", ".join(claude_provider.models()),
+            claude_provider.effort(),
+        )
     if paid_client:
-        log.info("Model: %s (%s), fallback: %s (cerebras paid)",
-                 MODEL, get_primary_tier(), FALLBACK_MODEL)
+        log.info("Model: %s (%s), fallback: %s (cerebras paid)", MODEL, get_primary_tier(), FALLBACK_MODEL)
     else:
         log.info("Model: %s (%s), no fallback key", MODEL, get_primary_tier())
     log.info("Logs writing to: %s", LOG_DIR or "stdout only (LOG_DIR unset)")
@@ -958,19 +995,21 @@ This data covers expenditures from FY{first_year}-FY{newest_year}, employee sala
     # limit to one site-wide bucket behind the tunnel (every request shares the
     # bridge-gateway peer). Make that misconfiguration loud, not silent.
     if CLIENT_IP_SOURCE == "cloudfront":
-        log.info("Client IP from the CloudFront-appended hop (CLIENT_IP_SOURCE=cloudfront); "
-                 "TRUSTED_PROXY_IPS not used")
+        log.info("Client IP from the CloudFront-appended hop (CLIENT_IP_SOURCE=cloudfront); TRUSTED_PROXY_IPS not used")
     elif not TRUSTED_PROXY_IPS:
-        log.warning("TRUSTED_PROXY_IPS is unset — forwarded client-IP headers "
-                    "are not trusted, so ALL proxied traffic shares ONE rate-limit "
-                    "bucket (the per-IP %d/min limit acts site-wide). Set "
-                    "-e TRUSTED_PROXY_IPS=<bridge gateway IP> in production.",
-                    IP_RPM_LIMIT)
+        log.warning(
+            "TRUSTED_PROXY_IPS is unset — forwarded client-IP headers "
+            "are not trusted, so ALL proxied traffic shares ONE rate-limit "
+            "bucket (the per-IP %d/min limit acts site-wide). Set "
+            "-e TRUSTED_PROXY_IPS=<bridge gateway IP> in production.",
+            IP_RPM_LIMIT,
+        )
     else:
         log.info("Trusted proxy peers for rate limiting: %s", ", ".join(sorted(TRUSTED_PROXY_IPS)))
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -1013,8 +1052,9 @@ async def health():
     # On Lambda the counters above live in DynamoDB; if that table is
     # unreachable they read as zero while the site runs with no rate limit and
     # no cache. Surface it here, where the heartbeat and uptime.yml look.
-    backend = STATE.backend_status() if STATE else {"backend": "local", "status": "ok",
-                                                    "errors_total": 0, "last_error": None}
+    backend = (
+        STATE.backend_status() if STATE else {"backend": "local", "status": "ok", "errors_total": 0, "last_error": None}
+    )
     if backend["status"] != "ok" and not degraded_reason:
         degraded_reason = f"state backend unavailable: {backend['last_error']}"
     status = "degraded" if degraded_reason else "ok"
@@ -1065,17 +1105,22 @@ async def get_config():
     # Default to the same neutral copy the markup ships: an empty value would
     # wipe the placeholder and leave the About affordance an empty box, losing
     # the as-is/not-affiliated disclaimer that is the reason it exists.
-    b.setdefault("about_html", (
-        "<strong>About this data</strong><br>"
-        f"Sourced from {who}'s public open data portal. Data is provided as-is "
-        "without warranty. This tool is an independent project and is not "
-        "affiliated with or endorsed by the city."
-    ))
+    b.setdefault(
+        "about_html",
+        (
+            "<strong>About this data</strong><br>"
+            f"Sourced from {who}'s public open data portal. Data is provided as-is "
+            "without warranty. This tool is an independent project and is not "
+            "affiliated with or endorsed by the city."
+        ),
+    )
     b.setdefault("starter_groups", [])
     # Under the question box: questions and ratings are recorded (interactions.py)
     # and nothing identifying is, so the one thing to ask is that nobody types it.
-    b.setdefault("privacy_note", f"Questions and ratings are stored to improve {b['bot_name']}. "
-                                 "Please do not type personal information.")
+    b.setdefault(
+        "privacy_note",
+        f"Questions and ratings are stored to improve {b['bot_name']}. Please do not type personal information.",
+    )
     # Attribution on every answer's source line. No URL by default: a link
     # the pack did not declare could point anywhere.
     b.setdefault("source_name", f"{who}'s open data portal" if city else "the city's open data portal")
@@ -1114,8 +1159,7 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 def _require_admin(request: Request) -> JSONResponse | None:
     """None if the request is an authorized admin, else a JSONResponse to return."""
     if not ADMIN_TOKEN:
-        return JSONResponse({"error": "Admin endpoints are disabled (no ADMIN_TOKEN configured)."},
-                            status_code=503)
+        return JSONResponse({"error": "Admin endpoints are disabled (no ADMIN_TOKEN configured)."}, status_code=503)
     presented = request.headers.get("x-admin-token", "")
     if not hmac.compare_digest(presented, ADMIN_TOKEN):
         return JSONResponse({"error": "Unauthorized."}, status_code=401)
@@ -1179,12 +1223,13 @@ CITATION_FORMAT = "gateway-v1"
 # data_through, and the `headline` and `step` events are new. A cached starter
 # answer would otherwise replay the OLD frames forever — the prompts did not
 # change, so nothing else would orphan it. Bump on any change to event shape.
-EVENT_SCHEMA_VERSION = "5"   # 3: `background` event (03r); 4: `note` events; 5: `chart.label_kind`
+EVENT_SCHEMA_VERSION = "5"  # 3: `background` event (03r); 4: `note` events; 5: `chart.label_kind`
 
 # Year coverage from year_context(), kept for per-request period markers
 # (which chart point is partial, which period a headline may use). Set at
 # startup.
 YEAR_CONTEXT: dict = {}
+
 
 def _data_notes(sql: str) -> list:
     """The pack's notes for the tables this query read (city.yaml
@@ -1307,8 +1352,7 @@ def _load_cache() -> dict[str, list[str]]:
             cache = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
-    dead = [k for k, frames in cache.items()
-            if any("LegislationDetail.aspx" in f for f in frames)]
+    dead = [k for k, frames in cache.items() if any("LegislationDetail.aspx" in f for f in frames)]
     for k in dead:
         del cache[k]
     if dead:
@@ -1349,8 +1393,7 @@ def _retrieve_documents(question: str) -> list:
     if not RAG_DB or not os.path.exists(RAG_DB):
         return []
     try:
-        hits = rag.retrieve(question, k=RAG_SETTINGS["k"], db_path=RAG_DB,
-                            min_score=RAG_SETTINGS["min_score"])
+        hits = rag.retrieve(question, k=RAG_SETTINGS["k"], db_path=RAG_DB, min_score=RAG_SETTINGS["min_score"])
     except Exception as e:
         log.warning("Document retrieval failed (answering without it): %s", e)
         return []
@@ -1383,8 +1426,7 @@ def _on_topic_hits(question: str, hits: list) -> list:
         if any(_term_in_text(tok, text) for tok in tokens):
             kept.append(h)
     if len(kept) < len(hits):
-        log.info("Dropped %d retrieved document(s) sharing no content word with the question",
-                 len(hits) - len(kept))
+        log.info("Dropped %d retrieved document(s) sharing no content word with the question", len(hits) - len(kept))
     return kept
 
 
@@ -1446,8 +1488,11 @@ def _cited_documents(doc_hits: list, answer_text: str) -> list:
         # is silently indistinguishable from the model citing nothing.
         if not fn or len(fn) < 3 or fn.isdigit():
             if fn:
-                log.debug("Retrieved file number %r is too short or all-digit "
-                          "to match safely in prose; it can never be cited", fn)
+                log.debug(
+                    "Retrieved file number %r is too short or all-digit "
+                    "to match safely in prose; it can never be cited",
+                    fn,
+                )
             continue
         pattern = _SEP.join(re.escape(part) for part in fn.split("-"))
         if re.search(rf"(?<!{_BOUNDARY}){pattern}(?!{_BOUNDARY})", text):
@@ -1465,14 +1510,25 @@ def _sources_event(doc_hits: list, answer_text: str, send) -> list:
     back on either."""
     cited = _cited_documents(doc_hits, answer_text)
     if cited:
-        return [send("sources", {"items": [
-            {"file_no": h["file_no"], "url": h["url"], "matter_type": h["matter_type"],
-             "intro_date": h["intro_date"], "title": h["text"][:200]}
-            for h in cited
-        ]})]
+        return [
+            send(
+                "sources",
+                {
+                    "items": [
+                        {
+                            "file_no": h["file_no"],
+                            "url": h["url"],
+                            "matter_type": h["matter_type"],
+                            "intro_date": h["intro_date"],
+                            "title": h["text"][:200],
+                        }
+                        for h in cited
+                    ]
+                },
+            )
+        ]
     if doc_hits:
-        return [send("debug", {"content":
-                     f"{len(doc_hits)} document(s) retrieved, none cited in the answer"})]
+        return [send("debug", {"content": f"{len(doc_hits)} document(s) retrieved, none cited in the answer"})]
     return []
 
 
@@ -1483,9 +1539,11 @@ def _sse_message(event_type: str, content: str) -> StreamingResponse:
     receives a parseable SSE event instead of a plain-JSON body it can't
     render — a plain-JSON error leaves the UI spinning forever.
     """
+
     def gen():
         yield f"data: {json.dumps({'type': event_type, 'content': content})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
@@ -1512,7 +1570,7 @@ async def _bounded_json(request: Request, limit: int):
             return None, JSONResponse({"error": "That rating is too large."}, status_code=413)
     try:
         return json.loads(bytes(buf)), None
-    except (ValueError, RecursionError):   # RecursionError: a few thousand '[' (roborev 6747)
+    except (ValueError, RecursionError):  # RecursionError: a few thousand '[' (roborev 6747)
         return None, JSONResponse({"error": "Invalid request."}, status_code=400)
 
 
@@ -1529,15 +1587,17 @@ async def feedback(request: Request):
         return JSONResponse({"error": "That answer can no longer be rated."}, status_code=400)
     # Its own bucket, so rating answers never spends the question allowance.
     if not check_ip_rate_limit("fb:" + _client_ip(request), FEEDBACK_RPM_LIMIT):
-        return JSONResponse({"error": "Too many ratings in a short time. Please wait a minute."},
-                            status_code=429)
+        return JSONResponse({"error": "Too many ratings in a short time. Please wait a minute."}, status_code=429)
     if INTERACTIONS is None:
         return JSONResponse({"error": "Ratings are not enabled on this deployment."}, status_code=503)
     if not INTERACTIONS.rate(rating):
-        return JSONResponse({"error": "Could not save the rating right now. Please try again later."},
-                            status_code=503)
-    log.info("Rating: %s stars for %s%s", rating["stars"], rating["answer_id"],
-             f" ({', '.join(rating['reasons'])})" if rating["reasons"] else "")
+        return JSONResponse({"error": "Could not save the rating right now. Please try again later."}, status_code=503)
+    log.info(
+        "Rating: %s stars for %s%s",
+        rating["stars"],
+        rating["answer_id"],
+        f" ({', '.join(rating['reasons'])})" if rating["reasons"] else "",
+    )
     return {"stored": True, "answer_id": rating["answer_id"], "stars": rating["stars"]}
 
 
@@ -1554,7 +1614,7 @@ def _frames_to_events(frames: list[str]) -> list[dict]:
     out = []
     for f in frames:
         try:
-            out.append(json.loads(f[len("data: "):]))
+            out.append(json.loads(f[len("data: ") :]))
         except (ValueError, TypeError):
             continue
     return out
@@ -1591,7 +1651,9 @@ async def ask(request: Request):
     client_ip = _client_ip(request)
     if not check_ip_rate_limit(client_ip):
         log.warning("IP rate limited: %s", client_ip)
-        return _sse_message("error", "That's a lot of questions in a short time. Please wait a few seconds, then ask again.")
+        return _sse_message(
+            "error", "That's a lot of questions in a short time. Please wait a few seconds, then ask again."
+        )
 
     # Serve from cache if question is cached
     cache_key = _cache_key(question)
@@ -1602,13 +1664,23 @@ async def ask(request: Request):
     answer_id = interactions.new_answer_id()
     if events is not None:
         log.info("Cache hit: %s", question[:50])
+
         def cached_stream():
             yield _answer_frame(answer_id, cached=True)
             for event in events:
                 yield event
-        _record_interaction(answer_id=answer_id, session_id=session_id, question=question,
-                            history=history, events=_frames_to_events(events), cache_hit=True,
-                            cache_key=cache_key, outcome="ok", dev_mode=dev_mode)
+
+        _record_interaction(
+            answer_id=answer_id,
+            session_id=session_id,
+            question=question,
+            history=history,
+            events=_frames_to_events(events),
+            cache_hit=True,
+            cache_key=cache_key,
+            outcome="ok",
+            dev_mode=dev_mode,
+        )
         return StreamingResponse(cached_stream(), media_type="text/event-stream")
 
     # Track whether this response should be cached
@@ -1620,7 +1692,7 @@ async def ask(request: Request):
         cache_events = []
 
         def send(event_type: str, data: dict):
-            payload = {'type': event_type, **data}
+            payload = {"type": event_type, **data}
             all_events.append(dict(payload))
             event = f"data: {json.dumps(payload)}\n\n"
             if should_cache:
@@ -1644,13 +1716,22 @@ async def ask(request: Request):
         #   generation); streamed stages report chunks in detail, never as
         #   tokens (a Cerebras chunk count is not a token figure).
         # - A cached answer replays these frames verbatim, `ms` included.
-        def step(step_id, status, t0, *, ms=None, model=None, tier=None,
-                 tokens=None, rows=None, **detail):
+        def step(step_id, status, t0, *, ms=None, model=None, tier=None, tokens=None, rows=None, **detail):
             if ms is None:
                 ms = (time.time() - t0) * 1000
-            return send("step", {"id": step_id, "status": status, "ms": int(ms),
-                                 "model": model, "tier": tier, "tokens": tokens,
-                                 "rows": rows, "detail": detail})
+            return send(
+                "step",
+                {
+                    "id": step_id,
+                    "status": status,
+                    "ms": int(ms),
+                    "model": model,
+                    "tier": tier,
+                    "tokens": tokens,
+                    "rows": rows,
+                    "detail": detail,
+                },
+            )
 
         def model_for(tier):
             # Claude runs whichever of CLAUDE_MODELS answered; the primary
@@ -1665,6 +1746,7 @@ async def ask(request: Request):
 
         # Collect retry log events to yield inline during streaming
         retry_logs = []
+
         def on_retry(attempt, max_retries, delay):
             msg = f"Rate limited. Retry {attempt}/{max_retries} in {delay:.0f}s..."
             retry_logs.append(msg)
@@ -1708,7 +1790,17 @@ async def ask(request: Request):
         t_start = time.time()
         sql_tier = get_preferred_tier()
         try:
-            sql, sql_usage, raw_resp = generate_sql(client, MODEL, sql_system, question, on_retry=on_retry, history=history, context=vocab, fallback_client=paid_client, fallback_model=FALLBACK_MODEL)
+            sql, sql_usage, raw_resp = generate_sql(
+                client,
+                MODEL,
+                sql_system,
+                question,
+                on_retry=on_retry,
+                history=history,
+                context=vocab,
+                fallback_client=paid_client,
+                fallback_model=FALLBACK_MODEL,
+            )
             sql_tier = get_last_tier_used()
             track_usage(sql_usage.get("prompt_tokens", 0), sql_usage.get("completion_tokens", 0), tier=sql_tier)
             update_limits_from_headers(raw_resp)
@@ -1721,19 +1813,38 @@ async def ask(request: Request):
             # error-retry as SELECT '<the refusal>' AS message.
             if not _looks_like_sql(sql):
                 log.info("Model returned non-SQL response (likely off-topic)")
-                yield step("generate_sql", llm_status(sql_tier, get_preferred_tier()), t_start,
-                           model=model_for(sql_tier), tier=sql_tier,
-                           tokens=sql_usage.get("total_tokens"), attempts=1,
-                           regenerated_after_error=False, off_topic=True)
-                yield send("interpretation", {"content": "This question doesn't appear to be answerable from the Louisville Metro expenditure data. Try asking about government spending, agency budgets, contractor payments, employee salaries, or capital projects."})
+                yield step(
+                    "generate_sql",
+                    llm_status(sql_tier, get_preferred_tier()),
+                    t_start,
+                    model=model_for(sql_tier),
+                    tier=sql_tier,
+                    tokens=sql_usage.get("total_tokens"),
+                    attempts=1,
+                    regenerated_after_error=False,
+                    off_topic=True,
+                )
+                yield send(
+                    "interpretation",
+                    {
+                        "content": "This question doesn't appear to be answerable from the Louisville Metro expenditure data. Try asking about government spending, agency budgets, contractor payments, employee salaries, or capital projects."
+                    },
+                )
                 yield send("done", {})
                 return
         except Exception as e:
             log.error("SQL generation failed: %s", e)
             fail_tier = get_last_tier_used()
-            yield step("generate_sql", "failed", t_start, model=model_for(fail_tier),
-                       tier=fail_tier, attempts=1, regenerated_after_error=False,
-                       error=type(e).__name__)
+            yield step(
+                "generate_sql",
+                "failed",
+                t_start,
+                model=model_for(fail_tier),
+                tier=fail_tier,
+                attempts=1,
+                regenerated_after_error=False,
+                error=type(e).__name__,
+            )
             if is_daily_cap_error(e):
                 track_error("daily_cap", str(e)[:200])
                 yield send("log", {"content": "Free daily allowance exhausted at the provider."})
@@ -1757,17 +1868,35 @@ async def ask(request: Request):
                 track_error("sql_gen", str(e)[:200])
                 yield send("log", {"content": f"SQL generation error: {type(e).__name__}"})
                 yield send("debug", {"content": f"SQL gen error detail: {e}"})
-                yield send("error", {"content": "I couldn't turn that into a query. Try rewording it, or ask about spending, salaries, contractors, or capital projects."})
+                yield send(
+                    "error",
+                    {
+                        "content": "I couldn't turn that into a query. Try rewording it, or ask about spending, salaries, contractors, or capital projects."
+                    },
+                )
             return
         t_sql = time.time() - t_start
 
         for evt in flush_retry_logs():
             yield evt
         yield send("sql", {"content": sql})
-        yield send("debug", {"content": f"SQL generated in {t_sql:.1f}s | {sql_usage.get('total_tokens', 0)} tokens | Model: {get_active_model(MODEL)} | Tier: {tier_label(sql_tier)}"})
-        yield step("generate_sql", llm_status(sql_tier, get_preferred_tier()), None, ms=t_sql * 1000,
-                   model=model_for(sql_tier), tier=sql_tier, tokens=sql_usage.get("total_tokens"),
-                   attempts=1, regenerated_after_error=False)
+        yield send(
+            "debug",
+            {
+                "content": f"SQL generated in {t_sql:.1f}s | {sql_usage.get('total_tokens', 0)} tokens | Model: {get_active_model(MODEL)} | Tier: {tier_label(sql_tier)}"
+            },
+        )
+        yield step(
+            "generate_sql",
+            llm_status(sql_tier, get_preferred_tier()),
+            None,
+            ms=t_sql * 1000,
+            model=model_for(sql_tier),
+            tier=sql_tier,
+            tokens=sql_usage.get("total_tokens"),
+            attempts=1,
+            regenerated_after_error=False,
+        )
 
         # Execute SQL
         yield send("log", {"content": "Executing query against database..."})
@@ -1787,17 +1916,35 @@ async def ask(request: Request):
             try:
                 t_step = time.time()
                 fix_prompt = f"The following SQL failed with error: {e}\n\nOriginal SQL:\n{sql}\n\nFix the SQL query. Return ONLY the corrected SQL."
-                sql, retry_usage, raw_resp = generate_sql(client, MODEL, sql_system, fix_prompt, on_retry=on_retry, history=history, fallback_client=paid_client, fallback_model=FALLBACK_MODEL)
+                sql, retry_usage, raw_resp = generate_sql(
+                    client,
+                    MODEL,
+                    sql_system,
+                    fix_prompt,
+                    on_retry=on_retry,
+                    history=history,
+                    fallback_client=paid_client,
+                    fallback_model=FALLBACK_MODEL,
+                )
                 retry_tier = get_last_tier_used()
-                track_usage(retry_usage.get("prompt_tokens", 0), retry_usage.get("completion_tokens", 0), tier=retry_tier)
+                track_usage(
+                    retry_usage.get("prompt_tokens", 0), retry_usage.get("completion_tokens", 0), tier=retry_tier
+                )
                 update_limits_from_headers(raw_resp)
                 log.info("SQL retry generated")
                 yield send("log", {"content": "Retrying with corrected SQL..."})
                 yield send("sql", {"content": sql})
-                yield step("generate_sql", llm_status(retry_tier, get_preferred_tier()), t_step,
-                           model=model_for(retry_tier), tier=retry_tier,
-                           tokens=retry_usage.get("total_tokens"), attempts=2,
-                           regenerated_after_error=True, error=type(e).__name__)
+                yield step(
+                    "generate_sql",
+                    llm_status(retry_tier, get_preferred_tier()),
+                    t_step,
+                    model=model_for(retry_tier),
+                    tier=retry_tier,
+                    tokens=retry_usage.get("total_tokens"),
+                    attempts=2,
+                    regenerated_after_error=True,
+                    error=type(e).__name__,
+                )
                 regen_done = True
                 t_step = t_exec_start = time.time()
                 with db_lock:
@@ -1807,9 +1954,16 @@ async def ask(request: Request):
                     yield step("execute", "failed", t_step, error=type(e2).__name__)
                 else:
                     fail_tier = get_last_tier_used()
-                    yield step("generate_sql", "failed", t_step, model=model_for(fail_tier),
-                               tier=fail_tier, attempts=2, regenerated_after_error=True,
-                               error=type(e2).__name__)
+                    yield step(
+                        "generate_sql",
+                        "failed",
+                        t_step,
+                        model=model_for(fail_tier),
+                        tier=fail_tier,
+                        attempts=2,
+                        regenerated_after_error=True,
+                        error=type(e2).__name__,
+                    )
                 if is_daily_cap_error(e2):
                     track_error("daily_cap", str(e2)[:200])
                     yield send("log", {"content": "Free daily allowance exhausted at the provider."})
@@ -1833,7 +1987,12 @@ async def ask(request: Request):
                     track_error("sql_exec", str(e2)[:200])
                     yield send("log", {"content": f"Retry also failed: {type(e2).__name__}"})
                     yield send("debug", {"content": f"SQL exec error detail: {e2}"})
-                    yield send("error", {"content": "That query couldn't be run against the data, even after a retry. Try simplifying or rephrasing your question."})
+                    yield send(
+                        "error",
+                        {
+                            "content": "That query couldn't be run against the data, even after a retry. Try simplifying or rephrasing your question."
+                        },
+                    )
                 return
         t_exec = time.time() - t_start
         yield step("execute", "ok", t_exec_start, rows=len(result_df))
@@ -1856,23 +2015,42 @@ async def ask(request: Request):
                 repair_hint = ""
         if repair_hint:
             log.info("Empty result; repairing SQL with vocabulary hint")
-            yield send("log", {"content": "Query matched nothing. Checking its filters against the data's vocabulary and retrying..."})
+            yield send(
+                "log",
+                {
+                    "content": "Query matched nothing. Checking its filters against the data's vocabulary and retrying..."
+                },
+            )
             yield send("status", {"content": "Checking the data's vocabulary and retrying…"})
             yield send("debug", {"content": "Repair hint:\n" + repair_hint})
             t_start = time.time()
             # For the step event: WHICH filters were suspect, not the full hint
             # (that is instructions to the model, and stays in the debug line).
-            hint_summary = ("Filters that matched nothing (or too little): " + "; ".join(
-                f"{d['column']} {d['op']} '{d['literal']}'" for d in diagnoses))[:200]
+            hint_summary = (
+                "Filters that matched nothing (or too little): "
+                + "; ".join(f"{d['column']} {d['op']} '{d['literal']}'" for d in diagnoses)
+            )[:200]
             try:
-                repair_prompt = (f"Question: {question}\n\nThis query ran but returned nothing:\n{sql}\n\n"
-                                 f"{repair_hint}")
-                new_sql, repair_usage, raw_resp = generate_sql(client, MODEL, sql_system, repair_prompt, on_retry=on_retry, history=history, fallback_client=paid_client, fallback_model=FALLBACK_MODEL)
+                repair_prompt = f"Question: {question}\n\nThis query ran but returned nothing:\n{sql}\n\n{repair_hint}"
+                new_sql, repair_usage, raw_resp = generate_sql(
+                    client,
+                    MODEL,
+                    sql_system,
+                    repair_prompt,
+                    on_retry=on_retry,
+                    history=history,
+                    fallback_client=paid_client,
+                    fallback_model=FALLBACK_MODEL,
+                )
                 repair_tier = get_last_tier_used()
-                track_usage(repair_usage.get("prompt_tokens", 0), repair_usage.get("completion_tokens", 0), tier=repair_tier)
+                track_usage(
+                    repair_usage.get("prompt_tokens", 0), repair_usage.get("completion_tokens", 0), tier=repair_tier
+                )
                 update_limits_from_headers(raw_resp)
-                sql_usage = {k: sql_usage.get(k, 0) + repair_usage.get(k, 0)
-                             for k in ("prompt_tokens", "completion_tokens", "total_tokens")}
+                sql_usage = {
+                    k: sql_usage.get(k, 0) + repair_usage.get(k, 0)
+                    for k in ("prompt_tokens", "completion_tokens", "total_tokens")
+                }
                 # `kept` is True when the repaired query REPLACED the original
                 # (the answer is built on it); `outcome` says why when not.
                 repair_rows, kept, outcome = None, False, "unchanged"
@@ -1883,8 +2061,10 @@ async def ask(request: Request):
                     if not _is_vacuous(new_df):
                         sql, result_df, result_str = new_sql, new_df, new_str
                         kept, outcome = True, "repaired"
-                        repair_note = ("Note: my first query used a label that does not appear in the "
-                                       "data, so I re-checked the data's own category names and re-ran it.")
+                        repair_note = (
+                            "Note: my first query used a label that does not appear in the "
+                            "data, so I re-checked the data's own category names and re-ran it."
+                        )
                         yield send("log", {"content": f"Repaired query returned {len(result_df)} rows."})
                         yield send("sql", {"content": sql})
                     else:
@@ -1893,17 +2073,28 @@ async def ask(request: Request):
                 else:
                     yield send("log", {"content": "Model kept the original query."})
                 yield send("debug", {"content": f"Repair pass in {time.time() - t_start:.1f}s"})
-                yield step("repair", llm_status(repair_tier, get_preferred_tier()), t_start,
-                           model=model_for(repair_tier), tier=repair_tier,
-                           tokens=repair_usage.get("total_tokens"), rows=repair_rows,
-                           hint=hint_summary, kept=kept, outcome=outcome)
+                yield step(
+                    "repair",
+                    llm_status(repair_tier, get_preferred_tier()),
+                    t_start,
+                    model=model_for(repair_tier),
+                    tier=repair_tier,
+                    tokens=repair_usage.get("total_tokens"),
+                    rows=repair_rows,
+                    hint=hint_summary,
+                    kept=kept,
+                    outcome=outcome,
+                )
             except Exception as e:
                 # The repair is best-effort: a failure here falls through to
                 # the honest empty-result path, never to an error.
                 log.warning("SQL repair attempt failed: %s", e)
-                yield send("log", {"content": f"Repair attempt failed ({type(e).__name__}); keeping the original result."})
-                yield step("repair", "failed", t_start, hint=hint_summary, kept=False,
-                           outcome="error", error=type(e).__name__)
+                yield send(
+                    "log", {"content": f"Repair attempt failed ({type(e).__name__}); keeping the original result."}
+                )
+                yield step(
+                    "repair", "failed", t_start, hint=hint_summary, kept=False, outcome="error", error=type(e).__name__
+                )
 
         display_str = result_str if dev_mode else humanize_text(result_str)
         # `content` stays the preformatted text table (the report email and
@@ -2000,12 +2191,16 @@ async def ask(request: Request):
         doc_hits = _retrieve_documents(question)
         documents = rag.format_context(doc_hits)
         if doc_hits:
-            yield send("debug", {"content": f"Retrieved {len(doc_hits)} document(s): " +
-                                 ", ".join(f"{h['file_no']} ({h['score']:.1f})" for h in doc_hits)})
+            yield send(
+                "debug",
+                {
+                    "content": f"Retrieved {len(doc_hits)} document(s): "
+                    + ", ".join(f"{h['file_no']} ({h['score']:.1f})" for h in doc_hits)
+                },
+            )
         # "ok" with an empty list is a real outcome (nothing cleared the score
         # threshold); _retrieve_documents already swallows and logs failures.
-        yield step("retrieve_docs", "ok", t_docs,
-                   file_numbers=[str(h.get("file_no")) for h in doc_hits])
+        yield step("retrieve_docs", "ok", t_docs, file_numbers=[str(h.get("file_no")) for h in doc_hits])
 
         _pace()
 
@@ -2016,8 +2211,9 @@ async def ask(request: Request):
             # finding too, so it explains what IS in the data rather than
             # speculating about what might be.
             findings = grounding.format_repair_hint(diagnoses, CONFIG, instruct=False)
-            checked = (f"\n\nThe query's filters were checked against the data's vocabulary:\n{findings}"
-                       if findings else "")
+            checked = (
+                f"\n\nThe query's filters were checked against the data's vocabulary:\n{findings}" if findings else ""
+            )
             empty_prompt = f"""The user asked: "{question}"
 
 The SQL query returned no data:
@@ -2028,7 +2224,15 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
             t_empty = time.time()
             try:
                 for chunk in interpret_results_stream(
-                    client, MODEL, interpret_system, empty_prompt, sql, "No rows returned", history=history, fallback_client=paid_client, fallback_model=FALLBACK_MODEL,
+                    client,
+                    MODEL,
+                    interpret_system,
+                    empty_prompt,
+                    sql,
+                    "No rows returned",
+                    history=history,
+                    fallback_client=paid_client,
+                    fallback_model=FALLBACK_MODEL,
                     documents=documents,
                 ):
                     text = humanize_prose(chunk)
@@ -2040,15 +2244,22 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
                 # The footer cites against the text actually served, so the
                 # fallback has to join it: matching the partial stream instead
                 # would credit a file number the reader never saw.
-                fallback = ("I wasn't able to find any data matching that question. "
-                            "Try broadening your search or rephrasing.")
+                fallback = (
+                    "I wasn't able to find any data matching that question. Try broadening your search or rephrasing."
+                )
                 empty_served.append(fallback)
                 yield send("interpretation", {"content": fallback})
                 empty_tier = get_last_tier_used()
                 empty_step = ("failed", {"error": type(e).__name__})
-            yield step("interpret", empty_step[0], t_empty, model=model_for(empty_tier),
-                       tier=empty_tier, empty_result=True,
-                       **empty_step[1])
+            yield step(
+                "interpret",
+                empty_step[0],
+                t_empty,
+                model=model_for(empty_tier),
+                tier=empty_tier,
+                empty_result=True,
+                **empty_step[1],
+            )
             for evt in _sources_event(doc_hits, "".join(empty_served), send):
                 yield evt
             yield send("done", {})
@@ -2093,8 +2304,18 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
                 draft, draft_error = "", None
                 try:
                     for chunk in interpret_results_stream(
-                        a_client, a_model, interpret_system, question, sql, result_str, on_retry=on_retry, history=history, fallback_client=a_fb, fallback_model=a_fb_model,
-                        documents=documents, prefer_claude=a_claude,
+                        a_client,
+                        a_model,
+                        interpret_system,
+                        question,
+                        sql,
+                        result_str,
+                        on_retry=on_retry,
+                        history=history,
+                        fallback_client=a_fb,
+                        fallback_model=a_fb_model,
+                        documents=documents,
+                        prefer_claude=a_claude,
                     ):
                         draft += chunk
                         interp_tokens += 1
@@ -2127,8 +2348,16 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
             draft_error = e
             log.error("Interpretation failed: %s", e)
             fail_tier = get_last_tier_used()
-            yield step("interpret", "failed", t_start, model=model_for(fail_tier), tier=fail_tier,
-                       chunks=interp_tokens, retried=draft_retried, error=type(e).__name__)
+            yield step(
+                "interpret",
+                "failed",
+                t_start,
+                model=model_for(fail_tier),
+                tier=fail_tier,
+                chunks=interp_tokens,
+                retried=draft_retried,
+                error=type(e).__name__,
+            )
             if is_daily_cap_error(e):
                 track_error("daily_cap", str(e)[:200])
                 yield send("log", {"content": "Free daily allowance exhausted during interpretation."})
@@ -2152,16 +2381,29 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
                 track_error("interpretation", str(e)[:200])
                 yield send("log", {"content": f"Interpretation error: {type(e).__name__}"})
                 yield send("debug", {"content": f"Interpretation error detail: {e}"})
-                yield send("interpretation", {"content": "\n\n(I ran the query but had trouble summarizing the results. The data above is still accurate.)"})
+                yield send(
+                    "interpretation",
+                    {
+                        "content": "\n\n(I ran the query but had trouble summarizing the results. The data above is still accurate.)"
+                    },
+                )
         t_draft = time.time() - t_start
         # Captured now: the refine below overwrites the process-wide tier.
         draft_tier, draft_chunks, refine_tier = get_last_tier_used(), interp_tokens, None
         if draft_error is None:
             # "retried" = the whole draft was re-run on the backup provider
             # after a mid-stream failure (which also makes it a "fallback").
-            yield step("interpret", llm_status(draft_tier, get_preferred_tier()), None,
-                       ms=t_draft * 1000, model=model_for(draft_tier), tier=draft_tier,
-                       chunks=draft_chunks, truncated=draft_truncated, retried=draft_retried)
+            yield step(
+                "interpret",
+                llm_status(draft_tier, get_preferred_tier()),
+                None,
+                ms=t_draft * 1000,
+                model=model_for(draft_tier),
+                tier=draft_tier,
+                chunks=draft_chunks,
+                truncated=draft_truncated,
+                retried=draft_retried,
+            )
 
         if draft_error is not None:
             # The user already saw the error (or apology). Never refine a
@@ -2184,7 +2426,12 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
             # consistency, and accuracy against the results table. A failure
             # here must NEVER lose the answer — the draft is the fallback.
             yield send("log", {"content": "Refining the answer..."})
-            yield send("debug", {"content": f"Draft interpretation in {t_draft:.1f}s | ~{interp_tokens} chunks | Tier: {tier_label(draft_tier)}"})
+            yield send(
+                "debug",
+                {
+                    "content": f"Draft interpretation in {t_draft:.1f}s | ~{interp_tokens} chunks | Tier: {tier_label(draft_tier)}"
+                },
+            )
             _pace()
             refine_counter = {"n": 0}
             refine_failure = []
@@ -2202,14 +2449,26 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
                 r_client, r_model, r_fb, r_fb_model, r_swapped = client, MODEL, paid_client, FALLBACK_MODEL, False
             yield from refine_events_with_fallback(
                 refine_interpretation_stream(
-                    r_client, r_model, question, sql, result_str, draft, on_retry=on_retry, fallback_client=r_fb, fallback_model=r_fb_model,
-                    swapped=r_swapped, extra_facts=CITY_FACTS, documents=documents,
+                    r_client,
+                    r_model,
+                    question,
+                    sql,
+                    result_str,
+                    draft,
+                    on_retry=on_retry,
+                    fallback_client=r_fb,
+                    fallback_model=r_fb_model,
+                    swapped=r_swapped,
+                    extra_facts=CITY_FACTS,
+                    documents=documents,
                 ),
                 draft,
                 send,
                 transform=humanize_prose,
-                on_fail=lambda e: (refine_failure.append(e),
-                                   track_error("interpretation", f"Refine failed: {str(e)[:150]}")),
+                on_fail=lambda e: (
+                    refine_failure.append(e),
+                    track_error("interpretation", f"Refine failed: {str(e)[:150]}"),
+                ),
                 timeout=stream_timeout,
                 counter=refine_counter,
                 sink=served_text,
@@ -2222,13 +2481,22 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
             # The refine's first-choice provider is the paid one when swapped.
             if refine_failure:
                 r_status = "failed"
-                r_detail = {"error": type(refine_failure[0]).__name__,
-                            "served": "partial" if refine_counter["n"] else "draft"}
+                r_detail = {
+                    "error": type(refine_failure[0]).__name__,
+                    "served": "partial" if refine_counter["n"] else "draft",
+                }
             else:
                 r_status = llm_status(refine_tier, r_intended)
                 r_detail = {"served": "refined"}
-            yield step("refine", r_status, t_refine, model=model_for(refine_tier), tier=refine_tier,
-                       chunks=refine_counter["n"], **r_detail)
+            yield step(
+                "refine",
+                r_status,
+                t_refine,
+                model=model_for(refine_tier),
+                tier=refine_tier,
+                chunks=refine_counter["n"],
+                **r_detail,
+            )
 
         # Citations go out after the answer, as a footer under a finished
         # response — and only for documents the answer actually cited.
@@ -2270,14 +2538,28 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
                 shown, reason = validate_background(note, _city_names())
                 if shown:
                     yield send("background", {"content": humanize_prose(shown)})
-                    yield step("background", bg_status, t_bg, model=model_for(bg_tier), tier=bg_tier,
-                               tokens=bg_usage.get("total_tokens"), shown=True)
+                    yield step(
+                        "background",
+                        bg_status,
+                        t_bg,
+                        model=model_for(bg_tier),
+                        tier=bg_tier,
+                        tokens=bg_usage.get("total_tokens"),
+                        shown=True,
+                    )
                 else:
                     # "none" = nothing useful to add (a real, fine outcome);
                     # anything else = the note broke a rule and was withheld.
-                    yield step("background", bg_status if reason == "none" else "failed", t_bg,
-                               model=model_for(bg_tier), tier=bg_tier,
-                               tokens=bg_usage.get("total_tokens"), shown=False, reason=reason)
+                    yield step(
+                        "background",
+                        bg_status if reason == "none" else "failed",
+                        t_bg,
+                        model=model_for(bg_tier),
+                        tier=bg_tier,
+                        tokens=bg_usage.get("total_tokens"),
+                        shown=False,
+                        reason=reason,
+                    )
             except Exception as e:
                 log.warning("Background note failed (answer unaffected): %s", e)
                 yield step("background", "failed", t_bg, shown=False, error=type(e).__name__)
@@ -2295,25 +2577,31 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
         tiers = f"SQL {tier_label(sql_tier)} · draft {tier_label(draft_tier)}"
         if refine_tier is not None:
             tiers += f" · refine {tier_label(refine_tier)}"
-        yield send("debug", {"content": f"Interpretation streamed in {t_interp:.1f}s | ~{interp_tokens} chunks | Tiers: {tiers}"})
+        yield send(
+            "debug",
+            {"content": f"Interpretation streamed in {t_interp:.1f}s | ~{interp_tokens} chunks | Tiers: {tiers}"},
+        )
         # Per-request token count (SQL gen tokens + estimated interpretation tokens)
         request_tokens = sql_usage.get("total_tokens", 0) + interp_tokens
         tpd = u["limits"]["tpd"] or 1000000
         tpd_remaining = tpd - u["tokens_today"]
-        yield send("usage", {
-            "providers": u["providers"],
-            "requests_today": u["requests_today"],
-            "rpd_remaining": u["rpd_remaining"],
-            "rpd_pct": u["rpd_pct"],
-            "rpm_used": u["requests_per_minute"],
-            "rpm_remaining": u["rpm_remaining"],
-            "tokens_today": u["tokens_today"],
-            "tokens_remaining": max(0, tpd_remaining),
-            "tokens_limit": tpd,
-            "request_tokens": request_tokens,
-            "local_prompt_tokens_today": u["local_prompt_tokens_today"],
-            "local_completion_tokens_today": u["local_completion_tokens_today"],
-        })
+        yield send(
+            "usage",
+            {
+                "providers": u["providers"],
+                "requests_today": u["requests_today"],
+                "rpd_remaining": u["rpd_remaining"],
+                "rpd_pct": u["rpd_pct"],
+                "rpm_used": u["requests_per_minute"],
+                "rpm_remaining": u["rpm_remaining"],
+                "tokens_today": u["tokens_today"],
+                "tokens_remaining": max(0, tpd_remaining),
+                "tokens_limit": tpd,
+                "request_tokens": request_tokens,
+                "local_prompt_tokens_today": u["local_prompt_tokens_today"],
+                "local_completion_tokens_today": u["local_completion_tokens_today"],
+            },
+        )
 
         yield send("done", {})
 
@@ -2351,17 +2639,27 @@ Explain in plain text (no markdown, no SQL) why this likely returned no results 
         except Exception as e:
             log.exception("Unhandled error in /api/ask stream: %s", e)
             track_error("unhandled", str(e)[:200])
-            err = {'type': 'error', 'content': f'Something went wrong on the server ({type(e).__name__}). Please try again in a moment.'}
+            err = {
+                "type": "error",
+                "content": f"Something went wrong on the server ({type(e).__name__}). Please try again in a moment.",
+            }
             all_events.append(err)
             yield f"data: {json.dumps(err)}\n\n"
-            all_events.append({'type': 'done'})
+            all_events.append({"type": "done"})
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         finally:
             # The interaction record, however the stream ended (ok, error,
             # incomplete, abandoned) — written once, after the last frame.
-            _record_interaction(answer_id=answer_id, session_id=session_id, question=question,
-                                history=history, events=all_events, cache_hit=False,
-                                cache_key=cache_key, outcome=interactions.outcome_of(all_events, ended),
-                                dev_mode=dev_mode)
+            _record_interaction(
+                answer_id=answer_id,
+                session_id=session_id,
+                question=question,
+                history=history,
+                events=all_events,
+                cache_hit=False,
+                cache_key=cache_key,
+                outcome=interactions.outcome_of(all_events, ended),
+                dev_mode=dev_mode,
+            )
 
     return StreamingResponse(safe_stream(), media_type="text/event-stream")

@@ -26,6 +26,7 @@ the bd epic louisville-open-data-ru6:
   target. The DynamoDB limiter in the app plus reserved concurrency are the
   circuit breakers; flip the flag if abuse ever warrants paying for the edge.
 """
+
 from pathlib import Path
 
 import aws_cdk as cdk
@@ -88,7 +89,8 @@ class LouStack(cdk.Stack):
         # the counters behind /api/health. TTL reclaims buckets and old cache
         # versions. Contents are rebuildable (warm_cache.py), so DESTROY.
         table = dynamodb.Table(
-            self, "State",
+            self,
+            "State",
             table_name=TABLE_NAME,
             partition_key=dynamodb.Attribute(name="pk", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -101,7 +103,8 @@ class LouStack(cdk.Stack):
         # Not rebuildable — RETAIN, unlike the state table. No PII inside
         # (no IP, UA or identity: the module docstring is the contract).
         interactions_table = dynamodb.Table(
-            self, "Interactions",
+            self,
+            "Interactions",
             table_name=INTERACTIONS_TABLE_NAME,
             partition_key=dynamodb.Attribute(name="pk", type=dynamodb.AttributeType.STRING),
             sort_key=dynamodb.Attribute(name="sk", type=dynamodb.AttributeType.STRING),
@@ -116,18 +119,21 @@ class LouStack(cdk.Stack):
         # DuckDB artifact is baked into the image. Name carries account+region
         # (the S3 naming rule the deploy policies enforce; see infra/iam).
         data_bucket = s3.Bucket(
-            self, "Data",
+            self,
+            "Data",
             bucket_name=f"lou-data-{self.account}-{self.region}",
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True,
             removal_policy=cdk.RemovalPolicy.RETAIN,
-            lifecycle_rules=[s3.LifecycleRule(
-                id="expire-refresh-snapshots",
-                prefix="snapshots/",
-                expiration=Duration.days(90),
-                abort_incomplete_multipart_upload_after=Duration.days(2),
-            )],
+            lifecycle_rules=[
+                s3.LifecycleRule(
+                    id="expire-refresh-snapshots",
+                    prefix="snapshots/",
+                    expiration=Duration.days(90),
+                    abort_incomplete_multipart_upload_after=Duration.days(2),
+                )
+            ],
         )
 
         # ── execution role ──────────────────────────────────────────────────
@@ -136,40 +142,54 @@ class LouStack(cdk.Stack):
         # is the runtime ceiling; the inline policy below is what the function
         # actually gets (logs, its table, its secrets — nothing sideways).
         role = iam.Role(
-            self, "ExecRole",
+            self,
+            "ExecRole",
             role_name="lou-lambda-exec",
             path="/lou/",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            permissions_boundary=iam.ManagedPolicy.from_managed_policy_name(
-                self, "Boundary", "LouPermissionsBoundary"),
+            permissions_boundary=iam.ManagedPolicy.from_managed_policy_name(self, "Boundary", "LouPermissionsBoundary"),
             description="Runtime role for the Lou bot Lambda",
         )
         # Every action here must also be allowed by LouPermissionsBoundary
         # (the effective permission is the intersection); tests/test_cdk_stack.py
         # checks that against infra/iam/lou-permissions-boundary.json.
-        role.add_to_policy(iam.PolicyStatement(
-            sid="ReadSecretsAtColdStart",
-            actions=["ssm:GetParameter", "ssm:GetParameters"],   # by name; no path listing
-            resources=[self.format_arn(service="ssm", resource="parameter", resource_name="lou/*")],
-        ))
-        role.add_to_policy(iam.PolicyStatement(
-            sid="DecryptSecureStringsViaSsmOnly",
-            actions=["kms:Decrypt"],
-            resources=["*"],
-            conditions={"StringEquals": {"kms:ViaService": f"ssm.{self.region}.amazonaws.com"}},
-        ))
-        role.add_to_policy(iam.PolicyStatement(
-            sid="StateTable",
-            # Exactly what state_store.py calls — not grant_read_write_data,
-            # which also grants stream actions the boundary does not.
-            actions=["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
-                     "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchWriteItem"],
-            resources=[table.table_arn, interactions_table.table_arn],
-        ))
+        role.add_to_policy(
+            iam.PolicyStatement(
+                sid="ReadSecretsAtColdStart",
+                actions=["ssm:GetParameter", "ssm:GetParameters"],  # by name; no path listing
+                resources=[self.format_arn(service="ssm", resource="parameter", resource_name="lou/*")],
+            )
+        )
+        role.add_to_policy(
+            iam.PolicyStatement(
+                sid="DecryptSecureStringsViaSsmOnly",
+                actions=["kms:Decrypt"],
+                resources=["*"],
+                conditions={"StringEquals": {"kms:ViaService": f"ssm.{self.region}.amazonaws.com"}},
+            )
+        )
+        role.add_to_policy(
+            iam.PolicyStatement(
+                sid="StateTable",
+                # Exactly what state_store.py calls — not grant_read_write_data,
+                # which also grants stream actions the boundary does not.
+                actions=[
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan",
+                    "dynamodb:BatchWriteItem",
+                ],
+                resources=[table.table_arn, interactions_table.table_arn],
+            )
+        )
 
         # ── logs ────────────────────────────────────────────────────────────
         log_group = logs.LogGroup(
-            self, "Logs",
+            self,
+            "Logs",
             log_group_name=f"/aws/lambda/{FUNCTION_NAME}",
             retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=cdk.RemovalPolicy.DESTROY,
@@ -182,7 +202,8 @@ class LouStack(cdk.Stack):
         # CSVs out of the context. arm64: cheaper per ms, native on the build
         # machine. Sizing from spike/lambda-image/results.md.
         fn = lambda_.DockerImageFunction(
-            self, "Fn",
+            self,
+            "Fn",
             function_name=FUNCTION_NAME,
             description="Lou bot: FastAPI + DuckDB behind Lambda Web Adapter (response streaming)",
             code=lambda_.DockerImageCode.from_image_asset(
@@ -205,9 +226,9 @@ class LouStack(cdk.Stack):
                 # LWA settings) is baked into Dockerfile.lambda.
                 "STATE_BACKEND": "dynamodb",
                 "STATE_TABLE": table.table_name,
-                "INTERACTIONS_TABLE": INTERACTIONS_TABLE_NAME,   # interactions.py; unset = recording off
-                "CLIENT_IP_SOURCE": "cloudfront",     # behind OAC; see app._client_ip
-                "SSM_PARAMETER_PATH": ssm_path,       # OPENROUTER_API_KEY, CEREBRAS_PAID_API_KEY, ADMIN_TOKEN
+                "INTERACTIONS_TABLE": INTERACTIONS_TABLE_NAME,  # interactions.py; unset = recording off
+                "CLIENT_IP_SOURCE": "cloudfront",  # behind OAC; see app._client_ip
+                "SSM_PARAMETER_PATH": ssm_path,  # OPENROUTER_API_KEY, CEREBRAS_PAID_API_KEY, ADMIN_TOKEN
             },
         )
 
@@ -230,7 +251,8 @@ class LouStack(cdk.Stack):
         # header. Allow-list the viewer headers the app actually reads plus that
         # one; Host stays out (Function URLs reject a forwarded Host).
         origin_request_policy = cloudfront.OriginRequestPolicy(
-            self, "OriginRequest",
+            self,
+            "OriginRequest",
             origin_request_policy_name="lou-viewer-headers-and-address",
             comment="App headers + CloudFront-Viewer-Address; never Host",
             # x-amz-content-sha256 (the OAC body hash, 22e) is deliberately NOT
@@ -238,13 +260,20 @@ class LouStack(cdk.Stack):
             # allowed") because it consumes them for SigV4 itself — the spike's
             # POSTs through OAC never had it forwarded and worked.
             header_behavior=cloudfront.OriginRequestHeaderBehavior.allow_list(
-                "CloudFront-Viewer-Address", "Content-Type", "Accept", "Accept-Language",
-                "User-Agent", "Origin", "X-Admin-Token"),
+                "CloudFront-Viewer-Address",
+                "Content-Type",
+                "Accept",
+                "Accept-Language",
+                "User-Agent",
+                "Origin",
+                "X-Admin-Token",
+            ),
             query_string_behavior=cloudfront.OriginRequestQueryStringBehavior.all(),
             cookie_behavior=cloudfront.OriginRequestCookieBehavior.none(),
         )
         dist = cloudfront.Distribution(
-            self, "Cdn",
+            self,
+            "Cdn",
             comment="Lou bot (lou-bot Function URL, OAC)",
             default_behavior=cloudfront.BehaviorOptions(
                 origin=origins.FunctionUrlOrigin.with_origin_access_control(
@@ -277,8 +306,8 @@ class LouStack(cdk.Stack):
             action="lambda:InvokeFunction",
             invoked_via_function_url=True,
             source_arn=self.format_arn(
-                service="cloudfront", region="", resource="distribution",
-                resource_name=dist.distribution_id),
+                service="cloudfront", region="", resource="distribution", resource_name=dist.distribution_id
+            ),
         )
 
         # ── alarms ──────────────────────────────────────────────────────────
@@ -294,32 +323,65 @@ class LouStack(cdk.Stack):
             alerts.add_subscription(subs.EmailSubscription(str(alert_email)))
         notify = cw_actions.SnsAction(alerts)
 
-        def alarm(cid: str, name: str, metric: cw.Metric, threshold: float, description: str,
-                  periods: int = 1, comparison=cw.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD):
+        def alarm(
+            cid: str,
+            name: str,
+            metric: cw.Metric,
+            threshold: float,
+            description: str,
+            periods: int = 1,
+            comparison=cw.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        ):
             a = cw.Alarm(
-                self, cid, alarm_name=name, alarm_description=description, metric=metric,
-                threshold=threshold, evaluation_periods=periods, comparison_operator=comparison,
+                self,
+                cid,
+                alarm_name=name,
+                alarm_description=description,
+                metric=metric,
+                threshold=threshold,
+                evaluation_periods=periods,
+                comparison_operator=comparison,
                 treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
             )
             a.add_alarm_action(notify)
             a.add_ok_action(notify)
             return a
 
-        alarm("ErrorsAlarm", f"{FUNCTION_NAME}-errors",
-              fn.metric_errors(period=Duration.minutes(5), statistic="Sum"), 1,
-              "lou-bot: one or more invocation errors (init failure, timeout, unhandled exception) in 5 min")
-        alarm("ThrottlesAlarm", f"{FUNCTION_NAME}-throttles",
-              fn.metric_throttles(period=Duration.minutes(5), statistic="Sum"), 1,
-              f"lou-bot: reserved concurrency ({reserved}) hit — a burst or abuse; the DynamoDB limiter should have caught it first")
-        alarm("DurationAlarm", f"{FUNCTION_NAME}-duration-near-timeout",
-              fn.metric_duration(period=Duration.minutes(5), statistic="Maximum"), 110_000,
-              "lou-bot: a request ran within 10 s of the 120 s timeout (stalled upstream stream or pathological retry ladder)")
+        alarm(
+            "ErrorsAlarm",
+            f"{FUNCTION_NAME}-errors",
+            fn.metric_errors(period=Duration.minutes(5), statistic="Sum"),
+            1,
+            "lou-bot: one or more invocation errors (init failure, timeout, unhandled exception) in 5 min",
+        )
+        alarm(
+            "ThrottlesAlarm",
+            f"{FUNCTION_NAME}-throttles",
+            fn.metric_throttles(period=Duration.minutes(5), statistic="Sum"),
+            1,
+            f"lou-bot: reserved concurrency ({reserved}) hit — a burst or abuse; the DynamoDB limiter should have caught it first",
+        )
+        alarm(
+            "DurationAlarm",
+            f"{FUNCTION_NAME}-duration-near-timeout",
+            fn.metric_duration(period=Duration.minutes(5), statistic="Maximum"),
+            110_000,
+            "lou-bot: a request ran within 10 s of the 120 s timeout (stalled upstream stream or pathological retry ladder)",
+        )
         if web_acl:
-            alarm("WafBlockedAlarm", "lou-edge-blocked-spike",
-                  cw.Metric(namespace="AWS/WAFV2", metric_name="BlockedRequests", statistic="Sum",
-                            period=Duration.minutes(5),
-                            dimensions_map={"WebACL": WAF_METRIC_NAME, "Region": "Global", "Rule": "ALL"}),
-                  50, "lou edge: the WAF rate rule is blocking a spike of requests")
+            alarm(
+                "WafBlockedAlarm",
+                "lou-edge-blocked-spike",
+                cw.Metric(
+                    namespace="AWS/WAFV2",
+                    metric_name="BlockedRequests",
+                    statistic="Sum",
+                    period=Duration.minutes(5),
+                    dimensions_map={"WebACL": WAF_METRIC_NAME, "Region": "Global", "Rule": "ALL"},
+                ),
+                50,
+                "lou edge: the WAF rate rule is blocking a spike of requests",
+            )
 
         # ── the build plane: scheduled data refresh ─────────────────────────
         # (louisville-open-data-0nu) CodeBuild, not Lambda: the refresh pulls
@@ -332,27 +394,36 @@ class LouStack(cdk.Stack):
         # same deploy ceiling the human's own principal has, trusting both
         # codebuild and scheduler, and the stack only references it.
         build_role_arn = ctx("lou:buildRoleArn") or self.format_arn(
-            service="iam", region="", resource="role", resource_name="lou/lou-build")
+            service="iam", region="", resource="role", resource_name="lou/lou-build"
+        )
         build_role = iam.Role.from_role_arn(self, "BuildRole", build_role_arn, mutable=False)
         build_logs = logs.LogGroup(
-            self, "BuildLogs", log_group_name="/lou/build",
-            retention=logs.RetentionDays.ONE_MONTH, removal_policy=cdk.RemovalPolicy.DESTROY)
+            self,
+            "BuildLogs",
+            log_group_name="/lou/build",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
         build = codebuild.Project(
-            self, "Refresh",
+            self,
+            "Refresh",
             project_name="lou-refresh",
             description="Monthly data refresh: pull CSVs, profiles, corpus -> DuckDB artifact -> image -> deploy -> re-warm cache",
             role=build_role,
             environment=codebuild.BuildEnvironment(
                 build_image=codebuild.LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0,
                 compute_type=codebuild.ComputeType.SMALL,
-                privileged=True,   # Docker, for the arm64 image build
+                privileged=True,  # Docker, for the arm64 image build
             ),
             environment_variables={
                 "LOU_ALERT_EMAIL": codebuild.BuildEnvironmentVariable(value=str(alert_email or "")),
                 "LOU_DATA_BUCKET": codebuild.BuildEnvironmentVariable(value=data_bucket.bucket_name),
                 "LOU_SSM_PATH": codebuild.BuildEnvironmentVariable(value=ssm_path),
                 "LOU_REPO": codebuild.BuildEnvironmentVariable(
-                    value=str(ctx("lou:repoUrl") or "https://github.com/jimbottle/louisville-open-data-expenditure-bot.git")),
+                    value=str(
+                        ctx("lou:repoUrl") or "https://github.com/jimbottle/louisville-open-data-expenditure-bot.git"
+                    )
+                ),
             },
             timeout=Duration.hours(3),
             logging=codebuild.LoggingOptions(cloud_watch=codebuild.CloudWatchLoggingOptions(log_group=build_logs)),
@@ -363,10 +434,12 @@ class LouStack(cdk.Stack):
         # In its own lou-* schedule group: the deploy policy scopes Scheduler to
         # schedule/lou-*/* and schedule-group/lou-*, and the "default" group's
         # ARN (schedule/default/<name>) would fall outside that.
-        group = scheduler.ScheduleGroup(self, "RefreshGroup", schedule_group_name="lou-refresh",
-                                        removal_policy=cdk.RemovalPolicy.DESTROY)
+        group = scheduler.ScheduleGroup(
+            self, "RefreshGroup", schedule_group_name="lou-refresh", removal_policy=cdk.RemovalPolicy.DESTROY
+        )
         sched = scheduler.Schedule(
-            self, "RefreshSchedule",
+            self,
+            "RefreshSchedule",
             schedule_name="lou-refresh-monthly",
             schedule_group=group,
             description="Lou data refresh + redeploy",
@@ -379,7 +452,8 @@ class LouStack(cdk.Stack):
         sched.node.add_dependency(group)
         # A failed or stopped build is a silent stale-data outage otherwise.
         events.Rule(
-            self, "RefreshFailed",
+            self,
+            "RefreshFailed",
             rule_name="lou-refresh-failed",
             description="Lou refresh build failed/stopped/timed out -> lou-alerts",
             event_pattern=events.EventPattern(
@@ -400,8 +474,12 @@ class LouStack(cdk.Stack):
         # because a CloudFormation output cannot be empty.
         cdk.CfnOutput(self, "AlertEmail", value=str(alert_email) if alert_email else "none")
         cdk.CfnOutput(self, "CloudFrontUrl", value=f"https://{dist.distribution_domain_name}/")
-        cdk.CfnOutput(self, "CloudFrontDomain", value=dist.distribution_domain_name,
-                      description="CNAME target for the public hostname at cutover")
+        cdk.CfnOutput(
+            self,
+            "CloudFrontDomain",
+            value=dist.distribution_domain_name,
+            description="CNAME target for the public hostname at cutover",
+        )
         if domain:
             cdk.CfnOutput(self, "PublicUrl", value=f"https://{domain}/")
             # deploy.sh reads these two back so an ordinary deploy keeps the
@@ -409,8 +487,12 @@ class LouStack(cdk.Stack):
             cdk.CfnOutput(self, "PublicDomain", value=domain)
             cdk.CfnOutput(self, "CertificateArn", value=cert_arn)
         cdk.CfnOutput(self, "DistributionId", value=dist.distribution_id)
-        cdk.CfnOutput(self, "FunctionUrl", value=fn_url.url,
-                      description="IAM-auth, CloudFront-only; direct requests are 403 by design")
+        cdk.CfnOutput(
+            self,
+            "FunctionUrl",
+            value=fn_url.url,
+            description="IAM-auth, CloudFront-only; direct requests are 403 by design",
+        )
         cdk.CfnOutput(self, "FunctionName", value=fn.function_name)
         cdk.CfnOutput(self, "StateTable", value=table.table_name)
         cdk.CfnOutput(self, "DataBucket", value=data_bucket.bucket_name)
@@ -440,25 +522,25 @@ class LouStack(cdk.Stack):
                         # HEAD's date for every file. blob:none keeps the full
                         # commit/tree history (1.5 MB) and fetches only HEAD's
                         # blobs; GitHub honours the filter.
-                        "git clone --filter=blob:none \"$LOU_REPO\" \"$CODEBUILD_SRC_DIR/src\" && git -C \"$CODEBUILD_SRC_DIR/src\" rev-parse --short HEAD",
-                        "cd \"$CODEBUILD_SRC_DIR/src\" && pip install -q -r requirements.txt -r infra/cdk/requirements.txt beautifulsoup4",
+                        'git clone --filter=blob:none "$LOU_REPO" "$CODEBUILD_SRC_DIR/src" && git -C "$CODEBUILD_SRC_DIR/src" rev-parse --short HEAD',
+                        'cd "$CODEBUILD_SRC_DIR/src" && pip install -q -r requirements.txt -r infra/cdk/requirements.txt beautifulsoup4',
                     ],
                 },
                 "build": {
                     "commands": [
                         # 1. Pull every dataset, rebuild contractor profiles (+SOS), re-ingest the corpus.
                         #    No Neo4j on this plane (graph/ is local tooling).
-                        "cd \"$CODEBUILD_SRC_DIR/src\" && python refresh_data.py --skip-graph",
-                        "cd \"$CODEBUILD_SRC_DIR/src\" && python rag.py ingest",
+                        'cd "$CODEBUILD_SRC_DIR/src" && python refresh_data.py --skip-graph',
+                        'cd "$CODEBUILD_SRC_DIR/src" && python rag.py ingest',
                         # 2. The serving artifact (schema snapshot included).
-                        "cd \"$CODEBUILD_SRC_DIR/src\" && python data_model.py --materialize data/lou.duckdb",
+                        'cd "$CODEBUILD_SRC_DIR/src" && python data_model.py --materialize data/lou.duckdb',
                         # 3. Keep the inputs + artifact: a dated snapshot (90-day lifecycle) and latest/.
-                        "cd \"$CODEBUILD_SRC_DIR/src\" && SNAP=$(date -u +%Y-%m-%d) && aws s3 sync data/ \"s3://$LOU_DATA_BUCKET/snapshots/$SNAP/\" --exclude '.*' --only-show-errors",
-                        "cd \"$CODEBUILD_SRC_DIR/src\" && aws s3 cp data/lou.duckdb \"s3://$LOU_DATA_BUCKET/latest/lou.duckdb\" --only-show-errors && aws s3 cp data/rag_documents.duckdb \"s3://$LOU_DATA_BUCKET/latest/rag_documents.duckdb\" --only-show-errors",
+                        'cd "$CODEBUILD_SRC_DIR/src" && SNAP=$(date -u +%Y-%m-%d) && aws s3 sync data/ "s3://$LOU_DATA_BUCKET/snapshots/$SNAP/" --exclude \'.*\' --only-show-errors',
+                        'cd "$CODEBUILD_SRC_DIR/src" && aws s3 cp data/lou.duckdb "s3://$LOU_DATA_BUCKET/latest/lou.duckdb" --only-show-errors && aws s3 cp data/rag_documents.duckdb "s3://$LOU_DATA_BUCKET/latest/rag_documents.duckdb" --only-show-errors',
                         # 4. Build + push the image and update the function (the stack is the deploy).
                         #    Same rule as deploy.sh: the live stack's hostname binding is re-applied,
                         #    or this monthly deploy would detach production from CloudFront.
-                        "cd \"$CODEBUILD_SRC_DIR/src/infra/cdk\" && D=$(aws cloudformation describe-stacks --stack-name LouStack --query \"Stacks[0].Outputs[?OutputKey=='PublicDomain'].OutputValue\" --output text) && C=$(aws cloudformation describe-stacks --stack-name LouStack --query \"Stacks[0].Outputs[?OutputKey=='CertificateArn'].OutputValue\" --output text) && CTX=\"\" && if [ -n \"$D\" ] && [ \"$D\" != None ]; then CTX=\"-c lou:domain=$D -c lou:certificateArn=$C\"; echo \"keeping hostname $D\"; fi && npx --yes aws-cdk@2 -c \"lou:alertEmail=$LOU_ALERT_EMAIL\" $CTX deploy LouStack --require-approval never --outputs-file /tmp/outputs.json",
+                        'cd "$CODEBUILD_SRC_DIR/src/infra/cdk" && D=$(aws cloudformation describe-stacks --stack-name LouStack --query "Stacks[0].Outputs[?OutputKey==\'PublicDomain\'].OutputValue" --output text) && C=$(aws cloudformation describe-stacks --stack-name LouStack --query "Stacks[0].Outputs[?OutputKey==\'CertificateArn\'].OutputValue" --output text) && CTX="" && if [ -n "$D" ] && [ "$D" != None ]; then CTX="-c lou:domain=$D -c lou:certificateArn=$C"; echo "keeping hostname $D"; fi && npx --yes aws-cdk@2 -c "lou:alertEmail=$LOU_ALERT_EMAIL" $CTX deploy LouStack --require-approval never --outputs-file /tmp/outputs.json',
                     ],
                 },
                 "post_build": {
@@ -469,8 +551,8 @@ class LouStack(cdk.Stack):
                         # non-fatal for the self-hosted flow; here a wrong token or an
                         # edge block would otherwise leave last month's answers cached
                         # while the build reports SUCCEEDED.
-                        "curl -sf --max-time 30 -X DELETE \"${CF}api/cache\" -H \"X-Admin-Token: $ADMIN_TOKEN\" && echo cache-cleared",
-                        "cd \"$CODEBUILD_SRC_DIR/src\" && python warm_cache.py --host \"${CF%/}\" --delay 5",
+                        'curl -sf --max-time 30 -X DELETE "${CF}api/cache" -H "X-Admin-Token: $ADMIN_TOKEN" && echo cache-cleared',
+                        'cd "$CODEBUILD_SRC_DIR/src" && python warm_cache.py --host "${CF%/}" --delay 5',
                     ],
                 },
             },
@@ -481,21 +563,27 @@ class LouStack(cdk.Stack):
         before Lambda is ever invoked. Costs $5/mo + $1 for the rule, hence
         opt-in (context lou:waf=true)."""
         return wafv2.CfnWebACL(
-            self, "WebAcl",
+            self,
+            "WebAcl",
             name="lou-edge-rate-limit",
             scope="CLOUDFRONT",
             default_action=wafv2.CfnWebACL.DefaultActionProperty(allow={}),
             visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-                cloud_watch_metrics_enabled=True, metric_name=WAF_METRIC_NAME, sampled_requests_enabled=True),
-            rules=[wafv2.CfnWebACL.RuleProperty(
-                name="lou-per-ip-rate",
-                priority=0,
-                action=wafv2.CfnWebACL.RuleActionProperty(block={}),
-                statement=wafv2.CfnWebACL.StatementProperty(
-                    rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
-                        limit=300, aggregate_key_type="IP")),
-                visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-                    cloud_watch_metrics_enabled=True, metric_name="lou-per-ip-rate",
-                    sampled_requests_enabled=True),
-            )],
+                cloud_watch_metrics_enabled=True, metric_name=WAF_METRIC_NAME, sampled_requests_enabled=True
+            ),
+            rules=[
+                wafv2.CfnWebACL.RuleProperty(
+                    name="lou-per-ip-rate",
+                    priority=0,
+                    action=wafv2.CfnWebACL.RuleActionProperty(block={}),
+                    statement=wafv2.CfnWebACL.StatementProperty(
+                        rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
+                            limit=300, aggregate_key_type="IP"
+                        )
+                    ),
+                    visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
+                        cloud_watch_metrics_enabled=True, metric_name="lou-per-ip-rate", sampled_requests_enabled=True
+                    ),
+                )
+            ],
         )

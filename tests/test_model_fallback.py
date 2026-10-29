@@ -31,6 +31,7 @@ class FakeModels:
     def list(self):
         class R:
             pass
+
         r = R()
         r.data = [FakeModel(i) for i in self._ids]
         return r
@@ -154,6 +155,7 @@ def test_raced_request_reuses_other_threads_switch():
                 aa._active_model = "raced-model"  # the "other thread" wins mid-flight
                 raise _not_found()
             return c.complete(m)
+
         return _c
 
     result = aa._call_with_model_fallback(mk, client, "dead-model")
@@ -171,6 +173,7 @@ def test_non_model_errors_propagate():
     def bad_call(client, model):
         def _c():
             raise Boom("unrelated")
+
         return _c
 
     with pytest.raises(Boom):

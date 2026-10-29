@@ -8,6 +8,7 @@ apply to *this* stream is what they would apply to the real one.
 GET and POST both work: the real frontend POSTs, and CloudFront OAC treats
 POST bodies differently (SigV4 needs a body hash), so the spike measures both.
 """
+
 import json
 import os
 import time

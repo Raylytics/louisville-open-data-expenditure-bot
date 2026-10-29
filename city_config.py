@@ -22,9 +22,7 @@ log = logging.getLogger("city_config")
 # holding anything else are treated as ordinary prose.
 KNOWN_PLACEHOLDERS = ("first_year", "newest_year", "in_progress_year", "last_complete_year")
 
-DEFAULT_CONFIG = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "cities", "louisville", "city.yaml"
-)
+DEFAULT_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cities", "louisville", "city.yaml")
 
 
 class CityConfig:
@@ -64,13 +62,9 @@ class CityConfig:
                     text = text.replace("{" + key + "}", str(val))
             # Only the documented placeholder names can leave a fact
             # unusable; any other braces are ordinary prose and pass through.
-            leftover = next(
-                (p for p in KNOWN_PLACEHOLDERS if "{" + p + "}" in text), None
-            )
+            leftover = next((p for p in KNOWN_PLACEHOLDERS if "{" + p + "}" in text), None)
             if leftover:
-                log.warning(
-                    "Dropping city data_fact with unresolved {%s}: %.60s", leftover, text
-                )
+                log.warning("Dropping city data_fact with unresolved {%s}: %.60s", leftover, text)
                 continue
             out.append(text)
         return out

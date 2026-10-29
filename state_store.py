@@ -34,6 +34,7 @@ more), and the limiter fails OPEN if DynamoDB is unreachable — reserved
 concurrency on the function is the hard ceiling, and a DynamoDB outage must
 not take the site down with it.
 """
+
 from __future__ import annotations
 
 import functools
@@ -51,6 +52,7 @@ def _best_effort(default):
     is logged and the call degrades (a miss, a no-op, zeros) instead of turning
     the request into a 500. The limiter's fail-open in rate_allow is the same
     stance. `default` may be a value or a zero-arg callable."""
+
     def deco(fn):
         @functools.wraps(fn)
         def wrapper(self, *a, **k):
@@ -59,20 +61,31 @@ def _best_effort(default):
             except Exception as e:  # noqa: BLE001
                 self._note_backend_error(fn.__name__, e)
                 return default() if callable(default) else default
+
         return wrapper
+
     return deco
 
 
 def _empty_error_summary() -> dict:
     return {
-        "total_errors": 0, "errors_last_hour": 0, "sql_gen_errors": 0, "sql_exec_errors": 0,
-        "interpretation_errors": 0, "rate_limit_errors": 0, "quota_errors": 0,
-        "last_quota_error": None, "quota_error_recent": False, "last_error": None, "last_error_time": None,
+        "total_errors": 0,
+        "errors_last_hour": 0,
+        "sql_gen_errors": 0,
+        "sql_exec_errors": 0,
+        "interpretation_errors": 0,
+        "rate_limit_errors": 0,
+        "quota_errors": 0,
+        "last_quota_error": None,
+        "quota_error_recent": False,
+        "last_error": None,
+        "last_error_time": None,
     }
+
 
 DEAD_LINK_MARKER = "LegislationDetail.aspx"
 QUOTA_CATEGORIES = ("quota", "daily_cap")
-_RECENT_PRUNE_AT = 200          # trim the error-timestamp list past this many entries
+_RECENT_PRUNE_AT = 200  # trim the error-timestamp list past this many entries
 _ERROR_WINDOW_S = 3600.0
 _QUOTA_DEGRADE_S = 3600.0
 
@@ -111,8 +124,7 @@ def ensure_table(client, name: str) -> None:
         client.get_waiter("table_exists").wait(TableName=name)
     ttl = client.describe_time_to_live(TableName=name)["TimeToLiveDescription"]
     if ttl.get("TimeToLiveStatus") not in ("ENABLED", "ENABLING"):
-        client.update_time_to_live(TableName=name,
-                                   TimeToLiveSpecification={"Enabled": True, "AttributeName": "ttl"})
+        client.update_time_to_live(TableName=name, TimeToLiveSpecification={"Enabled": True, "AttributeName": "ttl"})
 
 
 def _s(v) -> dict:
@@ -137,14 +149,25 @@ def _str(item: dict, key: str, default=None):
 
 
 class DynamoState:
-    def __init__(self, table: str, *, region: str | None = None, endpoint_url: str | None = None,
-                 rpm_limit: int = 5, max_cache_entries: int = 500, cache_ttl_days: int = 30,
-                 client=None):
+    def __init__(
+        self,
+        table: str,
+        *,
+        region: str | None = None,
+        endpoint_url: str | None = None,
+        rpm_limit: int = 5,
+        max_cache_entries: int = 500,
+        cache_ttl_days: int = 30,
+        client=None,
+    ):
         if client is None:
             import boto3  # lazy: only the Lambda image carries boto3
             from botocore.config import Config
+
             client = boto3.client(
-                "dynamodb", region_name=region, endpoint_url=endpoint_url,
+                "dynamodb",
+                region_name=region,
+                endpoint_url=endpoint_url,
                 # A state lookup must never stall a request: short timeouts,
                 # one retry. The limiter fails open on error (see module doc).
                 config=Config(connect_timeout=1, read_timeout=2, retries={"max_attempts": 2}),
@@ -192,12 +215,12 @@ class DynamoState:
         bucket = int(now // 60)
         try:
             self._c.update_item(
-                TableName=self.table, Key={"pk": _s(f"rl#{ip}#{bucket}")},
+                TableName=self.table,
+                Key={"pk": _s(f"rl#{ip}#{bucket}")},
                 UpdateExpression="ADD n :one SET #ttl = :ttl",
                 ConditionExpression="attribute_not_exists(n) OR n < :lim",
                 ExpressionAttributeNames={"#ttl": "ttl"},
-                ExpressionAttributeValues={":one": _n(1), ":lim": _n(limit),
-                                           ":ttl": _n((bucket + 2) * 60)},
+                ExpressionAttributeValues={":one": _n(1), ":lim": _n(limit), ":ttl": _n((bucket + 2) * 60)},
             )
             return True
         except self._c.exceptions.ConditionalCheckFailedException:
@@ -228,7 +251,8 @@ class DynamoState:
         # Evicted between the read and the touch? Still a hit — serve it.
         try:
             self._c.update_item(
-                TableName=self.table, Key={"pk": _s(pk)},
+                TableName=self.table,
+                Key={"pk": _s(pk)},
                 UpdateExpression="SET touched = :now, #ttl = :ttl",
                 ConditionExpression="attribute_exists(pk)",
                 ExpressionAttributeNames={"#ttl": "ttl"},
@@ -241,16 +265,20 @@ class DynamoState:
     @_best_effort(None)
     def cache_put(self, key: str, events: list[str], now: float | None = None) -> None:
         now = time.time() if now is None else now
-        self._c.put_item(TableName=self.table, Item={
-            "pk": _s(f"cache#{key}"), "events": _s(json.dumps(events)),
-            "touched": _n(now), "ttl": _n(now + self.cache_ttl_s),
-        })
+        self._c.put_item(
+            TableName=self.table,
+            Item={
+                "pk": _s(f"cache#{key}"),
+                "events": _s(json.dumps(events)),
+                "touched": _n(now),
+                "ttl": _n(now + self.cache_ttl_s),
+            },
+        )
         self._evict_to_cap()
 
     @_best_effort(False)
     def cache_delete(self, key: str) -> bool:
-        r = self._c.delete_item(TableName=self.table, Key={"pk": _s(f"cache#{key}")},
-                                ReturnValues="ALL_OLD")
+        r = self._c.delete_item(TableName=self.table, Key={"pk": _s(f"cache#{key}")}, ReturnValues="ALL_OLD")
         return "Attributes" in r
 
     @_best_effort(0)
@@ -265,7 +293,7 @@ class DynamoState:
         prompt version, normally). Admin listing + warm_cache verification."""
         out = {}
         for pk, item in self._scan_cache(prefix=prefix, with_touched=False, with_events=True):
-            out[pk[len("cache#"):]] = json.loads(_str(item, "events", "[]"))
+            out[pk[len("cache#") :]] = json.loads(_str(item, "events", "[]"))
         return out
 
     @_best_effort(0)
@@ -299,7 +327,7 @@ class DynamoState:
 
     def _batch_delete(self, pks: list[str]) -> None:
         for i in range(0, len(pks), 25):
-            chunk = pks[i:i + 25]
+            chunk = pks[i : i + 25]
             req = {self.table: [{"DeleteRequest": {"Key": {"pk": _s(pk)}}} for pk in chunk]}
             while req:
                 r = self._c.batch_write_item(RequestItems=req)
@@ -312,17 +340,27 @@ class DynamoState:
         now = time.time() if now is None else now
         msg = f"{category}: {detail}" if detail else category
         names = {"#cat": f"{category}_errors"}
-        values = {":one": _n(1), ":msg": _s(msg), ":iso": _s(datetime.now().isoformat()),
-                  ":t": {"L": [_n(now)]}, ":empty": {"L": []}}
-        sets = ["last_error = :msg", "last_error_time = :iso",
-                "recent = list_append(if_not_exists(recent, :empty), :t)"]
+        values = {
+            ":one": _n(1),
+            ":msg": _s(msg),
+            ":iso": _s(datetime.now().isoformat()),
+            ":t": {"L": [_n(now)]},
+            ":empty": {"L": []},
+        }
+        sets = [
+            "last_error = :msg",
+            "last_error_time = :iso",
+            "recent = list_append(if_not_exists(recent, :empty), :t)",
+        ]
         if category in QUOTA_CATEGORIES:
             sets += ["last_quota_error = :msg", "last_quota_error_time = :qt"]
             values[":qt"] = _n(now)
         r = self._c.update_item(
-            TableName=self.table, Key={"pk": _s("stats#errors")},
+            TableName=self.table,
+            Key={"pk": _s("stats#errors")},
             UpdateExpression="ADD total_errors :one, #cat :one SET " + ", ".join(sets),
-            ExpressionAttributeNames=names, ExpressionAttributeValues=values,
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues=values,
             ReturnValues="UPDATED_NEW",
         )
         recent = r.get("Attributes", {}).get("recent", {}).get("L", [])
@@ -330,9 +368,12 @@ class DynamoState:
             keep = [x for x in recent if now - float(x["N"]) < _ERROR_WINDOW_S]
             # Best-effort trim; a concurrent append lost here costs one
             # timestamp in a count that is only ever compared with "> 5".
-            self._c.update_item(TableName=self.table, Key={"pk": _s("stats#errors")},
-                                UpdateExpression="SET recent = :r",
-                                ExpressionAttributeValues={":r": {"L": keep}})
+            self._c.update_item(
+                TableName=self.table,
+                Key={"pk": _s("stats#errors")},
+                UpdateExpression="SET recent = :r",
+                ExpressionAttributeValues={":r": {"L": keep}},
+            )
 
     @_best_effort(_empty_error_summary)
     def stats_error_summary(self, now: float | None = None) -> dict:
@@ -355,8 +396,9 @@ class DynamoState:
         }
 
     @_best_effort(None)
-    def stats_usage(self, prompt_tokens: int = 0, completion_tokens: int = 0,
-                    today: str | None = None, provider: str | None = None) -> None:
+    def stats_usage(
+        self, prompt_tokens: int = 0, completion_tokens: int = 0, today: str | None = None, provider: str | None = None
+    ) -> None:
         today = today or date.today().isoformat()
         # Per-provider counters beside the totals: the display must not mix
         # OpenRouter's free allowance with Cerebras's paid account.
@@ -365,17 +407,34 @@ class DynamoState:
             extra = ", #rq :one, #tk :t"
             names.update({"#rq": f"req_{provider}", "#tk": f"tok_{provider}"})
         self._c.update_item(
-            TableName=self.table, Key={"pk": _s(f"stats#usage#{today}")},
-            UpdateExpression=("ADD requests_today :one, prompt_tokens_today :p, "
-                              "completion_tokens_today :c, tokens_today :t" + extra + " "
-                              "SET #date = :d, #ttl = :ttl"),
+            TableName=self.table,
+            Key={"pk": _s(f"stats#usage#{today}")},
+            UpdateExpression=(
+                "ADD requests_today :one, prompt_tokens_today :p, "
+                "completion_tokens_today :c, tokens_today :t" + extra + " "
+                "SET #date = :d, #ttl = :ttl"
+            ),
             ExpressionAttributeNames=names,
-            ExpressionAttributeValues={":one": _n(1), ":p": _n(prompt_tokens), ":c": _n(completion_tokens),
-                                       ":t": _n(prompt_tokens + completion_tokens), ":d": _s(today),
-                                       ":ttl": _n(time.time() + 3 * 86400)},
+            ExpressionAttributeValues={
+                ":one": _n(1),
+                ":p": _n(prompt_tokens),
+                ":c": _n(completion_tokens),
+                ":t": _n(prompt_tokens + completion_tokens),
+                ":d": _s(today),
+                ":ttl": _n(time.time() + 3 * 86400),
+            },
         )
 
-    @_best_effort(lambda: {"requests_today": 0, "tokens_today": 0, "prompt_tokens_today": 0, "completion_tokens_today": 0, "date": date.today().isoformat(), "by_provider": {}})
+    @_best_effort(
+        lambda: {
+            "requests_today": 0,
+            "tokens_today": 0,
+            "prompt_tokens_today": 0,
+            "completion_tokens_today": 0,
+            "date": date.today().isoformat(),
+            "by_provider": {},
+        }
+    )
     def stats_usage_get(self, today: str | None = None) -> dict:
         today = today or date.today().isoformat()
         item = self._c.get_item(TableName=self.table, Key={"pk": _s(f"stats#usage#{today}")}).get("Item", {})
@@ -386,8 +445,9 @@ class DynamoState:
             "completion_tokens_today": _num(item, "completion_tokens_today"),
             "date": today,
             "by_provider": {
-                k[len("req_"):]: {"requests": _num(item, k), "tokens": _num(item, "tok_" + k[len("req_"):])}
-                for k in item if k.startswith("req_")
+                k[len("req_") :]: {"requests": _num(item, k), "tokens": _num(item, "tok_" + k[len("req_") :])}
+                for k in item
+                if k.startswith("req_")
             },
         }
 
@@ -398,13 +458,22 @@ class DynamoState:
         names = {f"#k{i}": k for i, k in enumerate(limits)}
         values = {f":v{i}": _n(v) for i, v in enumerate(limits.values())}
         self._c.update_item(
-            TableName=self.table, Key={"pk": _s("stats#limits")},
+            TableName=self.table,
+            Key={"pk": _s("stats#limits")},
             UpdateExpression="SET " + ", ".join(f"#k{i} = :v{i}" for i in range(len(limits))),
-            ExpressionAttributeNames=names, ExpressionAttributeValues=values,
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues=values,
         )
 
-    @_best_effort(lambda: {k: None for k in ("rpm", "rpd", "tpm", "tpd", "rpm_remaining", "rpd_remaining", "tpm_remaining", "tpd_remaining")})
+    @_best_effort(
+        lambda: {
+            k: None
+            for k in ("rpm", "rpd", "tpm", "tpd", "rpm_remaining", "rpd_remaining", "tpm_remaining", "tpd_remaining")
+        }
+    )
     def stats_limits_get(self) -> dict:
         item = self._c.get_item(TableName=self.table, Key={"pk": _s("stats#limits")}).get("Item", {})
-        return {k: _num(item, k, None) for k in
-                ("rpm", "rpd", "tpm", "tpd", "rpm_remaining", "rpd_remaining", "tpm_remaining", "tpd_remaining")}
+        return {
+            k: _num(item, k, None)
+            for k in ("rpm", "rpd", "tpm", "tpd", "rpm_remaining", "rpd_remaining", "tpm_remaining", "tpd_remaining")
+        }

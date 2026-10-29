@@ -27,6 +27,7 @@ One item per answer. A rating is an UpdateItem on that item — an upsert, so a
 rating that arrives after a failed record write still lands and the review
 pass sees it.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -47,7 +48,7 @@ HISTORY_TURNS = 6
 HISTORY_CHARS = 1000
 COMMENT_CHARS = 500
 MAX_REASONS = 8
-STUB_TTL_DAYS = 30          # a rating with no record behind it expires; records never do by default
+STUB_TTL_DAYS = 30  # a rating with no record behind it expires; records never do by default
 REASON_CHARS = 40
 
 _ANSWER_ID = re.compile(r"^[0-9a-f]{9,12}-[0-9a-f]{8}$")
@@ -55,6 +56,7 @@ _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
 
 # ── identifiers ─────────────────────────────────────────────────────────────
+
 
 def new_answer_id(now: float | None = None) -> str:
     """<ms since epoch, hex>-<32 random bits>: sortable, unguessable, and
@@ -89,6 +91,7 @@ def _keys(answer_id: str) -> tuple[str, str, int]:
 
 # ── records ─────────────────────────────────────────────────────────────────
 
+
 def trim_history(history) -> list[dict]:
     """The last few turns the client sent, each capped — the record is about
     this answer, the earlier ones have records of their own."""
@@ -105,9 +108,17 @@ def trim_history(history) -> list[dict]:
 def summarize_steps(events: list[dict]) -> tuple[list[dict], int]:
     """The pipeline timeline (one entry per `step` frame) and their total ms —
     the first thing a review pass sorts by."""
-    steps = [{"id": e.get("id"), "status": e.get("status"), "ms": e.get("ms"),
-              "model": e.get("model"), "tier": e.get("tier")}
-             for e in events if e.get("type") == "step"]
+    steps = [
+        {
+            "id": e.get("id"),
+            "status": e.get("status"),
+            "ms": e.get("ms"),
+            "model": e.get("model"),
+            "tier": e.get("tier"),
+        }
+        for e in events
+        if e.get("type") == "step"
+    ]
     return steps, sum(int(s["ms"] or 0) for s in steps)
 
 
@@ -126,29 +137,42 @@ def outcome_of(events: list[dict], ended: str = "ok") -> str:
 def trim_events(events: list[dict], limit: int = MAX_EVENTS_BYTES) -> tuple[list[dict], bool]:
     """Fit the frames under the item limit, dropping the bulkiest and least
     reviewable parts first; the SQL, steps and prose always survive."""
+
     def size(evs):
         return len(json.dumps(evs, ensure_ascii=False))
+
     if size(events) <= limit:
         return events, False
     evs = [dict(e) for e in events]
-    for e in evs:                      # 1. result rows (the SQL can re-make them)
+    for e in evs:  # 1. result rows (the SQL can re-make them)
         if e.get("type") == "results":
             e.pop("rows", None)
             e.pop("content", None)
-    if size(evs) > limit:              # 2. debug/log chatter
+    if size(evs) > limit:  # 2. debug/log chatter
         evs = [e for e in evs if e.get("type") not in ("debug", "log")]
-    if size(evs) > limit:              # 3. chart payload
+    if size(evs) > limit:  # 3. chart payload
         evs = [e for e in evs if e.get("type") != "chart"]
-    if size(evs) > limit:              # 4. long prose, head only
+    if size(evs) > limit:  # 4. long prose, head only
         for e in evs:
             if isinstance(e.get("content"), str) and len(e["content"]) > 20_000:
                 e["content"] = e["content"][:20_000]
     return evs, True
 
 
-def build_record(*, answer_id: str, session_id: str, question: str, history, events: list[dict],
-                 cache_hit: bool, cache_key: str, cache_version: str, outcome: str,
-                 dev_mode: bool = False, now: float | None = None) -> dict:
+def build_record(
+    *,
+    answer_id: str,
+    session_id: str,
+    question: str,
+    history,
+    events: list[dict],
+    cache_hit: bool,
+    cache_key: str,
+    cache_version: str,
+    outcome: str,
+    dev_mode: bool = False,
+    now: float | None = None,
+) -> dict:
     now = time.time() if now is None else now
     ts_ms = parse_answer_id(answer_id)
     if ts_ms is None:
@@ -202,12 +226,17 @@ def clean_rating(body: dict) -> dict | None:
     if not isinstance(comment, str):
         return None
     comment = comment.strip()[:COMMENT_CHARS]
-    return {"answer_id": answer_id, "stars": stars,
-            "reasons": [r for r in reasons if r], "comment": comment,
-            "session_id": clean_session_id(body.get("session_id"))}
+    return {
+        "answer_id": answer_id,
+        "stars": stars,
+        "reasons": [r for r in reasons if r],
+        "comment": comment,
+        "session_id": clean_session_id(body.get("session_id")),
+    }
 
 
 # ── backends ────────────────────────────────────────────────────────────────
+
 
 class _Recorder:
     backend = "none"
@@ -223,13 +252,19 @@ class _Recorder:
         log.error("%s: interaction store unavailable (%s: %s); dropped", where, type(e).__name__, e)
 
     def status(self) -> dict:
-        return {"backend": self.backend, "status": "ok" if not self.last_error else "degraded",
-                "writes": self.writes, "errors": self.errors, "last_error": self.last_error}
+        return {
+            "backend": self.backend,
+            "status": "ok" if not self.last_error else "degraded",
+            "writes": self.writes,
+            "errors": self.errors,
+            "last_error": self.last_error,
+        }
 
 
 class FileInteractions(_Recorder):
     """Append-only JSONL: one line per record, one per rating. The self-hosted
     container writes it to the state volume; dev runs to STATS_DIR."""
+
     backend = "file"
 
     def __init__(self, path: str):
@@ -284,7 +319,11 @@ class FileInteractions(_Recorder):
             if aid in records:
                 records[aid].update({k: r[k] for k in ("stars", "reasons", "comment", "rated_at") if k in r})
             elif parse_answer_id(aid) is not None and _day_of(parse_answer_id(aid)) == day:
-                records[aid] = {"answer_id": aid, "day": day, **{k: r[k] for k in ("stars", "reasons", "comment", "rated_at") if k in r}}
+                records[aid] = {
+                    "answer_id": aid,
+                    "day": day,
+                    **{k: r[k] for k in ("stars", "reasons", "comment", "rated_at") if k in r},
+                }
         return sorted(records.values(), key=lambda r: r.get("ts", 0))
 
 
@@ -306,30 +345,34 @@ def ensure_table(client, name: str) -> None:
     if name not in client.list_tables().get("TableNames", []):
         client.create_table(
             TableName=name,
-            AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"},
-                                  {"AttributeName": "sk", "AttributeType": "S"}],
-            KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"},
-                       {"AttributeName": "sk", "KeyType": "RANGE"}],
+            AttributeDefinitions=[
+                {"AttributeName": "pk", "AttributeType": "S"},
+                {"AttributeName": "sk", "AttributeType": "S"},
+            ],
+            KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
             BillingMode="PAY_PER_REQUEST",
         )
         client.get_waiter("table_exists").wait(TableName=name)
     ttl = client.describe_time_to_live(TableName=name)["TimeToLiveDescription"]
     if ttl.get("TimeToLiveStatus") not in ("ENABLED", "ENABLING"):
-        client.update_time_to_live(TableName=name,
-                                   TimeToLiveSpecification={"Enabled": True, "AttributeName": "ttl"})
+        client.update_time_to_live(TableName=name, TimeToLiveSpecification={"Enabled": True, "AttributeName": "ttl"})
 
 
 class DynamoInteractions(_Recorder):
     backend = "dynamodb"
 
-    def __init__(self, table: str, *, region: str | None = None, endpoint_url: str | None = None,
-                 ttl_days: int = 0, client=None):
+    def __init__(
+        self, table: str, *, region: str | None = None, endpoint_url: str | None = None, ttl_days: int = 0, client=None
+    ):
         super().__init__()
         if client is None:
             import boto3  # lazy: only the Lambda image carries boto3
             from botocore.config import Config
+
             client = boto3.client(
-                "dynamodb", region_name=region, endpoint_url=endpoint_url,
+                "dynamodb",
+                region_name=region,
+                endpoint_url=endpoint_url,
                 config=Config(connect_timeout=1, read_timeout=2, retries={"max_attempts": 2}),
             )
         self._c = client
@@ -345,11 +388,13 @@ class DynamoInteractions(_Recorder):
         try:
             pk, sk, ts_ms = _keys(record["answer_id"])
             item = {
-                "pk": _s(pk), "sk": _s(sk),
+                "pk": _s(pk),
+                "sk": _s(sk),
                 "answer_id": _s(record["answer_id"]),
                 "session_id": _s(record.get("session_id", "")),
                 "schema": _s(record.get("schema", RECORD_SCHEMA)),
-                "ts": _n(record["ts"]), "day": _s(record["day"]),
+                "ts": _n(record["ts"]),
+                "day": _s(record["day"]),
                 "question": _s(record["question"]),
                 "history": _s(json.dumps(record.get("history", []), ensure_ascii=False)),
                 "cache_hit": _bool(record["cache_hit"]),
@@ -385,26 +430,34 @@ class DynamoInteractions(_Recorder):
         try:
             pk, sk, ts_ms = _keys(rating["answer_id"])
             key = {"pk": _s(pk), "sk": _s(sk)}
-            expr = ("SET stars = :stars, reasons = :reasons, #c = :comment, rated_at = :now, "
-                    "answer_id = :aid, #d = :day")
+            expr = "SET stars = :stars, reasons = :reasons, #c = :comment, rated_at = :now, answer_id = :aid, #d = :day"
             names = {"#c": "comment", "#d": "day"}
             values = {
                 ":stars": _n(rating["stars"]),
                 ":reasons": {"L": [_s(r) for r in rating.get("reasons", [])]},
                 ":comment": _s(rating.get("comment", "")),
-                ":now": _n(now), ":aid": _s(rating["answer_id"]),
-                ":day": _s(pk[len("day#"):]),
+                ":now": _n(now),
+                ":aid": _s(rating["answer_id"]),
+                ":day": _s(pk[len("day#") :]),
             }
             try:
-                self._c.update_item(TableName=self.table, Key=key, UpdateExpression=expr,
-                                    ConditionExpression="attribute_exists(pk)",
-                                    ExpressionAttributeNames=names, ExpressionAttributeValues=values)
+                self._c.update_item(
+                    TableName=self.table,
+                    Key=key,
+                    UpdateExpression=expr,
+                    ConditionExpression="attribute_exists(pk)",
+                    ExpressionAttributeNames=names,
+                    ExpressionAttributeValues=values,
+                )
             except self._c.exceptions.ConditionalCheckFailedException:
                 stub_ttl = self.ttl_s or STUB_TTL_DAYS * 86400
-                self._c.update_item(TableName=self.table, Key=key,
-                                    UpdateExpression=expr + ", #t = :ttl",
-                                    ExpressionAttributeNames={**names, "#t": "ttl"},
-                                    ExpressionAttributeValues={**values, ":ttl": _n(ts_ms / 1000 + stub_ttl)})
+                self._c.update_item(
+                    TableName=self.table,
+                    Key=key,
+                    UpdateExpression=expr + ", #t = :ttl",
+                    ExpressionAttributeNames={**names, "#t": "ttl"},
+                    ExpressionAttributeValues={**values, ":ttl": _n(ts_ms / 1000 + stub_ttl)},
+                )
             self.writes += 1
             return True
         except Exception as e:  # noqa: BLE001
@@ -413,8 +466,11 @@ class DynamoInteractions(_Recorder):
 
     def query_day(self, day: str) -> list[dict]:
         out = []
-        kw = {"TableName": self.table, "KeyConditionExpression": "pk = :pk",
-              "ExpressionAttributeValues": {":pk": _s(f"day#{day}")}}
+        kw = {
+            "TableName": self.table,
+            "KeyConditionExpression": "pk = :pk",
+            "ExpressionAttributeValues": {":pk": _s(f"day#{day}")},
+        }
         while True:
             r = self._c.query(**kw)
             out.extend(_decode(i) for i in r.get("Items", []))
@@ -448,16 +504,20 @@ def from_env():
     if os.environ.get("RECORD_INTERACTIONS", "1").strip().lower() in ("0", "false", "no", "off"):
         log.info("Interaction recording is OFF (RECORD_INTERACTIONS)")
         return None
-    ttl_days = int(os.environ.get("INTERACTION_TTL_DAYS", "0") or 0)   # 0 = keep for good
+    ttl_days = int(os.environ.get("INTERACTION_TTL_DAYS", "0") or 0)  # 0 = keep for good
     backend = os.environ.get("STATE_BACKEND", "local").strip().lower()
     if backend == "dynamodb":
         table = os.environ.get("INTERACTIONS_TABLE", "").strip()
         if not table:
             log.warning("STATE_BACKEND=dynamodb but INTERACTIONS_TABLE is unset: interaction recording is OFF")
             return None
-        return DynamoInteractions(table, region=os.environ.get("AWS_REGION") or None,
-                                  endpoint_url=os.environ.get("DYNAMODB_ENDPOINT_URL") or None,
-                                  ttl_days=ttl_days)
+        return DynamoInteractions(
+            table,
+            region=os.environ.get("AWS_REGION") or None,
+            endpoint_url=os.environ.get("DYNAMODB_ENDPOINT_URL") or None,
+            ttl_days=ttl_days,
+        )
     path = os.environ.get("INTERACTIONS_FILE", "").strip() or os.path.join(
-        os.environ.get("STATS_DIR", os.environ.get("DATA_DIR", "data")), "interactions.jsonl")
+        os.environ.get("STATS_DIR", os.environ.get("DATA_DIR", "data")), "interactions.jsonl"
+    )
     return FileInteractions(path)

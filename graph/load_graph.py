@@ -74,8 +74,7 @@ def load_nodes(session, con):
         GROUP BY payee ORDER BY total DESC LIMIT 500
     """).fetchall()
     for name, total in payees:
-        session.run("MERGE (p:Payee {name: $name}) SET p.total_received = $total",
-                     name=name, total=float(total))
+        session.run("MERGE (p:Payee {name: $name}) SET p.total_received = $total", name=name, total=float(total))
     print(f"  Payees: {len(payees)}")
 
     # Funds
@@ -113,8 +112,7 @@ def load_nodes(session, con):
         GROUP BY project ORDER BY total DESC LIMIT 200
     """).fetchall()
     for name, total in projects:
-        session.run("MERGE (p:Project {name: $name}) SET p.total_spend = $total",
-                     name=name, total=float(total))
+        session.run("MERGE (p:Project {name: $name}) SET p.total_spend = $total", name=name, total=float(total))
     print(f"  Projects: {len(projects)}")
 
 
@@ -135,29 +133,53 @@ def load_contractor_profiles(session, con):
     """).fetchall()
 
     agents_seen = set()
-    for (payee, total_spend, agent, company_type, employees, office,
-         status, file_date, org_num, county, managed_by) in profiles:
+    for (
+        payee,
+        total_spend,
+        agent,
+        company_type,
+        employees,
+        office,
+        status,
+        file_date,
+        org_num,
+        county,
+        managed_by,
+    ) in profiles:
         # Update existing Payee node with SOS data
-        session.run("""
+        session.run(
+            """
             MERGE (p:Payee {name: $name})
             SET p.company_type = $company_type, p.employees = $employees,
                 p.principal_office = $office, p.status = $status,
                 p.file_date = $file_date, p.org_number = $org_num,
                 p.county = $county, p.managed_by = $managed_by
-        """, name=payee, company_type=company_type or "", employees=employees or "",
-             office=office or "", status=status or "", file_date=file_date or "",
-             org_num=org_num or "", county=county or "", managed_by=managed_by or "")
+        """,
+            name=payee,
+            company_type=company_type or "",
+            employees=employees or "",
+            office=office or "",
+            status=status or "",
+            file_date=file_date or "",
+            org_num=org_num or "",
+            county=county or "",
+            managed_by=managed_by or "",
+        )
 
         # Extract just the agent name (before the address)
         agent_name = agent.split(" ")[0:3]  # rough: first 3 words
         agent_name = " ".join(agent_name).strip().rstrip(",")
 
         # Create RegisteredAgent node and relationship
-        session.run("""
+        session.run(
+            """
             MERGE (ra:RegisteredAgent {name: $agent_full})
             MERGE (p:Payee {name: $payee})
             MERGE (p)-[:HAS_REGISTERED_AGENT]->(ra)
-        """, agent_full=agent, payee=payee)
+        """,
+            agent_full=agent,
+            payee=payee,
+        )
         agents_seen.add(agent)
 
     print(f"  Contractor profiles: {len(profiles)} payees enriched, {len(agents_seen)} unique registered agents")
@@ -177,11 +199,17 @@ def load_relationships(session, con):
         ORDER BY total DESC LIMIT 2000
     """).fetchall()
     for agency, payee, total, count in agency_payee:
-        session.run("""
+        session.run(
+            """
             MATCH (a:Agency {name: $agency}), (p:Payee {name: $payee})
             MERGE (a)-[r:PAID]->(p)
             SET r.total = $total, r.count = $count
-        """, agency=agency, payee=payee, total=float(total), count=int(count))
+        """,
+            agency=agency,
+            payee=payee,
+            total=float(total),
+            count=int(count),
+        )
     print(f"    {len(agency_payee)} relationships")
 
     # Agency -> Fund
@@ -194,11 +222,17 @@ def load_relationships(session, con):
         GROUP BY agency_canonical, fund
     """).fetchall()
     for agency, fund, total, count in agency_fund:
-        session.run("""
+        session.run(
+            """
             MATCH (a:Agency {name: $agency}), (f:Fund {name: $fund})
             MERGE (a)-[r:USED_FUND]->(f)
             SET r.total = $total, r.count = $count
-        """, agency=agency, fund=fund, total=float(total), count=int(count))
+        """,
+            agency=agency,
+            fund=fund,
+            total=float(total),
+            count=int(count),
+        )
     print(f"    {len(agency_fund)} relationships")
 
     # Agency -> FiscalYear
@@ -211,11 +245,17 @@ def load_relationships(session, con):
         GROUP BY agency_canonical, fiscal_year
     """).fetchall()
     for agency, year, total, count in agency_year:
-        session.run("""
+        session.run(
+            """
             MATCH (a:Agency {name: $agency}), (y:FiscalYear {year: $year})
             MERGE (a)-[r:SPENT_IN]->(y)
             SET r.total = $total, r.count = $count
-        """, agency=agency, year=int(year), total=float(total), count=int(count))
+        """,
+            agency=agency,
+            year=int(year),
+            total=float(total),
+            count=int(count),
+        )
     print(f"    {len(agency_year)} relationships")
 
     # Agency -> ExpenditureType
@@ -228,11 +268,17 @@ def load_relationships(session, con):
         GROUP BY agency_canonical, expenditure_type
     """).fetchall()
     for agency, etype, total, count in agency_type:
-        session.run("""
+        session.run(
+            """
             MATCH (a:Agency {name: $agency}), (t:ExpenditureType {name: $etype})
             MERGE (a)-[r:SPENT_AS]->(t)
             SET r.total = $total, r.count = $count
-        """, agency=agency, etype=etype, total=float(total), count=int(count))
+        """,
+            agency=agency,
+            etype=etype,
+            total=float(total),
+            count=int(count),
+        )
     print(f"    {len(agency_type)} relationships")
 
     # Agency -> Project (top 500 pairs)
@@ -246,11 +292,17 @@ def load_relationships(session, con):
         ORDER BY total DESC LIMIT 500
     """).fetchall()
     for agency, project, total, count in agency_project:
-        session.run("""
+        session.run(
+            """
             MATCH (a:Agency {name: $agency}), (p:Project {name: $project})
             MERGE (a)-[r:WORKED_ON]->(p)
             SET r.total = $total, r.count = $count
-        """, agency=agency, project=project, total=float(total), count=int(count))
+        """,
+            agency=agency,
+            project=project,
+            total=float(total),
+            count=int(count),
+        )
     print(f"    {len(agency_project)} relationships")
 
     # FiscalYear -> ExpenditureType
@@ -263,11 +315,16 @@ def load_relationships(session, con):
         GROUP BY fiscal_year, expenditure_type
     """).fetchall()
     for year, etype, total in year_type:
-        session.run("""
+        session.run(
+            """
             MATCH (y:FiscalYear {year: $year}), (t:ExpenditureType {name: $etype})
             MERGE (y)-[r:HAD_SPENDING]->(t)
             SET r.total = $total
-        """, year=int(year), etype=etype, total=float(total))
+        """,
+            year=int(year),
+            etype=etype,
+            total=float(total),
+        )
     print(f"    {len(year_type)} relationships")
 
 

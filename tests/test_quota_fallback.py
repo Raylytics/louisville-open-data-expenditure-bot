@@ -108,6 +108,7 @@ def test_quota_error_without_paid_key_raises_immediately():
 
 def test_quota_error_on_both_tiers_propagates_quota_error():
     """The app must still see a quota error so it shows the funding message."""
+
     def free():
         raise _payment_required()
 
@@ -170,6 +171,7 @@ def test_latch_clears_when_the_paid_tier_also_fails():
 
 
 # ── Key selection (single-key operation) ─────────────────────────────────────
+
 
 def test_paid_key_is_used_when_no_free_key_is_configured(monkeypatch):
     """The free tier is gone; a deployment carrying only the paid key must work."""
@@ -263,6 +265,7 @@ def test_ordinary_rate_limit_still_retries_and_falls_back(monkeypatch):
 
 # ── OpenRouter free daily allowance ──────────────────────────────────────────
 
+
 def _daily_cap_429():
     """OpenRouter's free-tier daily allowance (50/day under $10 of credits)."""
     req = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
@@ -304,6 +307,7 @@ def test_daily_cap_goes_straight_to_the_fallback_provider(monkeypatch):
 
 # ── Mixed failure sequences (the ladder's second attempt) ────────────────────
 
+
 def test_rate_limit_then_quota_falls_over_and_latches(monkeypatch):
     """429 first, out of credit second. The old ladder special-cased attempt 1,
     so this sequence reached the unclassified path: no fallback on a 402, no
@@ -323,7 +327,7 @@ def test_rate_limit_then_quota_falls_over_and_latches(monkeypatch):
 
     assert aa._call_with_retry(primary, fallback_fn=fallback) == "answer"
     assert calls == ["primary", "primary", "fallback"]
-    assert slept == [aa.RETRY_BASE_DELAY]   # one wait, for the ordinary 429 only
+    assert slept == [aa.RETRY_BASE_DELAY]  # one wait, for the ordinary 429 only
     assert aa._primary_is_unusable()
 
 
@@ -356,6 +360,7 @@ def test_failed_fallback_surfaces_the_primary_error_not_the_fallback_one():
     """app.py picks the user's message from this exception. The fallback's own
     error (a Cerebras 402) would say "the bill is unpaid" for an allowance that
     resets at midnight."""
+
     def primary():
         raise _daily_cap_429()
 
@@ -399,11 +404,11 @@ def test_empty_completion_without_a_fallback_raises_its_own_type():
 # raises as a bare APIError. The generic branch re-raised it without ever
 # trying the funded Cerebras fallback.
 
+
 def _upstream_overloaded():
     req = httpx.Request("POST", "https://api.test/v1/chat/completions")
     resp = httpx.Response(502, request=req)
-    return openai.APIError("Upstream error from Nvidia: Service temporarily overloaded",
-                           request=req, body=None)
+    return openai.APIError("Upstream error from Nvidia: Service temporarily overloaded", request=req, body=None)
 
 
 def test_generic_provider_error_fails_over_to_the_fallback():
@@ -418,8 +423,8 @@ def test_generic_provider_error_fails_over_to_the_fallback():
         return "answer"
 
     assert aa._call_with_retry(primary, fallback_fn=fallback) == "answer"
-    assert calls == {"primary": 1, "fallback": 1}   # immediate, no retry ladder
-    assert not aa._primary_is_unusable()            # transient: never latched
+    assert calls == {"primary": 1, "fallback": 1}  # immediate, no retry ladder
+    assert not aa._primary_is_unusable()  # transient: never latched
 
 
 def test_bad_primary_key_fails_over_and_latches_the_primary():
@@ -436,11 +441,16 @@ def test_bad_primary_key_fails_over_and_latches_the_primary():
     assert aa._primary_is_unusable()
 
 
-@pytest.mark.parametrize("make_err", [
-    lambda req, resp: openai.BadRequestError("invalid request: messages[1].content is required", response=resp, body=None),
-    lambda req, resp: openai.ConflictError("conflict", response=resp, body=None),
-    lambda req, resp: openai.UnprocessableEntityError("unprocessable", response=resp, body=None),
-])
+@pytest.mark.parametrize(
+    "make_err",
+    [
+        lambda req, resp: openai.BadRequestError(
+            "invalid request: messages[1].content is required", response=resp, body=None
+        ),
+        lambda req, resp: openai.ConflictError("conflict", response=resp, body=None),
+        lambda req, resp: openai.UnprocessableEntityError("unprocessable", response=resp, body=None),
+    ],
+)
 def test_client_request_errors_do_not_cross_to_the_fallback(make_err):
     """400/409/422 are our request being wrong; the fallback would fail the
     same way, so the error surfaces instead of burning a paid call."""
@@ -494,23 +504,31 @@ def test_model_not_found_is_not_treated_as_a_provider_error():
 
 # ── Stall watchdog: an open-but-silent stream is abandoned, not waited out ───
 
+
 def test_stall_guard_passes_a_healthy_stream_through():
     class _Stream:
-        def __iter__(self): return iter([1, 2, 3])
-        def close(self): pass
+        def __iter__(self):
+            return iter([1, 2, 3])
+
+        def close(self):
+            pass
+
     assert list(aa._iter_with_stall_guard(_Stream(), stall_seconds=1)) == [1, 2, 3]
 
 
 def test_stall_guard_abandons_a_stream_that_goes_quiet():
     import time as _time
+
     closed = {"n": 0}
 
     class _Stream:
         def __iter__(self):
             yield "first"
-            _time.sleep(5)      # the dribble: alive, producing nothing
+            _time.sleep(5)  # the dribble: alive, producing nothing
             yield "never seen"
-        def close(self): closed["n"] += 1
+
+        def close(self):
+            closed["n"] += 1
 
     got = []
     with pytest.raises(aa.StreamStalledError):
@@ -524,7 +542,10 @@ def test_stall_guard_propagates_stream_errors_in_order():
         def __iter__(self):
             yield "a"
             raise _upstream_overloaded()
-        def close(self): pass
+
+        def close(self):
+            pass
+
     got = []
     with pytest.raises(openai.APIError):
         for x in aa._iter_with_stall_guard(_Stream(), stall_seconds=1):
@@ -534,7 +555,9 @@ def test_stall_guard_propagates_stream_errors_in_order():
 
 def test_stall_guard_disabled_when_zero():
     class _Stream:
-        def __iter__(self): return iter("ab")
+        def __iter__(self):
+            return iter("ab")
+
     assert list(aa._iter_with_stall_guard(_Stream(), stall_seconds=0)) == ["a", "b"]
 
 
@@ -548,16 +571,21 @@ def test_upstream_404_that_is_not_model_not_found_fails_over():
     err = openai.NotFoundError(
         "Error code: 404 - {'error': {'message': 'Provider returned error', 'code': 404, "
         "'metadata': {'provider_name': 'Nvidia'}}}",
-        response=resp, body={"error": {"message": "Provider returned error", "code": 404}})
+        response=resp,
+        body={"error": {"message": "Provider returned error", "code": 404}},
+    )
     assert aa.is_provider_error(err)
     assert aa._call_with_retry(lambda: (_ for _ in ()).throw(err), fallback_fn=lambda: "saved") == "saved"
 
 
-@pytest.mark.parametrize("msg", [
-    "Error code: 400 - {'error': {'message': 'This model\'s maximum context length is 131072 tokens', 'code': 'context_length_exceeded'}}",
-    "prompt exceeds the context window of the model",
-    "too many tokens: 140000 > 131072",
-])
+@pytest.mark.parametrize(
+    "msg",
+    [
+        "Error code: 400 - {'error': {'message': 'This model's maximum context length is 131072 tokens', 'code': 'context_length_exceeded'}}",
+        "prompt exceeds the context window of the model",
+        "too many tokens: 140000 > 131072",
+    ],
+)
 def test_context_overflow_400_still_crosses_to_the_fallback(msg):
     """A context overflow is about the MODEL's window, and the fallback is a
     DIFFERENT model — the request can fit there. Excluding all 400s from
@@ -566,4 +594,4 @@ def test_context_overflow_400_still_crosses_to_the_fallback(msg):
     err = openai.BadRequestError(msg, response=req and httpx.Response(400, request=req), body=None)
     assert aa.is_provider_error(err)
     assert aa._call_with_retry(lambda: (_ for _ in ()).throw(err), fallback_fn=lambda: "fits") == "fits"
-    assert not aa._primary_is_unusable()   # per-request shape, never latched
+    assert not aa._primary_is_unusable()  # per-request shape, never latched

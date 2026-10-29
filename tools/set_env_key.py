@@ -13,6 +13,7 @@ Exists because editing a dot-prefixed file is awkward in Finder (⌘⇧. toggles
 hidden files) and because pasting a key into a chat or a shell command leaks it
 into a transcript that outlives the key.
 """
+
 import argparse
 import getpass
 import os
@@ -20,8 +21,7 @@ import sys
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("name", help="env var to set, e.g. OPENROUTER_API_KEY")
     ap.add_argument("--file", default=".env", help="env file to edit (default: .env)")
     args = ap.parse_args()
@@ -36,8 +36,11 @@ def main() -> int:
     # the one thing this script exists to prevent. A stderr warning is not
     # enough when the damage is "rotate the key again".
     if not sys.stdin.isatty():
-        print("no terminal available: this would echo the secret. Run it in an "
-              "interactive shell (ssh to the host if need be).", file=sys.stderr)
+        print(
+            "no terminal available: this would echo the secret. Run it in an "
+            "interactive shell (ssh to the host if need be).",
+            file=sys.stderr,
+        )
         return 2
 
     value = getpass.getpass(f"{args.name} (input hidden, paste and press return): ").strip()

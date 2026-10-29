@@ -5,6 +5,7 @@ The one invariant that matters (roborev 4747): once the live stack binds the
 public hostname, an ordinary deploy that was not told about it must KEEP it —
 never synthesize a distribution without the alias and detach production.
 """
+
 import json
 import os
 import subprocess
@@ -14,7 +15,7 @@ import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "infra" / "cdk" / "deploy.sh"
 
-AWS_STUB = r'''#!/bin/sh
+AWS_STUB = r"""#!/bin/sh
 # Records every call; answers the few queries deploy.sh makes.
 echo "aws $*" >>"$CALLS"
 case "$*" in
@@ -34,16 +35,16 @@ case "$*" in
     esac ;;
   *) echo "" ;;
 esac
-'''
-NPX_STUB = r'''#!/bin/sh
+"""
+NPX_STUB = r"""#!/bin/sh
 echo "npx $*" >>"$CALLS"
 # deploy.sh runs `... deploy --require-approval never --outputs-file <OUT>` (no stack name).
 case "$*" in *" deploy --require-approval"*) printf '%s' '{"LouStack":{"CloudFrontUrl":"https://d.test/","CloudFrontDomain":"d.test","FunctionName":"lou-bot"}}' >"$LOU_OUTPUTS_FILE" ;; esac
 exit 0
-'''
+"""
 # curl/dig never leave the machine: the deploy step's post-deploy probes get
 # canned answers so the unit suite cannot hit production or hang on timeouts.
-CURL_STUB = r'''#!/bin/sh
+CURL_STUB = r"""#!/bin/sh
 echo "curl $*" >>"$CALLS"
 case "$*" in
   *"%{http_code} %{content_type}"*) printf '200 text/event-stream; charset=utf-8' ;;
@@ -51,25 +52,36 @@ case "$*" in
   *"live.test"*) [ -n "${LIVE_HEALTH:-}" ] || exit 22; printf '%s' "$LIVE_HEALTH" ;;
   *) printf '{"status":"ok","tables":{"expenditures":1}}' ;;
 esac
-'''
-DIG_STUB = r'''#!/bin/sh
+"""
+DIG_STUB = r"""#!/bin/sh
 echo "dig $*" >>"$CALLS"; printf '203.0.113.5\n'
-'''
+"""
 
 
 @pytest.fixture
 def harness(tmp_path):
-    bin_ = tmp_path / "bin"; bin_.mkdir()
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
     for name, body in (("aws", AWS_STUB), ("npx", NPX_STUB), ("curl", CURL_STUB), ("dig", DIG_STUB)):
-        p = bin_ / name; p.write_text(body); p.chmod(0o755)
-    data = tmp_path / "data"; data.mkdir()
-    (data / "lou.duckdb").write_bytes(b"x"); (data / "rag_documents.duckdb").write_bytes(b"x")
+        p = bin_ / name
+        p.write_text(body)
+        p.chmod(0o755)
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "lou.duckdb").write_bytes(b"x")
+    (data / "rag_documents.duckdb").write_bytes(b"x")
     calls = tmp_path / "calls"
 
     def run(step="synth", env=None):
         calls.write_text("")
-        e = dict(os.environ, PATH=f"{bin_}:{os.environ['PATH']}", CALLS=str(calls),
-                 LOU_DATA_DIR=str(data), LOU_OUTPUTS_FILE=str(tmp_path / "outputs.json"), **(env or {}))
+        e = dict(
+            os.environ,
+            PATH=f"{bin_}:{os.environ['PATH']}",
+            CALLS=str(calls),
+            LOU_DATA_DIR=str(data),
+            LOU_OUTPUTS_FILE=str(tmp_path / "outputs.json"),
+            **(env or {}),
+        )
         e.pop("LOU_SKIP_PREVIEW", None) if not (env and "LOU_SKIP_PREVIEW" in env) else None
         e.pop("LOU_DOMAIN", None) if not (env and "LOU_DOMAIN" in env) else None
         for k in ("LOU_ALERT_EMAIL", "LOU_DROP_ALERTS"):
@@ -77,6 +89,7 @@ def harness(tmp_path):
                 e.pop(k, None)
         proc = subprocess.run(["/bin/bash", str(SCRIPT), step], env=e, capture_output=True, text=True, timeout=60)
         return proc, calls.read_text()
+
     return run
 
 
@@ -85,8 +98,13 @@ def _cdk_args(calls):
 
 
 def test_plain_deploy_keeps_the_live_hostname_binding(harness):
-    proc, calls = harness("synth", env={"LIVE_DOMAIN": "louisville.raylytics.io",
-                                        "LIVE_CERT": "arn:aws:acm:us-east-1:012146975534:certificate/abc"})
+    proc, calls = harness(
+        "synth",
+        env={
+            "LIVE_DOMAIN": "louisville.raylytics.io",
+            "LIVE_CERT": "arn:aws:acm:us-east-1:012146975534:certificate/abc",
+        },
+    )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "keeping the live public hostname louisville.raylytics.io" in proc.stdout
     npx = _cdk_args(calls)[0]
@@ -167,8 +185,14 @@ def test_missing_stack_is_the_only_no_domain_error(harness):
 def test_cli_warnings_on_stderr_do_not_pollute_the_hostname(harness):
     """The AWS CLI warns on stderr while exiting 0 (LibreSSL, deprecations);
     the adopted value must be the bare hostname (roborev 4751)."""
-    proc, calls = harness("synth", env={"WARN_STDERR": "1", "LIVE_DOMAIN": "louisville.raylytics.io",
-                                        "LIVE_CERT": "arn:aws:acm:us-east-1:012146975534:certificate/abc"})
+    proc, calls = harness(
+        "synth",
+        env={
+            "WARN_STDERR": "1",
+            "LIVE_DOMAIN": "louisville.raylytics.io",
+            "LIVE_CERT": "arn:aws:acm:us-east-1:012146975534:certificate/abc",
+        },
+    )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     npx = _cdk_args(calls)[0]
     assert "-c lou:domain=louisville.raylytics.io -c" in npx, npx
@@ -198,8 +222,15 @@ def marker():
 
 
 def _write_snapshot(snap, expenditures, cache_version, sha=None):
-    snap.write_text(json.dumps({"sha": sha or _head(), "cache_version": cache_version,
-                                "tables": {"expenditures": expenditures, "salary_data": 5}}))
+    snap.write_text(
+        json.dumps(
+            {
+                "sha": sha or _head(),
+                "cache_version": cache_version,
+                "tables": {"expenditures": expenditures, "salary_data": 5},
+            }
+        )
+    )
 
 
 def _live(expenditures=100, cache_version="aaaa1111"):
@@ -210,8 +241,10 @@ def _live(expenditures=100, cache_version="aaaa1111"):
 
 
 def _clean_tree():
-    return (subprocess.run(["git", "-C", str(REPO), "diff", "--quiet"]).returncode == 0
-            and subprocess.run(["git", "-C", str(REPO), "diff", "--cached", "--quiet"]).returncode == 0)
+    return (
+        subprocess.run(["git", "-C", str(REPO), "diff", "--quiet"]).returncode == 0
+        and subprocess.run(["git", "-C", str(REPO), "diff", "--cached", "--quiet"]).returncode == 0
+    )
 
 
 def test_deploy_refuses_without_a_preview_of_this_commit(harness, marker):
@@ -235,8 +268,10 @@ def test_deploy_proceeds_with_a_marker_for_head(harness, marker):
     not this test's concern."""
     # The same two checks the gate makes: staged changes refuse a deploy too
     # (bd auto-stages .beads/issues.jsonl, which is how this was found).
-    if (subprocess.run(["git", "-C", str(REPO), "diff", "--quiet"]).returncode != 0
-            or subprocess.run(["git", "-C", str(REPO), "diff", "--cached", "--quiet"]).returncode != 0):
+    if (
+        subprocess.run(["git", "-C", str(REPO), "diff", "--quiet"]).returncode != 0
+        or subprocess.run(["git", "-C", str(REPO), "diff", "--cached", "--quiet"]).returncode != 0
+    ):
         pytest.skip("working tree is dirty; the gate would (correctly) refuse")
     marker.write_text(_head() + "\n")
     proc, calls = harness("deploy")
@@ -260,6 +295,7 @@ def test_emergency_bypass_is_loud(harness, marker):
 # The image bakes the local artifact: a deploy once rolled production back to
 # older data and orphaned every warmed starter. The gate compares the preview's
 # /api/health snapshot with production's before anything is built.
+
 
 @pytest.fixture
 def approved(marker):
@@ -333,8 +369,8 @@ def test_snapshot_for_another_commit_refuses(harness, approved):
     assert not _cdk_args(calls)
 
 
-
 # roborev 6026 ---------------------------------------------------------------
+
 
 def test_bypass_with_a_stale_snapshot_still_deploys(harness, marker):
     """A snapshot left by an undeployed preview of another commit must not

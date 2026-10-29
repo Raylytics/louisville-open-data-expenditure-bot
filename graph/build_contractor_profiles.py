@@ -71,13 +71,15 @@ def sos_search(name: str, session: requests.Session) -> list[dict]:
             ctr = ""
             if "ctr=" in href:
                 ctr = href.split("ctr=")[1].split("&")[0]
-            results.append({
-                "name": cells[0].get_text(strip=True),
-                "org_number": cells[1].get_text(strip=True),
-                "status": cells[2].get_text(strip=True),
-                "type": cells[3].get_text(strip=True),
-                "ctr": ctr,
-            })
+            results.append(
+                {
+                    "name": cells[0].get_text(strip=True),
+                    "org_number": cells[1].get_text(strip=True),
+                    "status": cells[2].get_text(strip=True),
+                    "type": cells[3].get_text(strip=True),
+                    "ctr": ctr,
+                }
+            )
     return results
 
 
@@ -147,9 +149,17 @@ def lookup_entity(name: str, session: requests.Session) -> dict | None:
 # ── SOS result reuse ─────────────────────────────────────────────────────────
 
 SOS_FIELDS = [
-    "sos_org_number", "sos_status", "sos_standing", "sos_company_type",
-    "sos_industry", "sos_employees", "sos_county", "sos_file_date",
-    "sos_principal_office", "sos_managed_by", "sos_registered_agent",
+    "sos_org_number",
+    "sos_status",
+    "sos_standing",
+    "sos_company_type",
+    "sos_industry",
+    "sos_employees",
+    "sos_county",
+    "sos_file_date",
+    "sos_principal_office",
+    "sos_managed_by",
+    "sos_registered_agent",
 ]
 # Carried along with a reused row so scrape_officers.py can skip it too.
 SOS_CARRY_FIELDS = SOS_FIELDS + ["sos_officers", "sos_looked_up"]
@@ -163,9 +173,12 @@ def _git_commit_date(path: str):
     an undated row look fresh on every run — roborev 5149)."""
     cwd = os.path.dirname(os.path.abspath(path)) or "."
     try:
+
         def git(*args):
-            return subprocess.run(["git", *args], cwd=cwd, capture_output=True,
-                                  text=True, timeout=10, check=False).stdout.strip()
+            return subprocess.run(
+                ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=10, check=False
+            ).stdout.strip()
+
         if git("rev-parse", "--is-shallow-repository") != "false":
             return None
         out = git("log", "-1", "--format=%cs", "--", os.path.basename(path))
@@ -197,6 +210,7 @@ def load_prior_sos(path: str, max_age_days: int) -> dict[str, dict]:
     if not path or not os.path.exists(path) or max_age_days <= 0:
         return {}
     import pandas as pd
+
     try:
         prior = pd.read_csv(path, dtype=str, keep_default_na=False)
     except Exception as e:
@@ -230,17 +244,24 @@ def load_prior_sos(path: str, max_age_days: int) -> dict[str, dict]:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(description="Build contractor profiles")
     parser.add_argument("--top", type=int, default=200, help="Number of top payees to profile")
     parser.add_argument("--skip-sos", action="store_true", help="Skip KY SOS lookups")
     parser.add_argument("--data-dir", default="data")
     parser.add_argument("--output", default="data/contractor_profiles.csv")
-    parser.add_argument("--reuse-sos", default=None,
-                        help="Previous profiles CSV whose recent SOS results are reused "
-                             "(default: --output if it exists; '' disables)")
-    parser.add_argument("--sos-max-age-days", type=int, default=120,
-                        help="Reuse SOS results looked up within this many days (0 = always re-fetch)")
+    parser.add_argument(
+        "--reuse-sos",
+        default=None,
+        help="Previous profiles CSV whose recent SOS results are reused (default: --output if it exists; '' disables)",
+    )
+    parser.add_argument(
+        "--sos-max-age-days",
+        type=int,
+        default=120,
+        help="Reuse SOS results looked up within this many days (0 = always re-fetch)",
+    )
     args = parser.parse_args()
 
     print("Loading expenditure data...")
@@ -279,6 +300,7 @@ def main():
     # Merge on lowercase name match
     payees["payee_lower"] = payees["payee"].str.lower().str.strip()
     contractors["name_lower"] = contractors["FULLNAME"].str.lower().str.strip()
+
     # One payee can hold several licenses (Johnson Controls: FIREDETECT and
     # HVAC). A row-fanning merge would repeat the payee-level total_spend once
     # per license and double-count any SUM over the table, so the license
@@ -321,12 +343,16 @@ def main():
         reuse_path = args.output if args.reuse_sos is None else args.reuse_sos
         prior = load_prior_sos(reuse_path, args.sos_max_age_days)
         if prior:
-            print(f"  Reusing SOS results from {reuse_path} for lookups newer than "
-                  f"{args.sos_max_age_days} days ({len(prior)} payees cached)")
+            print(
+                f"  Reusing SOS results from {reuse_path} for lookups newer than "
+                f"{args.sos_max_age_days} days ({len(prior)} payees cached)"
+            )
         today = _dt.date.today().isoformat()
 
         # Only look up entities that look like businesses (contain LLC, INC, CO, CORP, etc.)
-        biz_pattern = re.compile(r'\b(LLC|INC|CORP|CO\b|LTD|LP|COMPANY|ENTERPRISES|ASSOCIATES|GROUP|PARTNERS)', re.IGNORECASE)
+        biz_pattern = re.compile(
+            r"\b(LLC|INC|CORP|CO\b|LTD|LP|COMPANY|ENTERPRISES|ASSOCIATES|GROUP|PARTNERS)", re.IGNORECASE
+        )
 
         looked_up = 0
         reused = 0
@@ -373,17 +399,33 @@ def main():
             time.sleep(1.5)
 
         found = merged["sos_org_number"].notna().sum()
-        print(f"\n  SOS matches found: {found}/{looked_up + reused} "
-              f"({looked_up} looked up, {reused} reused, {failed} failed and left for next time)")
+        print(
+            f"\n  SOS matches found: {found}/{looked_up + reused} "
+            f"({looked_up} looked up, {reused} reused, {failed} failed and left for next time)"
+        )
 
     # Save
     output_cols = [
-        "payee", "total_spend", "transaction_count", "years_active",
-        "first_year", "last_year", "agencies_served", "agency_list",
-        "funds_used", "expenditure_types",
+        "payee",
+        "total_spend",
+        "transaction_count",
+        "years_active",
+        "first_year",
+        "last_year",
+        "agencies_served",
+        "agency_list",
+        "funds_used",
+        "expenditure_types",
         # Contractor license
-        "CATEGORY", "DESCRIPTION", "LICENSENO", "ADDRESS1", "CITY", "STATE", "ZIPCODE",
-        "EMAIL", "DAYTIMEPHONE",
+        "CATEGORY",
+        "DESCRIPTION",
+        "LICENSENO",
+        "ADDRESS1",
+        "CITY",
+        "STATE",
+        "ZIPCODE",
+        "EMAIL",
+        "DAYTIMEPHONE",
     ]
     if not args.skip_sos:
         output_cols.extend(SOS_CARRY_FIELDS)

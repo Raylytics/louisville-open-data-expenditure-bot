@@ -12,6 +12,7 @@ Like the rest of the suite, this loads the local `data/` corpus at app startup
 (see tests/test_known_answers.py). The CI/clean-clone fixture is tracked
 separately in louisville-open-data-ll9.
 """
+
 import json
 
 import pytest
@@ -31,12 +32,14 @@ EMPTY_SQL = "SELECT agency_canonical FROM expenditures WHERE 1 = 0"
 
 class _FakeResp:
     """Stand-in for the OpenAI raw response; event_stream only reads .headers."""
+
     headers = {}
 
 
 def _fake_generate_sql(sql):
     def _gen(client, model, system, question, **kw):
         return sql, {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}, _FakeResp()
+
     return _gen
 
 
@@ -44,6 +47,7 @@ def _fake_interpret_stream(*chunks):
     def _stream(client, model, system, question, sql, results, **kw):
         for c in chunks:
             yield c
+
     return _stream
 
 
@@ -51,6 +55,7 @@ def _fake_refine_stream(*chunks):
     def _stream(client, model, question, sql, results, draft, **kw):
         for c in chunks:
             yield c
+
     return _stream
 
 
@@ -63,6 +68,7 @@ def client(require_data):
     (clean clone / CI) — see tests/conftest.py.
     """
     import app
+
     with TestClient(app.app) as c:
         yield c
 
@@ -76,11 +82,13 @@ def _fast_and_isolated(monkeypatch, tmp_path):
     STATS_FILE are read at call time in _save_cache/_save_stats, so patching the
     module globals is enough."""
     import app
+
     monkeypatch.setattr(app.time, "sleep", lambda *a, **k: None)
     monkeypatch.setattr(app, "CACHE_FILE", str(tmp_path / "cache.json"))
     monkeypatch.setattr(app, "STATS_FILE", str(tmp_path / "stats.json"))
     # Interaction records go to a throwaway JSONL too, never the dev's real one.
     import interactions
+
     monkeypatch.setattr(app, "INTERACTIONS", interactions.FileInteractions(str(tmp_path / "interactions.jsonl")))
     # The background call is an LLM call too: never let a test reach one.
     monkeypatch.setattr(app, "generate_background", lambda *a, **k: ("NONE", {}, "paid"))
@@ -111,8 +119,10 @@ def _post(client, question, **body):
 
 # ── Happy path ───────────────────────────────────────────────────────────────
 
+
 def test_happy_path_streams_sql_results_interpretation_then_done(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("Top agencies by spend."))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("Public Works led FY2025 spending."))
@@ -138,6 +148,7 @@ def test_happy_path_streams_sql_results_interpretation_then_done(client, monkeyp
 
 def test_dev_mode_flag_controls_humanization(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("x"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("x"))
@@ -151,8 +162,10 @@ def test_dev_mode_flag_controls_humanization(client, monkeypatch):
 
 # ── Guard paths ──────────────────────────────────────────────────────────────
 
+
 def test_off_topic_response_short_circuits_without_results(client, monkeypatch):
     import app
+
     # A comment-only / prose answer trips the off-topic guard in event_stream.
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql("-- The question is not about spending"))
     resp = _post(client, "what's the weather?", dev_mode=True)
@@ -164,6 +177,7 @@ def test_off_topic_response_short_circuits_without_results(client, monkeypatch):
 
 def test_empty_result_takes_the_no_rows_path(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(EMPTY_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("No matching rows; try broadening."))
     resp = _post(client, "spend on nonexistent thing", dev_mode=True)
@@ -182,16 +196,17 @@ def test_blank_question_returns_error_event(client):
 
 
 def test_malformed_json_body_returns_error_sse(client):
-    resp = client.post("/api/ask", content=b"not json",
-                       headers={"content-type": "application/json"})
+    resp = client.post("/api/ask", content=b"not json", headers={"content-type": "application/json"})
     events = _events(resp)
     assert events[0]["type"] == "error"
 
 
 # ── Rate limiting ────────────────────────────────────────────────────────────
 
+
 def test_per_ip_rate_limit_blocks_after_the_cap(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("x"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("x"))
@@ -208,6 +223,7 @@ def test_distinct_cf_connecting_ips_get_separate_buckets_when_peer_is_trusted(cl
     """Behind a TRUSTED proxy, the limit keys on the real client (CF-Connecting-IP),
     so distinct clients get independent buckets instead of one site-wide one."""
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("x"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("x"))
@@ -218,14 +234,17 @@ def test_distinct_cf_connecting_ips_get_separate_buckets_when_peer_is_trusted(cl
     limit = app.IP_RPM_LIMIT
     # Exhaust client A entirely (by forwarded IP).
     for i in range(limit):
-        client.post("/api/ask", json={"question": f"aa{i}", "dev_mode": True},
-                    headers={"CF-Connecting-IP": "203.0.113.1"})
-    a_blocked = client.post("/api/ask", json={"question": "a over", "dev_mode": True},
-                            headers={"CF-Connecting-IP": "203.0.113.1"})
+        client.post(
+            "/api/ask", json={"question": f"aa{i}", "dev_mode": True}, headers={"CF-Connecting-IP": "203.0.113.1"}
+        )
+    a_blocked = client.post(
+        "/api/ask", json={"question": "a over", "dev_mode": True}, headers={"CF-Connecting-IP": "203.0.113.1"}
+    )
     assert _events(a_blocked)[0]["type"] == "error"
     # A different forwarded client IP is unaffected.
-    b_ok = client.post("/api/ask", json={"question": "b first", "dev_mode": True},
-                       headers={"CF-Connecting-IP": "203.0.113.2"})
+    b_ok = client.post(
+        "/api/ask", json={"question": "b first", "dev_mode": True}, headers={"CF-Connecting-IP": "203.0.113.2"}
+    )
     assert "error" not in _types(_events(b_ok))
 
 
@@ -233,6 +252,7 @@ def test_forwarded_ip_headers_are_ignored_from_an_untrusted_peer(client, monkeyp
     """A direct-to-origin client (peer not trusted) must NOT be able to spoof
     CF-Connecting-IP to dodge the limit — all its requests key on the real peer."""
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("x"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("x"))
@@ -242,17 +262,21 @@ def test_forwarded_ip_headers_are_ignored_from_an_untrusted_peer(client, monkeyp
     # Rotate a fresh fake IP every request; without trust they all share the
     # peer bucket, so the cap still bites.
     for i in range(limit):
-        client.post("/api/ask", json={"question": f"s{i}", "dev_mode": True},
-                    headers={"CF-Connecting-IP": f"198.51.100.{i}"})
-    spoofed = client.post("/api/ask", json={"question": "spoof over", "dev_mode": True},
-                          headers={"CF-Connecting-IP": "198.51.100.254"})
+        client.post(
+            "/api/ask", json={"question": f"s{i}", "dev_mode": True}, headers={"CF-Connecting-IP": f"198.51.100.{i}"}
+        )
+    spoofed = client.post(
+        "/api/ask", json={"question": "spoof over", "dev_mode": True}, headers={"CF-Connecting-IP": "198.51.100.254"}
+    )
     assert _events(spoofed)[0]["type"] == "error", "header rotation bypassed the limit"
 
 
 # ── Cache write + replay ─────────────────────────────────────────────────────
 
+
 def test_answer_is_cached_and_replayed_without_a_second_llm_call(client, monkeypatch):
     import app
+
     calls = {"n": 0}
 
     def counting_gen(c, m, s, q, **kw):
@@ -275,6 +299,7 @@ def test_answer_is_cached_and_replayed_without_a_second_llm_call(client, monkeyp
 
 def test_dev_mode_answers_are_not_cached(client, monkeypatch):
     import app
+
     calls = {"n": 0}
 
     def counting_gen(c, m, s, q, **kw):
@@ -293,8 +318,10 @@ def test_dev_mode_answers_are_not_cached(client, monkeypatch):
 
 # ── Admin gate on the cache endpoints (5i8 / 1ls) ────────────────────────────
 
+
 def test_cache_endpoints_are_disabled_without_a_configured_token(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "ADMIN_TOKEN", "")
     assert client.get("/api/cache").status_code == 503
     assert client.delete("/api/cache").status_code == 503
@@ -302,6 +329,7 @@ def test_cache_endpoints_are_disabled_without_a_configured_token(client, monkeyp
 
 def test_cache_endpoints_reject_a_missing_or_wrong_token(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "ADMIN_TOKEN", "s3cret")
     assert client.get("/api/cache").status_code == 401
     assert client.get("/api/cache", headers={"X-Admin-Token": "nope"}).status_code == 401
@@ -310,6 +338,7 @@ def test_cache_endpoints_reject_a_missing_or_wrong_token(client, monkeypatch):
 
 def test_cache_endpoints_accept_the_correct_token(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "ADMIN_TOKEN", "s3cret")
     ok = client.get("/api/cache", headers={"X-Admin-Token": "s3cret"})
     assert ok.status_code == 200
@@ -320,8 +349,10 @@ def test_cache_endpoints_accept_the_correct_token(client, monkeypatch):
 
 # ── Response cache is bounded (louisville-open-data-vbv) ──────────────────────
 
+
 def test_response_cache_evicts_oldest_past_the_cap(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
@@ -338,6 +369,7 @@ def test_response_cache_evicts_oldest_past_the_cap(client, monkeypatch):
 
 # ── security headers (louisville-open-data-e8d / 3691) ───────────────────────
 
+
 def test_anti_framing_headers_are_sent(client):
     """frame-ancestors is ignored in a <meta> CSP, so the server must send the
     anti-clickjacking headers itself."""
@@ -351,10 +383,12 @@ def test_anti_framing_headers_are_sent(client):
 
 # ── Out-of-credit (HTTP 402) ─────────────────────────────────────────────────
 
+
 def _payment_required():
     """The exact error Cerebras raises once an account's credit runs out."""
     import httpx
     import openai
+
     resp = httpx.Response(402, request=httpx.Request("POST", "https://api.test/v1/chat/completions"))
     return openai.APIStatusError(
         "Error code: 402 - {'message': 'Payment required to access this resource. "
@@ -401,10 +435,12 @@ def test_daily_cap_says_it_resets_rather_than_asking_for_money(client, monkeypat
     def _capped(*a, **kw):
         import httpx
         import openai
+
         resp = httpx.Response(429, request=httpx.Request("POST", "https://openrouter.ai/api/v1"))
         raise openai.RateLimitError(
             "Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day",
-            response=resp, body=None,
+            response=resp,
+            body=None,
         )
 
     monkeypatch.setattr(app, "generate_sql", _capped)
@@ -444,12 +480,14 @@ def _fake_generate_sql_sequence(*sqls):
         calls.append({"question": question, "context": kw.get("context")})
         sql = sqls[min(len(calls) - 1, len(sqls) - 1)]
         return sql, {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}, _FakeResp()
+
     _gen.calls = calls
     return _gen
 
 
 def test_first_sql_request_carries_the_vocabulary_block(client, monkeypatch):
     import app
+
     gen = _fake_generate_sql_sequence(REAL_SQL)
     monkeypatch.setattr(app, "generate_sql", gen)
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("draft"))
@@ -462,6 +500,7 @@ def test_first_sql_request_carries_the_vocabulary_block(client, monkeypatch):
 
 def test_null_aggregate_is_repaired_with_the_real_vocabulary(client, monkeypatch):
     import app
+
     gen = _fake_generate_sql_sequence(NARROW_SQL, REPAIRED_SQL)
     monkeypatch.setattr(app, "generate_sql", gen)
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("draft"))
@@ -490,6 +529,7 @@ def test_null_aggregate_is_repaired_with_the_real_vocabulary(client, monkeypatch
 
 def test_genuine_empty_result_is_not_retried(client, monkeypatch):
     import app
+
     gen = _fake_generate_sql_sequence(GENUINE_EMPTY_SQL, REPAIRED_SQL)
     monkeypatch.setattr(app, "generate_sql", gen)
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("no data for 2031"))
@@ -503,6 +543,7 @@ def test_genuine_empty_result_is_not_retried(client, monkeypatch):
 
 def test_failed_repair_falls_through_to_the_empty_path(client, monkeypatch):
     import app
+
     gen = _fake_generate_sql_sequence(NARROW_SQL, GENUINE_EMPTY_SQL)  # repair also empty
     monkeypatch.setattr(app, "generate_sql", gen)
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("nothing matched"))
@@ -518,6 +559,7 @@ def test_failed_repair_falls_through_to_the_empty_path(client, monkeypatch):
 
 def test_repair_exception_never_becomes_a_user_error(client, monkeypatch):
     import app
+
     n = {"calls": 0}
 
     def _gen(client_, model, system, question, **kw):
@@ -525,6 +567,7 @@ def test_repair_exception_never_becomes_a_user_error(client, monkeypatch):
         if n["calls"] == 1:
             return NARROW_SQL, {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}, _FakeResp()
         raise RuntimeError("provider hiccup")
+
     monkeypatch.setattr(app, "generate_sql", _gen)
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("nothing matched"))
     events = _events(_post(client, "How much did Louisville Fire spend on vehicles in FY2024?", dev_mode=True))
@@ -535,11 +578,13 @@ def test_repair_exception_never_becomes_a_user_error(client, monkeypatch):
 
 def test_empty_explanation_prompt_carries_the_findings_without_the_rewrite_order(client, monkeypatch):
     import app
+
     seen = {}
 
     def _stream(client_, model, system, question, sql, results, **kw):
         seen["question"] = question
         yield "explained"
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql_sequence(NARROW_SQL, GENUINE_EMPTY_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _stream)
     _post(client, "How much did Louisville Fire spend on vehicles in FY2024?", dev_mode=True)
@@ -551,44 +596,62 @@ def test_empty_explanation_prompt_carries_the_findings_without_the_rewrite_order
 
 # ── Off-topic guard ──────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("reply", [
-    "I’m sorry, but I can only help with data-related questions.",   # 'WITH' in prose
-    "-- The question is not about spending",
-    "",
-    "/* nothing to query */",
-    # Claude Sonnet 5.5, eval 2026-10-14: the joke itself, dressed as a query.
-    "SELECT 'Why was the cat sitting on the computer? To keep an eye on the mouse!' AS joke;",
-    "SELECT 'I only answer questions FROM the spending data' AS message",
-])
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "I’m sorry, but I can only help with data-related questions.",  # 'WITH' in prose
+        "-- The question is not about spending",
+        "",
+        "/* nothing to query */",
+        # Claude Sonnet 5.5, eval 2026-10-14: the joke itself, dressed as a query.
+        "SELECT 'Why was the cat sitting on the computer? To keep an eye on the mouse!' AS joke;",
+        "SELECT 'I only answer questions FROM the spending data' AS message",
+    ],
+)
 def test_prose_or_comment_replies_take_the_off_topic_path(client, monkeypatch, reply):
     """The guard used to look for SQL keywords ANYWHERE in the reply, so a
     refusal containing the word 'with' was executed as SQL, failed, and came
     back from the error-retry as SELECT '<the refusal>' AS message."""
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(reply))
     events = _events(_post(client, "Tell me a joke about cats.", dev_mode=True))
     types = _types(events)
     assert "sql" not in types and "results" not in types and "error" not in types
-    assert any("doesn't appear to be answerable" in e.get("content", "")
-               for e in events if e["type"] == "interpretation")
+    assert any(
+        "doesn't appear to be answerable" in e.get("content", "") for e in events if e["type"] == "interpretation"
+    )
 
 
-@pytest.mark.parametrize("reply", [
-    "SELECT 1 FROM expenditures", "  -- assumed FY2025\nSELECT 1 FROM t", "WITH t AS (SELECT 1) SELECT * FROM t",
-    "(SELECT 1 FROM a) UNION ALL (SELECT 2 FROM b)", "/* c */ select 1 from t",
-    "SELECT 'Library' AS agency, SUM(x) FROM expenditures",
-])
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "SELECT 1 FROM expenditures",
+        "  -- assumed FY2025\nSELECT 1 FROM t",
+        "WITH t AS (SELECT 1) SELECT * FROM t",
+        "(SELECT 1 FROM a) UNION ALL (SELECT 2 FROM b)",
+        "/* c */ select 1 from t",
+        "SELECT 'Library' AS agency, SUM(x) FROM expenditures",
+    ],
+)
 def test_looks_like_sql_accepts_real_statements(reply):
     import app
+
     assert app._looks_like_sql(reply)
 
 
 # ── Retrieved-document topic gate ────────────────────────────────────────────
 
+
 def test_documents_sharing_no_content_word_with_the_question_are_dropped(client):
     import app
+
     hits = [
-        {"file_no": "O-274-22", "text": "AN ORDINANCE AMENDING THE FISCAL YEAR 2022-2023 CAPITAL BUDGET BY CHANGING THE DUE DATE FOR A PAVING PLAN"},
+        {
+            "file_no": "O-274-22",
+            "text": "AN ORDINANCE AMENDING THE FISCAL YEAR 2022-2023 CAPITAL BUDGET BY CHANGING THE DUE DATE FOR A PAVING PLAN",
+        },
         {"file_no": "O-088-21", "text": "AN ORDINANCE APPROPRIATING $1,300,000 FOR FIRE FLEET REPLACEMENT VEHICLES"},
     ]
     kept = app._on_topic_hits("How much did Louisville Fire spend on vehicles in FY2024?", hits)
@@ -602,12 +665,14 @@ def test_documents_sharing_no_content_word_with_the_question_are_dropped(client)
 
 # ── Funding failures page the operator (louisville-open-data-8uk) ────────────
 
+
 def test_a_quota_error_makes_health_degraded_with_a_reason(client, monkeypatch):
     """Out of credit used to leave /api/health "ok" (cached starters still
     stream) while every live question failed — invisible to the dead-man's
     switch. Now any funding failure in the last hour is a named degradation,
     which the heartbeat escalates."""
     import app
+
     monkeypatch.setitem(app.persistent_stats["errors"], "last_quota_error_time", None)
     monkeypatch.setitem(app.persistent_stats["errors"], "errors_last_hour", [])
     assert client.get("/api/health").json()["status"] == "ok"
@@ -623,11 +688,13 @@ def test_a_quota_error_makes_health_degraded_with_a_reason(client, monkeypatch):
 
 # ── A draft stream that dies mid-flight retries whole on the fallback ────────
 
+
 def test_mid_stream_draft_failure_retries_on_the_fallback_provider(client, monkeypatch):
     """OpenRouter 200s, streams half an answer, then errors in-stream. The
     draft is server-side only, so the whole draft is retried on the fallback
     and the reader sees one clean answer — not an apology."""
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "paid_client", object())
     calls = {"n": 0}
@@ -638,6 +705,7 @@ def test_mid_stream_draft_failure_retries_on_the_fallback_provider(client, monke
             yield "half an ans"
             raise RuntimeError("Upstream error from Nvidia: Service temporarily overloaded")
         yield "the whole answer, from the fallback"
+
     monkeypatch.setattr(app, "interpret_results_stream", _stream)
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("refined answer"))
     events = _events(_post(client, "How has annual spending changed?", dev_mode=True))
@@ -651,12 +719,14 @@ def test_mid_stream_draft_failure_retries_on_the_fallback_provider(client, monke
 
 def test_draft_failure_with_no_fallback_still_degrades_honestly(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "paid_client", None)
 
     def _stream(*a, **kw):
         raise RuntimeError("boom")
         yield
+
     monkeypatch.setattr(app, "interpret_results_stream", _stream)
     events = _events(_post(client, "How has annual spending changed?", dev_mode=True))
     text = "".join(e.get("content", "") for e in events if e["type"] == "interpretation")
@@ -666,12 +736,14 @@ def test_draft_failure_with_no_fallback_still_degrades_honestly(client, monkeypa
 
 # ── Refine provider order (REFINE_PREFER_PAID) ───────────────────────────────
 
+
 def _recording_refine(seen):
     def _stream(r_client, model, question, sql, results, draft, **kw):
         seen["client"] = r_client
         seen["model"] = model
         seen["kw"] = kw
         yield "refined"
+
     return _stream
 
 
@@ -681,6 +753,7 @@ def test_refine_pass_prefers_the_paid_client_when_enabled(client, monkeypatch):
     latch/pin machinery stays out of it. SQL generation and the draft are
     untouched by design (asserted via the fakes' independence here)."""
     import app
+
     seen = {}
     sentinel = object()
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
@@ -700,6 +773,7 @@ def test_refine_pass_prefers_the_paid_client_when_enabled(client, monkeypatch):
 
 def test_refine_pass_keeps_free_first_when_disabled_or_unpaid(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("draft."))
 
@@ -735,6 +809,7 @@ ANNUAL_SQL = "SELECT fiscal_year, total_spend, transaction_count FROM summary_an
 
 def _happy(monkeypatch, sql=REAL_SQL):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(sql))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("draft"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("final"))
@@ -758,8 +833,12 @@ def test_results_event_carries_structured_columns_and_rows(client, monkeypatch):
 
 def test_results_rows_are_capped_at_the_display_limit(client, monkeypatch):
     import app
-    _happy(monkeypatch, "SELECT payee_canonical, extended_amount FROM expenditures "
-                        "WHERE fiscal_year = 2025 ORDER BY extended_amount DESC LIMIT 120")
+
+    _happy(
+        monkeypatch,
+        "SELECT payee_canonical, extended_amount FROM expenditures "
+        "WHERE fiscal_year = 2025 ORDER BY extended_amount DESC LIMIT 120",
+    )
     r = next(e for e in _events(_post(client, "big payments?")) if e["type"] == "results")
     assert r["total_rows"] == 120 and r["truncated"] is True
     assert len(r["rows"]) == app.MAX_DISPLAY_ROWS
@@ -767,6 +846,7 @@ def test_results_rows_are_capped_at_the_display_limit(client, monkeypatch):
 
 def test_annual_spend_chart_marks_the_partial_year_and_headlines_the_last_complete(client, monkeypatch):
     import app
+
     _happy(monkeypatch, ANNUAL_SQL)
     events = _events(_post(client, "How has total annual spending changed from 2008 to 2026?"))
     types = _types(events)
@@ -781,8 +861,7 @@ def test_annual_spend_chart_marks_the_partial_year_and_headlines_the_last_comple
     assert head["label"] == f"FY{partial - 1} Total Spend"
     assert f"FY{partial} partial" in head["context"]
     assert head["value_kind"] == "money"
-    assert types.index("results") < types.index("chart") < types.index("headline") \
-        < types.index("interpretation")
+    assert types.index("results") < types.index("chart") < types.index("headline") < types.index("interpretation")
 
 
 def test_chart_without_a_partial_point_has_no_marker_fields(client, monkeypatch):
@@ -808,8 +887,7 @@ def test_happy_path_emits_one_step_per_stage_in_order(client, monkeypatch):
     _happy(monkeypatch)
     events = _events(_post(client, "which agencies spent the most in 2025?"))
     steps = [e for e in events if e["type"] == "step"]
-    assert [s["id"] for s in steps] == [
-        "grounding", "generate_sql", "execute", "retrieve_docs", "interpret", "refine"]
+    assert [s["id"] for s in steps] == ["grounding", "generate_sql", "execute", "retrieve_docs", "interpret", "refine"]
     for s in steps:
         assert set(s) == {"type", "id", "status", "ms", "model", "tier", "tokens", "rows", "detail"}
         assert s["status"] == "ok" and isinstance(s["ms"], int) and isinstance(s["detail"], dict)
@@ -820,7 +898,7 @@ def test_happy_path_emits_one_step_per_stage_in_order(client, monkeypatch):
     assert by_id["execute"]["rows"] == 3
     assert isinstance(by_id["grounding"]["detail"]["matches"], list)
     assert isinstance(by_id["retrieve_docs"]["detail"]["file_numbers"], list)
-    assert by_id["interpret"]["tokens"] is None          # chunks, never "tokens"
+    assert by_id["interpret"]["tokens"] is None  # chunks, never "tokens"
     assert by_id["refine"]["detail"]["served"] == "refined"
     # A stage's step lands after its own events, before the next stage's.
     types = _types(events)
@@ -841,6 +919,7 @@ def test_quota_error_closes_the_sql_step_as_failed_before_the_error(client, monk
 
     def _broke(*a, **kw):
         raise _payment_required()
+
     monkeypatch.setattr(app, "generate_sql", _broke)
     events = _events(_post(client, "quota step?"))
     types = _types(events)
@@ -852,20 +931,28 @@ def test_quota_error_closes_the_sql_step_as_failed_before_the_error(client, monk
 
 def test_execution_error_regenerates_and_reports_both_attempts(client, monkeypatch):
     import app
-    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql_sequence(
-        "SELECT no_such_column FROM expenditures LIMIT 1", REAL_SQL))
+
+    monkeypatch.setattr(
+        app, "generate_sql", _fake_generate_sql_sequence("SELECT no_such_column FROM expenditures LIMIT 1", REAL_SQL)
+    )
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("draft"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("final"))
     steps = [e for e in _events(_post(client, "regen?")) if e["type"] == "step"]
     seq = [(s["id"], s["status"]) for s in steps]
-    assert seq[:5] == [("grounding", "ok"), ("generate_sql", "ok"), ("execute", "failed"),
-                       ("generate_sql", "ok"), ("execute", "ok")]
+    assert seq[:5] == [
+        ("grounding", "ok"),
+        ("generate_sql", "ok"),
+        ("execute", "failed"),
+        ("generate_sql", "ok"),
+        ("execute", "ok"),
+    ]
     assert steps[3]["detail"]["attempts"] == 2
     assert steps[3]["detail"]["regenerated_after_error"] is True
 
 
 def test_repair_step_appears_only_when_the_repair_fires(client, monkeypatch):
     import app
+
     gen = _fake_generate_sql_sequence(NARROW_SQL, REPAIRED_SQL)
     monkeypatch.setattr(app, "generate_sql", gen)
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("draft"))
@@ -886,12 +973,14 @@ def test_repair_step_appears_only_when_the_repair_fires(client, monkeypatch):
 
 def test_failed_refine_closes_as_failed_and_serves_the_draft(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("the draft"))
 
     def _bad_refine(*a, **kw):
         raise RuntimeError("refine down")
         yield
+
     monkeypatch.setattr(app, "refine_interpretation_stream", _bad_refine)
     events = _events(_post(client, "refine fails?"))
     refine = next(e for e in events if e["type"] == "step" and e["id"] == "refine")
@@ -903,19 +992,22 @@ def test_failed_refine_closes_as_failed_and_serves_the_draft(client, monkeypatch
 def test_cache_version_includes_the_event_schema_version():
     import app
     import inspect
-    assert app.EVENT_SCHEMA_VERSION == "5"   # 3: `background` (03r); 4: `note`; 5: `chart.label_kind`
+
+    assert app.EVENT_SCHEMA_VERSION == "5"  # 3: `background` (03r); 4: `note`; 5: `chart.label_kind`
     src = inspect.getsource(app.startup)
     assert "EVENT_SCHEMA_VERSION" in src
     # The background prompt is model-visible input: a change to it must
     # orphan cached answers like every other prompt.
     assert "BACKGROUND_SYSTEM_PROMPT" in src
-    assert "CONFIG.table_notes" in src      # notes are cached with the answer
+    assert "CONFIG.table_notes" in src  # notes are cached with the answer
 
 
 # ── General background for explanatory questions (03r) ──────────────────────
 
+
 def _answer_fakes(monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("Top agencies by spend."))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("Public Works led."))
@@ -923,6 +1015,7 @@ def _answer_fakes(monkeypatch):
 
 def test_explanatory_question_gets_a_labeled_background_note(client, monkeypatch):
     import app
+
     _answer_fakes(monkeypatch)
     note = "Public payroll extracts often keep records for people with unpaid roles."
     monkeypatch.setattr(app, "generate_background", lambda *a, **k: (note, {"total_tokens": 9}, "paid"))
@@ -938,9 +1031,11 @@ def test_explanatory_question_gets_a_labeled_background_note(client, monkeypatch
 
 def test_background_with_a_figure_is_withheld_and_says_why(client, monkeypatch):
     import app
+
     _answer_fakes(monkeypatch)
-    monkeypatch.setattr(app, "generate_background",
-                        lambda *a, **k: ("Most cities spend about 30% on public safety.", {}, "paid"))
+    monkeypatch.setattr(
+        app, "generate_background", lambda *a, **k: ("Most cities spend about 30% on public safety.", {}, "paid")
+    )
     ev = _events(_post(client, "Why is public safety the biggest line?"))
     assert "background" not in _types(ev)
     step = [e for e in ev if e["type"] == "step" and e["id"] == "background"][0]
@@ -949,6 +1044,7 @@ def test_background_with_a_figure_is_withheld_and_says_why(client, monkeypatch):
 
 def test_no_background_call_for_a_how_much_question(client, monkeypatch):
     import app
+
     _answer_fakes(monkeypatch)
     calls = []
     monkeypatch.setattr(app, "generate_background", lambda *a, **k: calls.append(1) or ("x", {}, "paid"))
@@ -959,9 +1055,12 @@ def test_no_background_call_for_a_how_much_question(client, monkeypatch):
 
 def test_a_failing_background_call_never_costs_the_answer(client, monkeypatch):
     import app
+
     _answer_fakes(monkeypatch)
+
     def boom(*a, **k):
         raise RuntimeError("provider down")
+
     monkeypatch.setattr(app, "generate_background", boom)
     ev = _events(_post(client, "Why do some agencies spend so much?"))
     assert "interpretation" in _types(ev) and _types(ev)[-1] == "done"
@@ -973,9 +1072,11 @@ def test_a_failing_background_call_never_costs_the_answer(client, monkeypatch):
 def test_background_runs_after_citations_and_repair_note(client, monkeypatch):
     """An optional note must never delay the answer's provenance (roborev 4828)."""
     import app
+
     _answer_fakes(monkeypatch)
-    monkeypatch.setattr(app, "generate_background",
-                        lambda *a, **k: ("Payroll systems often keep unpaid roles.", {}, "paid"))
+    monkeypatch.setattr(
+        app, "generate_background", lambda *a, **k: ("Payroll systems often keep unpaid roles.", {}, "paid")
+    )
     types = _types(_events(_post(client, "Why do some agencies spend so much?")))
     bg = types.index("background")
     for t in ("sources", "info"):
@@ -983,15 +1084,15 @@ def test_background_runs_after_citations_and_repair_note(client, monkeypatch):
             assert types.index(t) < bg
 
 
-
 def test_answers_carry_the_packs_data_note_and_the_irregularity_caveat(client, monkeypatch):
     """Deterministic caveats (2026-09-25 judged runs): the table note for what
     the figures measure, and the fixed wrongdoing caveat — no LLM involved."""
     import app
+
     _answer_fakes(monkeypatch)
     ev = _events(_post(client, "Are there any patterns that suggest potential contract splitting?"))
     notes = [e["content"] for e in ev if e["type"] == "note"]
-    assert notes and "payroll is not included" in notes[0]          # REAL_SQL reads expenditures
+    assert notes and "payroll is not included" in notes[0]  # REAL_SQL reads expenditures
     infos = [e["content"] for e in ev if e["type"] == "info"]
     assert app.IRREGULARITY_NOTE in infos
     ev = _events(_post(client, "Which agencies spent the most in FY2025?"))
@@ -1000,17 +1101,22 @@ def test_answers_carry_the_packs_data_note_and_the_irregularity_caveat(client, m
 
 # ── Draft retry with Claude in front (roborev 5953) ──────────────────────────
 
-@pytest.mark.parametrize("failed_tier,expected_retry", [
-    # Claude's stream died: retry on the usual chain (Claude skipped).
-    ("claude", "chain"),
-    # Attempt 1 already fell through to OpenRouter and THAT stream died:
-    # rerunning the same chain would spend the free allowance on the provider
-    # that just failed, so go straight to the paid client.
-    ("openrouter", "paid"),
-])
+
+@pytest.mark.parametrize(
+    "failed_tier,expected_retry",
+    [
+        # Claude's stream died: retry on the usual chain (Claude skipped).
+        ("claude", "chain"),
+        # Attempt 1 already fell through to OpenRouter and THAT stream died:
+        # rerunning the same chain would spend the free allowance on the provider
+        # that just failed, so go straight to the paid client.
+        ("openrouter", "paid"),
+    ],
+)
 def test_draft_retry_follows_the_tier_that_failed(client, monkeypatch, failed_tier, expected_retry):
     import app
     import analytics_agent
+
     paid = object()
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setattr(app, "paid_client", paid)
@@ -1034,14 +1140,17 @@ def test_draft_retry_follows_the_tier_that_failed(client, monkeypatch, failed_ti
 def test_health_reports_the_cache_version(client):
     """deploy.sh compares this with the previewed image's value (4e9)."""
     import app
+
     assert client.get("/api/health").json()["cache_version"] == app.CACHE_VERSION != "unversioned"
 
 
 # ── Interaction records + the `answer` frame (louisville-open-data-2jj) ──────
 
+
 def _records(client_app):
     """Every record the test's throwaway JSONL recorder has written."""
     import app
+
     path = app.INTERACTIONS.path
     try:
         with open(path) as f:
@@ -1053,6 +1162,7 @@ def _records(client_app):
 def test_every_answer_opens_with_an_uncached_answer_frame_and_is_recorded(client, monkeypatch):
     import app
     import interactions
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
@@ -1076,6 +1186,7 @@ def test_every_answer_opens_with_an_uncached_answer_frame_and_is_recorded(client
 
 def test_the_answer_frame_is_not_cached_and_a_replay_gets_a_fresh_id(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
@@ -1096,6 +1207,7 @@ def test_the_answer_frame_is_not_cached_and_a_replay_gets_a_fresh_id(client, mon
 
 def test_an_error_path_is_recorded_as_an_error(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql("SELECT * FROM no_such_table"))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
@@ -1108,6 +1220,7 @@ def test_an_error_path_is_recorded_as_an_error(client, monkeypatch):
 
 def test_a_malformed_session_id_is_dropped_not_rejected(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
@@ -1120,6 +1233,7 @@ def test_a_malformed_session_id_is_dropped_not_rejected(client, monkeypatch):
 def test_recording_failures_never_reach_the_answer(client, monkeypatch, tmp_path):
     import app
     import interactions
+
     blocked = tmp_path / "blocked"
     blocked.write_text("a file, not a directory")
     monkeypatch.setattr(app, "INTERACTIONS", interactions.FileInteractions(str(blocked / "ix.jsonl")))
@@ -1133,12 +1247,13 @@ def test_recording_failures_never_reach_the_answer(client, monkeypatch, tmp_path
 
 def test_recording_off_means_no_recorder_and_no_frame_change(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "INTERACTIONS", None)
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
     events = _events(_post(client, "unrecorded"))
-    assert events[0]["type"] == "answer"     # the id is part of the stream regardless
+    assert events[0]["type"] == "answer"  # the id is part of the stream regardless
     assert "interpretation" in _types(events)
 
 
@@ -1148,6 +1263,7 @@ def test_health_reports_the_interaction_store(client):
 
 
 # ── POST /api/feedback: the five-star rating (louisville-open-data-2jj.2) ────
+
 
 def _rate(client, **body):
     return client.post("/api/feedback", json=body)
@@ -1159,14 +1275,21 @@ def _ratings(client_app):
 
 def test_a_rating_is_stored_against_the_answer_with_nothing_identifying(client, monkeypatch):
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
     aid = _events(_post(client, "rate me", session_id="abcdefgh12345678"))[0]["answer_id"]
 
-    r = _rate(client, answer_id=aid, session_id="abcdefgh12345678", stars=4,
-              reasons=["Wrong number", "great"], comment="  close enough  ",
-              headers={"x-forwarded-for": "1.2.3.4"})
+    r = _rate(
+        client,
+        answer_id=aid,
+        session_id="abcdefgh12345678",
+        stars=4,
+        reasons=["Wrong number", "great"],
+        comment="  close enough  ",
+        headers={"x-forwarded-for": "1.2.3.4"},
+    )
     assert r.status_code == 200, r.text
     assert r.json() == {"stored": True, "answer_id": aid, "stars": 4}
     [rating] = _ratings(client)
@@ -1180,12 +1303,17 @@ def test_a_rating_is_stored_against_the_answer_with_nothing_identifying(client, 
     assert [d["stars"] for d in day if d["answer_id"] == aid] == [2]
 
 
-@pytest.mark.parametrize("body", [
-    {}, {"stars": 5}, {"answer_id": "not-an-id", "stars": 5},
-    {"answer_id": "18b7c6c8c00-0123abcd", "stars": 0},
-    {"answer_id": "18b7c6c8c00-0123abcd", "stars": 6},
-    {"answer_id": "18b7c6c8c00-0123abcd", "stars": "lots"},
-])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"stars": 5},
+        {"answer_id": "not-an-id", "stars": 5},
+        {"answer_id": "18b7c6c8c00-0123abcd", "stars": 0},
+        {"answer_id": "18b7c6c8c00-0123abcd", "stars": 6},
+        {"answer_id": "18b7c6c8c00-0123abcd", "stars": "lots"},
+    ],
+)
 def test_a_malformed_rating_is_refused(client, body):
     r = _rate(client, **body)
     assert r.status_code == 400 and "error" in r.json()
@@ -1195,6 +1323,7 @@ def test_a_malformed_rating_is_refused(client, body):
 def test_a_stale_or_future_answer_id_is_refused(client):
     import time
     import interactions
+
     stale = interactions.new_answer_id(now=time.time() - 400 * 86400)
     future = interactions.new_answer_id(now=time.time() + 86400)
     assert _rate(client, answer_id=stale, stars=5).status_code == 400
@@ -1206,31 +1335,34 @@ def test_a_bad_body_and_an_oversized_body_are_refused(client):
     """The cap is enforced on the bytes actually read, not on Content-Length
     (which can be absent, chunked, or a lie)."""
     import interactions
+
     r = client.post("/api/feedback", content=b"not json", headers={"content-type": "application/json"})
     assert r.status_code == 400
     r = _rate(client, answer_id=interactions.new_answer_id(), stars=3, comment="x" * 20_000)
     assert r.status_code == 413
     # A body streamed without a usable Content-Length is bounded all the same.
     big = json.dumps({"answer_id": interactions.new_answer_id(), "stars": 3, "comment": "x" * 20_000}).encode()
+
     def chunks():
         for i in range(0, len(big), 4096):
-            yield big[i:i + 4096]
+            yield big[i : i + 4096]
+
     r = client.post("/api/feedback", content=chunks(), headers={"content-type": "application/json"})
     assert r.status_code == 413
-    r = client.post("/api/feedback", content=b"{}", headers={"content-type": "application/json",
-                                                              "content-length": "2"})
-    assert r.status_code == 400          # a well-formed but empty rating, not a crash
+    r = client.post("/api/feedback", content=b"{}", headers={"content-type": "application/json", "content-length": "2"})
+    assert r.status_code == 400  # a well-formed but empty rating, not a crash
     assert _ratings(client) == []
 
 
 def test_ratings_have_their_own_rate_limit_bucket(client, monkeypatch):
     import app
     import interactions
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
     aid = interactions.new_answer_id()
-    assert app.FEEDBACK_RPM_LIMIT > app.IP_RPM_LIMIT     # a star, chips and a note per answer, several answers a minute
+    assert app.FEEDBACK_RPM_LIMIT > app.IP_RPM_LIMIT  # a star, chips and a note per answer, several answers a minute
     for _ in range(app.FEEDBACK_RPM_LIMIT):
         assert _rate(client, answer_id=aid, stars=5).status_code == 200
     assert _rate(client, answer_id=aid, stars=5).status_code == 429
@@ -1240,14 +1372,14 @@ def test_ratings_have_their_own_rate_limit_bucket(client, monkeypatch):
 
 
 def test_a_deeply_nested_rating_body_is_a_400_not_a_500(client):
-    resp = client.post("/api/feedback", content=b"[" * 5000,
-                       headers={"Content-Type": "application/json"})
+    resp = client.post("/api/feedback", content=b"[" * 5000, headers={"Content-Type": "application/json"})
     assert resp.status_code == 400
 
 
 def test_ratings_report_an_unavailable_store_honestly(client, monkeypatch, tmp_path):
     import app
     import interactions
+
     aid = interactions.new_answer_id()
     monkeypatch.setattr(app, "INTERACTIONS", None)
     assert _rate(client, answer_id=aid, stars=5).status_code == 503
