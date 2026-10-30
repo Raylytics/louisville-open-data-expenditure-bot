@@ -2,12 +2,12 @@
 # For 0.x packages (fastapi, uvicorn) breaking changes ship in MINOR releases,
 # so those are pinned to a single minor; the rest are capped at the next major.
 # Raise a ceiling deliberately after testing the new version.
-fastapi>=0.115,<0.116
-uvicorn[standard]>=0.34,<0.35
-openai>=1.82,<3
+fastapi>=0.115,<0.163
+uvicorn[standard]>=0.34,<0.55
+openai>=1.82,<4
 # 1.x needs Python 3.10+ (the images run 3.12).
-anthropic>=1.13,<2
-duckdb>=1.5.5,<2
-pandas>=2.2,<3
+anthropic>=1.13,<3
+duckdb>=1.5.5,<3
+pandas>=2.2,<4
 pyyaml>=6,<7
 requests>=2.31,<3
