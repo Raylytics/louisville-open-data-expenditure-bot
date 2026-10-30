@@ -8,12 +8,12 @@ license = { file = "LICENSE" }
 # Runtime dependencies mirror requirements.txt, which the Docker images still
 # install from; keep the two in step until the images move to uv.
 dependencies = [
-    "fastapi>=0.115,<0.116",
-    "uvicorn[standard]>=0.34,<0.35",
-    "openai>=1.82,<3",
-    "anthropic>=1.13,<2",
-    "duckdb>=1.5.5,<2",
-    "pandas>=2.2,<3",
+    "fastapi>=0.115,<0.163",
+    "uvicorn[standard]>=0.34,<0.55",
+    "openai>=1.82,<4",
+    "anthropic>=1.13,<3",
+    "duckdb>=1.5.5,<3",
+    "pandas>=2.2,<4",
     "pyyaml>=6,<7",
     "requests>=2.31,<3",
 ]
