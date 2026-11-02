@@ -88,6 +88,30 @@ def test_pull_filters_warm_starters_and_folds_ratings(tmp_path):
     ]
 
 
+def test_rating_only_stubs_are_kept_not_mistaken_for_warm_starters(tmp_path):
+    # roborev 6880: a stub (record write failed, visitor rated anyway) has no
+    # session_id, like a warmed starter; the review exists to surface it.
+    store = ix.FileInteractions(str(tmp_path / "interactions.jsonl"))
+    _seed(store)
+    orphan = ix.new_answer_id(now=DAY0 + 40)
+    assert store.rate(
+        {
+            "answer_id": orphan,
+            "session_id": "abcdefgh12345678",
+            "stars": 1,
+            "reasons": ["not-answered"],
+            "comment": "nothing came back",
+        },
+        now=DAY0 + 90,
+    )
+    recs = pi.pull(store, [DAY])[DAY]
+    stub = next(r for r in recs if r["answer_id"] == orphan)
+    assert stub["stars"] == 1 and "question" not in stub and not pi.is_warm(stub)
+    assert pi.summarize(recs)["low_rated"] == 2 and pi.summarize(recs)["rated"] == 2
+    assert pi.is_warm({"question": "q", "session_id": "", "cache_hit": False})
+    assert not pi.is_warm({"question": "q", "session_id": "", "stars": 4})
+
+
 def test_summary_counts_outcomes_ratings_and_latency(tmp_path):
     store = ix.FileInteractions(str(tmp_path / "interactions.jsonl"))
     _seed(store)

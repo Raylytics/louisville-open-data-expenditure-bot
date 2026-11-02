@@ -40,8 +40,11 @@ def days_ending(end: str | None, n: int) -> list[str]:
 
 
 def is_warm(rec: dict) -> bool:
-    """A starter answer recorded by warm_cache.py rather than a visitor."""
-    return not rec.get("session_id")
+    """A starter answer recorded by warm_cache.py rather than a visitor: a real
+    answer record (it has the question) with no session_id and no rating. A
+    rating-only stub — the record write failed, the visitor rated anyway — has
+    no session_id either and is exactly what a review must keep."""
+    return "question" in rec and not rec.get("session_id") and rec.get("stars") is None
 
 
 def pull(store, days: list[str], *, include_warm: bool = False, include_dev: bool = True) -> dict[str, list[dict]]:

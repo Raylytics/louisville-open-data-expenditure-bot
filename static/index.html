@@ -1823,8 +1823,6 @@ function cutText(s, lim) {
   return s.slice(0, end).trimEnd() + ' …';
 }
 
-// `limits`: null means "no limit" (the clipboard copy); otherwise the max
-// length of the answer prose, with every other field at its own fixed cap.
 // `answerLimit` null means "no limit" (the clipboard copy); otherwise the max
 // length of the answer prose. `questionLimit` and `pageLimit` are the caps on
 // the question and the page URL, lowered only as a last resort (a 500-char
@@ -1861,16 +1859,20 @@ function buildReportBody(report, interpText, { answerId, cached, recorded = true
 }
 
 function buildReport(report, interpText, { answerId = null, cached = false, recorded = true } = {}) {
-  const subject = `${BOT_NAME} answer report: ` + report.question.slice(0, 80);
-  const mk = (body) =>
-    `mailto:${REPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  // Surrogate-safe like every other cut: a plain slice could split an emoji
+  // and make encodeURIComponent throw before the clipboard fallback runs.
+  const subjectFor = (n) => `${BOT_NAME} answer report: ` + cutText(report.question, n);
+  const subject = subjectFor(80);
+  const mk = (subj, body) =>
+    `mailto:${REPORT_EMAIL}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
   const BUDGET = 1900;  // conservative: MAPI-based handlers reject ~2000+
   // The clipboard / inline copy has no URL budget: everything, uncut.
   const full = buildReportBody(report, interpText, { answerId, cached, recorded, answerLimit: null, extras: true });
   // The mailto body shrinks on the PLAIN-TEXT side (never slice the encoded
   // URL — that can cut a %-escape in half and drop the trailing prompt): the
   // answer prose gives way first, then the SQL/results extras (only there
-  // when no record holds them), and last the question and the page URL.
+  // when no record holds them), and last the question, the page URL and the
+  // subject's copy of the question (non-ASCII text encodes at up to 9x).
   const extras = !(answerId && recorded);
   const steps = [];
   for (const withExtras of extras ? [true, false] : [false]) {
@@ -1878,13 +1880,13 @@ function buildReport(report, interpText, { answerId = null, cached = false, reco
       steps.push({ answerLimit, extras: withExtras });
     }
   }
-  for (const [questionLimit, pageLimit] of [[120, 100], [40, 40]]) {
-    steps.push({ answerLimit: 80, extras: false, questionLimit, pageLimit });
+  for (const [questionLimit, pageLimit, subjectLimit] of [[120, 100, 40], [40, 40, 20]]) {
+    steps.push({ answerLimit: 80, extras: false, questionLimit, pageLimit, subjectLimit });
   }
   let body = '', href = '';
-  for (const step of steps) {
-    body = buildReportBody(report, interpText, { answerId, cached, recorded, ...step });
-    href = mk(body);
+  for (const { subjectLimit = 80, ...bodyOpts } of steps) {
+    body = buildReportBody(report, interpText, { answerId, cached, recorded, ...bodyOpts });
+    href = mk(subjectFor(subjectLimit), body);
     if (href.length <= BUDGET) break;
   }
   // Backstop only (unreachable for realistic inputs): strip any half escape.
