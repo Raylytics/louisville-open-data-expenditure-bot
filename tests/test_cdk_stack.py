@@ -179,6 +179,21 @@ def test_cloudfront_uses_oac_no_cache_no_compress_no_host(resources):
     assert "WebACLId" not in dist, "WAF is opt-in ($5/mo base)"
 
 
+def test_static_assets_are_cached_at_the_edge(resources):
+    # louisville-open-data-9az: with one CACHING_DISABLED behavior every font
+    # and Chart.js fetch was a Lambda invocation (384 throttles in Sept 2026).
+    dist = _only(resources, "AWS::CloudFront::Distribution")["DistributionConfig"]
+    [b] = dist["CacheBehaviors"]
+    assert b["PathPattern"] == "/static/*"
+    assert b["CachePolicyId"] == "658327ea-f89d-4fab-a63d-7e88639e58f6"          # Managed-CachingOptimized
+    assert b["Compress"] is True
+    assert set(b["AllowedMethods"]) == {"GET", "HEAD"}
+    assert b["TargetOriginId"] == dist["DefaultCacheBehavior"]["TargetOriginId"], "same OAC origin"
+    assert b["ViewerProtocolPolicy"] == "redirect-to-https"
+    assert "OriginRequestPolicyId" not in b, "assets need no viewer headers"
+    assert len(dist["Origins"]) == 1
+
+
 # ── state + data ────────────────────────────────────────────────────────────
 
 

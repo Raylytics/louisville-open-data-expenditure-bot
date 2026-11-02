@@ -398,6 +398,18 @@ def _payment_required():
     )
 
 
+def test_static_assets_carry_cache_control_and_nothing_else_does(client):
+    # louisville-open-data-9az: CloudFront caches /static/* (s-maxage a day,
+    # invalidated on deploy); browsers keep the assets an hour. The page and
+    # the API carry no Cache-Control so they are never cached at the edge.
+    r = client.get("/static/vendor/fonts/vt323.woff2")
+    assert r.status_code == 200
+    assert r.headers["Cache-Control"] == "public, max-age=3600, s-maxage=86400"
+    assert "Cache-Control" not in client.get("/").headers
+    assert "Cache-Control" not in client.get("/api/health").headers
+    assert "Cache-Control" not in client.get("/static/vendor/none.js").headers
+
+
 def test_quota_exhaustion_says_it_is_a_funding_problem(client, monkeypatch):
     """A 402 must NOT be reported as 'reword your question' — the user cannot
     fix it by rewording, and the project is happy to say the bill is unpaid."""

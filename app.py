@@ -269,6 +269,13 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    if request.url.path.startswith("/static/") and response.status_code == 200:
+        # The assets (Chart.js, fonts) change only with a deploy. Browsers keep
+        # them an hour; CloudFront's /static/* behavior keeps them a day
+        # (s-maxage) and deploy.sh invalidates the path after each deploy
+        # (louisville-open-data-9az). The page and the API carry no
+        # Cache-Control, so nothing else is ever cached at the edge.
+        response.headers.setdefault("Cache-Control", "public, max-age=3600, s-maxage=86400")
     return response
 
 
