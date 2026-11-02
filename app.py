@@ -1625,8 +1625,7 @@ def _answer_frame(answer_id: str, cached: bool) -> str:
     this deployment records answers at all (RECORD_INTERACTIONS=0, or no
     INTERACTIONS_TABLE, turn it off): the report email leaves the SQL and
     results out only when the record exists to look them up in."""
-    frame = {'type': 'answer', 'answer_id': answer_id, 'cached': cached,
-             'recorded': INTERACTIONS is not None}
+    frame = {"type": "answer", "answer_id": answer_id, "cached": cached, "recorded": INTERACTIONS is not None}
     return f"data: {json.dumps(frame)}\n\n"
 
 

@@ -1222,6 +1222,7 @@ def test_the_answer_frame_says_when_recording_is_off(client, monkeypatch):
     # The report email drops the SQL/results only when a record holds them;
     # an id alone is minted whether or not anything is recorded.
     import app
+
     monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
     monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
     monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))

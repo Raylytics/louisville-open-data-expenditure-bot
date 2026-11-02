@@ -185,7 +185,7 @@ def test_static_assets_are_cached_at_the_edge(resources):
     dist = _only(resources, "AWS::CloudFront::Distribution")["DistributionConfig"]
     [b] = dist["CacheBehaviors"]
     assert b["PathPattern"] == "/static/*"
-    assert b["CachePolicyId"] == "658327ea-f89d-4fab-a63d-7e88639e58f6"          # Managed-CachingOptimized
+    assert b["CachePolicyId"] == "658327ea-f89d-4fab-a63d-7e88639e58f6"  # Managed-CachingOptimized
     assert b["Compress"] is True
     assert set(b["AllowedMethods"]) == {"GET", "HEAD"}
     assert b["TargetOriginId"] == dist["DefaultCacheBehavior"]["TargetOriginId"], "same OAC origin"

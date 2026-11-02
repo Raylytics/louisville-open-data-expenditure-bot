@@ -124,8 +124,13 @@ def status() -> dict:
         return {"configured": False, "active": False, "model": None}
     live = live_models()
     active = bool(live) and not is_latched()
-    out = {"configured": True, "active": active, "model": live[0] if live else None,
-           "models": models(), "effort": effort()}
+    out = {
+        "configured": True,
+        "active": active,
+        "model": live[0] if live else None,
+        "models": models(),
+        "effort": effort(),
+    }
     if is_latched():
         out["latched_until"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_unusable_until))
     dead = [m for m in models() if _model_is_dead(m)]

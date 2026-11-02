@@ -16,6 +16,7 @@ session_id); they say nothing about visitors and are dropped unless
 --include-warm. Records carry no IP, user agent or identity (interactions.py),
 so the pulled files hold nothing a visitor did not type.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -125,8 +126,11 @@ def main(argv=None) -> int:
     ap.add_argument("--end", help="last day, YYYY-MM-DD UTC (default today)")
     ap.add_argument("--table", default=os.environ.get("INTERACTIONS_TABLE", DEFAULT_TABLE))
     ap.add_argument("--region", default=os.environ.get("AWS_REGION", "us-east-1"))
-    ap.add_argument("--endpoint-url", default=os.environ.get("DYNAMODB_ENDPOINT_URL", ""),
-                    help="DynamoDB Local (the preview's state backend)")
+    ap.add_argument(
+        "--endpoint-url",
+        default=os.environ.get("DYNAMODB_ENDPOINT_URL", ""),
+        help="DynamoDB Local (the preview's state backend)",
+    )
     ap.add_argument("--local", help="read a local run's interactions.jsonl instead of DynamoDB")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"output directory (default {DEFAULT_OUT})")
     ap.add_argument("--include-warm", action="store_true", help="keep the deploy-warmed starter answers")

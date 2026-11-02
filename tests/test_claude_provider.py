@@ -346,16 +346,20 @@ def test_status_names_claude_as_the_model_in_front(monkeypatch):
     st = cp.status()
     assert st["configured"] and st["active"] and st["model"] == "claude-sonnet-5-5"
     assert st["models"] == cp.DEFAULT_CLAUDE_MODELS and st["effort"] == "low"
-    cp._dead_models["claude-sonnet-5-5"] = 1e12          # retired: the next rung is in front
+    cp._dead_models["claude-sonnet-5-5"] = 1e12  # retired: the next rung is in front
     assert cp.status()["model"] == "claude-haiku-5-5" and cp.status()["retired"] == ["claude-sonnet-5-5"]
     cp._latch()
     st = cp.status()
     assert st["configured"] and not st["active"] and "latched_until" in st
 
 
-def test_health_reports_the_provider_in_front(monkeypatch):
+def test_health_reports_the_provider_in_front(monkeypatch, require_data):
     import app
     from fastapi.testclient import TestClient
+
+    # Startup builds the chain's client from the environment; a key for the
+    # Cerebras rung is enough (never called: /api/health makes no LLM call).
+    monkeypatch.setenv("CEREBRAS_PAID_API_KEY", "test-key")
     with TestClient(app.app) as client:
         h = client.get("/api/health").json()
         assert h["provider"] == aa.get_primary_tier() and h["model"] == aa.get_active_model(app.MODEL)

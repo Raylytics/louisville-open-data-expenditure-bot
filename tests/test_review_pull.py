@@ -1,11 +1,11 @@
 """review/pull_interactions.py: pulls days of interaction records for review
 (louisville-open-data-2jj.3). Runs against the JSONL store and moto."""
+
 import json
 import os
 import sys
 
 import boto3
-import pytest
 from moto import mock_aws
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import interactions as ix  # noqa: E402
 from review import pull_interactions as pi  # noqa: E402
 
-DAY0 = 1_700_000_000.0          # 2023-11-14 22:13 UTC
+DAY0 = 1_700_000_000.0  # 2023-11-14 22:13 UTC
 DAY = ix._day_of(int(DAY0 * 1000))
 NEXT = ix._day_of(int((DAY0 + 86400) * 1000))
 
@@ -29,23 +29,40 @@ def _events(ms=1200, tier="claude"):
 
 
 def _rec(now, session="abcdefgh12345678", **kw):
-    base = dict(answer_id=ix.new_answer_id(now=now), session_id=session, question="q",
-                history=[], events=_events(), cache_hit=False, cache_key="k", cache_version="v",
-                outcome="ok", now=now)
+    base = dict(
+        answer_id=ix.new_answer_id(now=now),
+        session_id=session,
+        question="q",
+        history=[],
+        events=_events(),
+        cache_hit=False,
+        cache_key="k",
+        cache_version="v",
+        outcome="ok",
+        now=now,
+    )
     base.update(kw)
     return ix.build_record(**base)
 
 
 def _seed(store):
     visitor = _rec(DAY0)
-    warm = _rec(DAY0 + 10, session="")                       # a deploy-warmed starter
+    warm = _rec(DAY0 + 10, session="")  # a deploy-warmed starter
     dev = _rec(DAY0 + 20, dev_mode=True, events=_events(ms=3000, tier="openrouter"))
     slow = _rec(DAY0 + 30, events=_events(ms=9000), outcome="error")
     tomorrow = _rec(DAY0 + 86400, cache_hit=True)
     for r in (visitor, warm, dev, slow, tomorrow):
         assert store.put(r)
-    assert store.rate({"answer_id": visitor["answer_id"], "session_id": "abcdefgh12345678",
-                       "stars": 2, "reasons": ["wrong-number"], "comment": ""}, now=DAY0 + 60)
+    assert store.rate(
+        {
+            "answer_id": visitor["answer_id"],
+            "session_id": "abcdefgh12345678",
+            "stars": 2,
+            "reasons": ["wrong-number"],
+            "comment": "",
+        },
+        now=DAY0 + 60,
+    )
     return visitor, warm, dev, slow, tomorrow
 
 
@@ -65,8 +82,10 @@ def test_pull_filters_warm_starters_and_folds_ratings(tmp_path):
     assert [r["answer_id"] for r in by_day[NEXT]] == [tomorrow["answer_id"]]
 
     assert len(pi.pull(store, [DAY], include_warm=True)[DAY]) == 4
-    assert [r["answer_id"] for r in pi.pull(store, [DAY], include_dev=False)[DAY]] == \
-        [visitor["answer_id"], slow["answer_id"]]
+    assert [r["answer_id"] for r in pi.pull(store, [DAY], include_dev=False)[DAY]] == [
+        visitor["answer_id"],
+        slow["answer_id"],
+    ]
 
 
 def test_summary_counts_outcomes_ratings_and_latency(tmp_path):
@@ -80,9 +99,19 @@ def test_summary_counts_outcomes_ratings_and_latency(tmp_path):
     assert s["total_ms"]["p95"] == 9004 and s["total_ms"]["p50"] in (1204, 3004)
     assert s["stage_p95_ms"]["generate_sql"] == 9000 and s["stage_p95_ms"]["grounding"] == 4
     assert s["tier_calls"] == {"claude": 3, "openrouter": 1}
-    assert pi.summarize([]) == {"answers": 0, "outcomes": {}, "rated": 0, "stars": {}, "low_rated": 0,
-                                "cache_hits": 0, "sessions": 0, "total_ms": {"p50": None, "p95": None},
-                                "stage_p95_ms": {}, "tier_calls": {}, "tier_p95_ms": {}}
+    assert pi.summarize([]) == {
+        "answers": 0,
+        "outcomes": {},
+        "rated": 0,
+        "stars": {},
+        "low_rated": 0,
+        "cache_hits": 0,
+        "sessions": 0,
+        "total_ms": {"p50": None, "p95": None},
+        "stage_p95_ms": {},
+        "tier_calls": {},
+        "tier_p95_ms": {},
+    }
 
 
 def test_write_days_one_file_per_nonempty_day(tmp_path):
