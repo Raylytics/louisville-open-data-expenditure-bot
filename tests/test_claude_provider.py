@@ -336,3 +336,36 @@ def test_usage_has_no_claude_entry_without_a_key(monkeypatch):
     assert "anthropic" not in app.get_usage_summary()["providers"]
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     assert "anthropic" in app.get_usage_summary()["providers"]
+
+
+def test_status_names_claude_as_the_model_in_front(monkeypatch):
+    # louisville-open-data-itt: /api/health said the OpenRouter slug while
+    # Claude answered every question.
+    assert cp.status() == {"configured": False, "active": False, "model": None}
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    st = cp.status()
+    assert st["configured"] and st["active"] and st["model"] == "claude-sonnet-5-5"
+    assert st["models"] == cp.DEFAULT_CLAUDE_MODELS and st["effort"] == "low"
+    cp._dead_models["claude-sonnet-5-5"] = 1e12          # retired: the next rung is in front
+    assert cp.status()["model"] == "claude-haiku-5-5" and cp.status()["retired"] == ["claude-sonnet-5-5"]
+    cp._latch()
+    st = cp.status()
+    assert st["configured"] and not st["active"] and "latched_until" in st
+
+
+def test_health_reports_the_provider_in_front(monkeypatch):
+    import app
+    from fastapi.testclient import TestClient
+    with TestClient(app.app) as client:
+        h = client.get("/api/health").json()
+        assert h["provider"] == aa.get_primary_tier() and h["model"] == aa.get_active_model(app.MODEL)
+        assert h["claude"] == {"configured": False, "active": False, "model": None}
+        assert h["chain_model"] == aa.get_active_model(app.MODEL) and h["chain_model_configured"] == app.MODEL
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        h = client.get("/api/health").json()
+        assert h["provider"] == "anthropic" and h["model"] == "claude-sonnet-5-5"
+        assert h["chain_model"] == aa.get_active_model(app.MODEL), "the chain behind Claude is still reported"
+        cp._latch()
+        h = client.get("/api/health").json()
+        assert h["provider"] == aa.get_primary_tier() and h["model"] == aa.get_active_model(app.MODEL)
+        assert h["claude"]["configured"] and not h["claude"]["active"]

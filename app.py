@@ -1057,17 +1057,27 @@ async def health():
     if backend["status"] != "ok" and not degraded_reason:
         degraded_reason = f"state backend unavailable: {backend['last_error']}"
     status = "degraded" if degraded_reason else "ok"
+    claude = claude_provider.status()
     return {
         "status": status,
         "degraded_reason": degraded_reason,
         "state_backend": backend,
         "interactions": INTERACTIONS.status() if INTERACTIONS else {"backend": "off", "status": "off"},
         "tables": stats,
-        # "model" is the model actually in use; if a provider deprecation
-        # triggered a runtime fallback, model != model_configured and
+        # "model" is the model the next question goes to first. With an
+        # ANTHROPIC_API_KEY that is Claude (claude_provider sits in front of
+        # the OpenRouter -> Cerebras chain); it falls back to the chain's
+        # active model while Claude is latched out (louisville-open-data-itt:
+        # this used to name the OpenRouter slug while Claude answered
+        # everything). "provider" names where it runs. "chain_model" is the
+        # chain's model regardless; if a provider deprecation triggered a
+        # runtime fallback, chain_model != chain_model_configured and
         # model_fallback carries the {from, to, time} of the switch.
-        "model": get_active_model(MODEL),
-        "model_configured": MODEL,
+        "model": claude["model"] if claude["active"] else get_active_model(MODEL),
+        "provider": "anthropic" if claude["active"] else get_primary_tier(),
+        "claude": claude,
+        "chain_model": get_active_model(MODEL),
+        "chain_model_configured": MODEL,
         "model_fallback": get_model_fallback_event(),
         # The key prefix the cached answers live under. deploy.sh compares the
         # previewed image's value with production's: a difference means the
