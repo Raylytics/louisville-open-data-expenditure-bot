@@ -1602,8 +1602,12 @@ def make_client(base_url: str = None, api_key: str = None) -> openai.OpenAI:
         base_url = os.environ.get("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL)
         # OpenRouter attributes traffic to the site named in these headers.
         headers = {"HTTP-Referer": "https://louisville.raylytics.io", "X-Title": "Ask Lou"}
+    # openai >= 2.5x refuses an empty api_key at construction; 2.30 accepted ""
+    # and failed at call time with a 401, which the error paths handle. Keep
+    # that: a keyless dev run or test still starts (and the data-bound tests
+    # start the app with every provider key unset).
     return openai.OpenAI(
-        api_key=api_key or _primary_api_key(),
+        api_key=api_key or _primary_api_key() or "unset",
         base_url=base_url or os.environ.get("LLM_BASE_URL", DEFAULT_BASE_URL),
         max_retries=0,
         timeout=httpx.Timeout(_llm_timeout(), connect=10.0),
