@@ -1604,8 +1604,13 @@ def _answer_frame(answer_id: str, cached: bool) -> str:
     """The first frame of every /api/ask response: the id a rating refers to.
     Built outside send() on purpose — it is never cached, so each replay of a
     cached answer carries its own id, and EVENT_SCHEMA_VERSION (which guards
-    the SHAPE of cached frames) is untouched by it."""
-    return f"data: {json.dumps({'type': 'answer', 'answer_id': answer_id, 'cached': cached})}\n\n"
+    the SHAPE of cached frames) is untouched by it. `recorded` says whether
+    this deployment records answers at all (RECORD_INTERACTIONS=0, or no
+    INTERACTIONS_TABLE, turn it off): the report email leaves the SQL and
+    results out only when the record exists to look them up in."""
+    frame = {'type': 'answer', 'answer_id': answer_id, 'cached': cached,
+             'recorded': INTERACTIONS is not None}
+    return f"data: {json.dumps(frame)}\n\n"
 
 
 def _frames_to_events(frames: list[str]) -> list[dict]:

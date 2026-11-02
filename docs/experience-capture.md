@@ -66,7 +66,8 @@ failed record write still lands as a stub carrying only the rating.
 ## The `answer` frame
 
 Every `/api/ask` stream opens with
-`{"type": "answer", "answer_id": "...", "cached": true|false}`. It is built
+`{"type": "answer", "answer_id": "...", "cached": true|false, "recorded": true|false}`
+(`recorded` is whether this deployment records answers at all). It is built
 outside `send()` and so never cached: each replay of a cached answer gets a
 fresh id, and `EVENT_SCHEMA_VERSION`, which guards the *shape of cached
 frames*, is untouched. The frontend keeps it on the card (`card.answerId`)
@@ -75,9 +76,12 @@ for the rating widget and for the "Report an issue" email, which leads with
 mailto URL budget of ~1,900 characters used to chop them to "…[truncated]").
 To find a reported answer: the id's first field is the minting time in hex
 milliseconds, so `pk = day#<UTC day of that time>` and `sk` begins with
-`<ts_ms>#<answer_id>` in `lou-interactions`. The short-circuit responses
-(empty question, rate limited, bad body) carry no `answer` frame and are not
-recorded, so their report email still carries the SQL/results extras.
+`<ts_ms>#<answer_id>` in `lou-interactions`. When the frame says
+`recorded: false` (recording off) or there is no frame at all (the
+short-circuit responses: empty question, rate limited, bad body), the report
+email keeps the SQL/results extras instead. A record whose best-effort write
+failed (`/api/health` `interactions` counts them) is the one case the email
+cannot know about; the clipboard copy is always the full report.
 
 ## Ratings
 

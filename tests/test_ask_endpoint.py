@@ -1169,6 +1169,7 @@ def test_every_answer_opens_with_an_uncached_answer_frame_and_is_recorded(client
 
     events = _events(_post(client, "record me", session_id="abcdefgh12345678"))
     assert events[0]["type"] == "answer" and events[0]["cached"] is False
+    assert events[0]["recorded"] is True
     aid = events[0]["answer_id"]
     assert interactions.parse_answer_id(aid) is not None
 
@@ -1203,6 +1204,20 @@ def test_the_answer_frame_is_not_cached_and_a_replay_gets_a_fresh_id(client, mon
     assert view["answer_id"] == second[0]["answer_id"] and view["cache_hit"] is True
     assert view["outcome"] == "ok" and view["cache_key"] == key
     assert [e["type"] for e in view["events"]] == _types(second)[1:]
+
+
+def test_the_answer_frame_says_when_recording_is_off(client, monkeypatch):
+    # The report email drops the SQL/results only when a record holds them;
+    # an id alone is minted whether or not anything is recorded.
+    import app
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
+    monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
+    monkeypatch.setattr(app, "INTERACTIONS", None)
+
+    events = _events(_post(client, "unrecorded"))
+    assert events[0]["type"] == "answer" and events[0]["recorded"] is False
+    assert events[0]["answer_id"]
 
 
 def test_an_error_path_is_recorded_as_an_error(client, monkeypatch):
