@@ -8,7 +8,7 @@
 
 Ask a plain-English question about Louisville Metro government spending —
 *"How much did the Fire department spend on vehicles in FY2024?"* — and Lou
-writes the SQL, runs it against 2.26 million expenditure rows (FY2008–FY2026),
+writes the SQL, runs it against 2.34 million expenditure rows (FY2008–FY2027),
 checks its own work, charts the result, and explains it in plain language,
 citing the council legislation that explains the money when there is any.
 
@@ -35,7 +35,7 @@ A: Louisville Fire spent $1.58M on vehicle-related purchases in fiscal year 2024
 |---|---|
 | **Data engine** (`data_model.py`) | Loads the city's CSVs into DuckDB, unifies two schema eras, builds canonical agency/payee columns, flags offsetting and artifact rows, materializes summary tables, and indexes every categorical vocabulary. City-agnostic: everything Louisville-specific lives in `cities/louisville/city.yaml`. |
 | **Agent loop** (`app.py`, `analytics_agent.py`, `grounding.py`) | question → vocabulary grounding → SQL generation → safety guard → execute → **verify-and-repair** → chart inference → document retrieval → draft interpretation → refinement pass → citations, streamed as SSE. |
-| **Provider resilience** | OpenRouter (free tier) primary, Cerebras fallback; automatic model replacement when a provider retires a model; quota/daily-cap/rate-limit classification with honest user-facing messages. |
+| **Provider resilience** | Claude (Anthropic API) first when a key is set, then OpenRouter (free tier), then Cerebras pay-as-you-go; automatic model replacement when a provider retires a model; quota/daily-cap/rate-limit classification with honest user-facing messages. |
 | **Evaluation** (`eval/`) | An LLM-in-the-loop harness that drives the real request path over a golden question set and scores both the served SQL and the prose. |
 | **Interface** (`static/index.html`) | A notebook-style page: each answer is a Q/A cell with a deterministic headline figure, a chart that marks partial periods, the prose, a sortable table with CSV download, and a **"How Lou got this answer"** panel showing every pipeline step (model, provider, timing), the highlighted SQL and the raw event log. Light/dark themes, self-hosted fonts, no third-party origins. |
 | **Operations** | AWS Lambda behind CloudFront (CDK, `infra/cdk`), a prebuilt read-only DuckDB artifact baked into the image, DynamoDB for the shared cache/rate limit/counters, a mandatory local preview of the exact production image before every deploy, CloudWatch alarms, an uptime probe from CI, and a dead-man's switch that pages when the API stops answering. |
@@ -201,6 +201,15 @@ Same 23 questions, same model (`gpt-oss-120b` on Cerebras), one day's work:
 The same harness gates prompt changes: after the 2026-09-25 judged pass
 rewrote the answer rules, the eval was re-run before deploying (still 23/23).
 
+It also chose the provider ranking. Against the refreshed data on
+2026-10-14, same 23 questions, one run per provider:
+
+| provider / model | pass | mean latency |
+|---|---|---|
+| Claude Sonnet 5.5, low effort (first choice) | **23 / 23** | 7.7 s |
+| Cerebras `gpt-oss-120b` (fallback) | 22 / 23 | 3.6 s |
+| Claude Haiku 5.5, low effort (backup rung) | 21 / 23 | 7.8 s |
+
 The full scorecards, with every served query and answer, are in
 `eval/results/` — including the intermediate run where the first version of
 vocabulary grounding *lowered* the score to 17/23 by distracting the model on
@@ -210,10 +219,13 @@ worth more than a large one nobody re-runs.
 
 ## Reliability
 
-- **Provider failover.** OpenRouter's free models are primary; a 402, a spent
-  daily allowance, or an exhausted retry ladder fails over to Cerebras
-  pay-as-you-go, and the primary is latched out for fifteen minutes so
-  every later call does not pay to rediscover the outage.
+- **Provider failover.** With an `ANTHROPIC_API_KEY`, Claude answers first
+  (ranked models, a shared per-call time budget); any Claude failure hands
+  the same call to the chain behind it. There OpenRouter's free models are
+  primary; a 402, a spent daily allowance, or an exhausted retry ladder
+  fails over to Cerebras pay-as-you-go, and a dead provider is latched out
+  for fifteen minutes so every later call does not pay to rediscover the
+  outage.
 - **Model deprecation.** Providers retire models without notice (this bot's
   original model started 404-ing under it). On `model_not_found` a
   replacement is resolved from a vetted list — never from the paid
@@ -264,7 +276,7 @@ uv run python refresh_data.py --pull-only   # the open-data CSVs into data/ — 
 uv run python data_model.py --materialize data/lou.duckdb   # a few minutes; needs the complete pull
 uv run python rag.py ingest             # optional: council legislation corpus, ~1 minute
 
-cp .env.example .env                    # then set OPENROUTER_API_KEY or CEREBRAS_PAID_API_KEY
+cp .env.example .env                    # then set ANTHROPIC_API_KEY (optional first choice), OPENROUTER_API_KEY or CEREBRAS_PAID_API_KEY
 PREBUILT_DB=data/lou.duckdb uv run uvicorn app:app --port 8000
 ```
 
@@ -311,8 +323,9 @@ and `infra/cdk/README.md`, and the migration analysis and cost model in
 - Retrieval is BM25 over ordinance *titles*; the topic gate removes the worst
   noise but relevance judgement is still the model's, and a weaker model
   will occasionally cite a loosely related ordinance.
-- The free-tier primary provider allows ~16–25 questions a day before every
-  answer is served by the paid fallback; that is a deliberate cost choice.
+- Without a Claude key, the free-tier OpenRouter primary allows ~16–25
+  questions a day before every answer is served by the paid Cerebras
+  fallback; that is a deliberate cost choice.
 - Fiscal-year defaulting ("last year" → the latest complete FY) is a
   convention the prompt enforces; genuinely ambiguous questions are answered
   under a stated assumption rather than asked back.
@@ -333,7 +346,7 @@ cities/                per-city config packs
 static/index.html      the notebook UI (vanilla JS, Chart.js, self-hosted fonts)
 infra/                 CDK stack (Lambda, CloudFront, DynamoDB, alarms), preview.sh
 eval/                  golden questions, eval runner, scorecards, judged passes
-tests/                 ~850 tests (engine invariants, prompts, endpoint flow, fallbacks)
+tests/                 ~1,000 tests (engine invariants, prompts, endpoint flow, fallbacks)
 monitoring/            heartbeat script + healthchecks.io setup
 docs/                  canonical model, charts, onboarding, RAG design, accuracy plan
 ```

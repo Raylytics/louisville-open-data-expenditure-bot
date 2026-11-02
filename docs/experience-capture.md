@@ -66,12 +66,22 @@ failed record write still lands as a stub carrying only the rating.
 ## The `answer` frame
 
 Every `/api/ask` stream opens with
-`{"type": "answer", "answer_id": "...", "cached": true|false}`. It is built
+`{"type": "answer", "answer_id": "...", "cached": true|false, "recorded": true|false}`
+(`recorded` is whether this deployment records answers at all). It is built
 outside `send()` and so never cached: each replay of a cached answer gets a
 fresh id, and `EVENT_SCHEMA_VERSION`, which guards the *shape of cached
 frames*, is untouched. The frontend keeps it on the card (`card.answerId`)
-for the rating widget. The short-circuit responses (empty question, rate
-limited, bad body) carry no `answer` frame and are not recorded.
+for the rating widget and for the "Report an issue" email, which leads with
+`Answer ID:` and leaves the SQL and results out (they are on the record; the
+mailto URL budget of ~1,900 characters used to chop them to "…[truncated]").
+To find a reported answer: the id's first field is the minting time in hex
+milliseconds, so `pk = day#<UTC day of that time>` and `sk` begins with
+`<ts_ms>#<answer_id>` in `lou-interactions`. When the frame says
+`recorded: false` (recording off) or there is no frame at all (the
+short-circuit responses: empty question, rate limited, bad body), the report
+email keeps the SQL/results extras instead. A record whose best-effort write
+failed (`/api/health` `interactions` counts them) is the one case the email
+cannot know about; the clipboard copy is always the full report.
 
 ## Ratings
 
@@ -95,12 +105,16 @@ widget shows it instead of a false "Thanks".
 
 ## Review (Phase 3)
 
-A pull script reads days of records (admin endpoint or the read-only AWS
-profile), an offline LLM judge grades each with the rubric from
-`eval/judge-2026-09-25.md`, and a weekly report lists low-rated answers,
-judge disagreements, p95 per stage and provider, vocabulary gaps for
-`grounding.py`, and candidate golden cases to promote into
-`eval/golden.yaml`.
+`review/pull_interactions.py` reads whole UTC days of records from the store
+(DynamoDB through the `lou` profile, Tier 1 read-only; or a local run's
+JSONL with `--local`), drops the deploy-warmed starters (no `session_id`)
+unless `--include-warm`, writes one gitignored `review/data/<day>.jsonl` per
+day with the latest rating folded onto each record, and prints a summary:
+outcomes, ratings, cache hits, sessions, p50/p95 latency overall and p95 per
+stage and provider tier. Still to build: an offline LLM judge grading each
+record with the rubric from `eval/judge-2026-09-25.md`, and a weekly report
+of low-rated answers, judge disagreements, vocabulary gaps for
+`grounding.py`, and candidate golden cases to promote into `eval/golden.yaml`.
 
 ## Visitor notice
 

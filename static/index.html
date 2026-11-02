@@ -1801,60 +1801,97 @@ function renderRating(card) {
   card.work.parentNode.insertBefore(row, card.work);
 }
 
-// Build the report-a-bad-answer email, prefilled with whatever conversation
-// detail this answer produced. `results` always arrives from the backend
-// (humanized unless ?dev=1); `sql` and `debug` too.
+// Build the report-a-bad-answer email. Every answer is on record server-side
+// under its `answer_id` (interactions.py: question, SQL, every frame, timing),
+// so the email leads with that id and carries the question and the answer
+// prose — not chopped SQL and result tables (the 2026-11-01 report was mostly
+// "…[truncated]"). The SQL/results extras are included only when there is no
+// record to look the answer up in: the `answer` frame's `recorded` is false
+// (recording off on this deployment), or there is no id at all (a
+// short-circuit error). `results` always arrives from the backend (humanized
+// unless ?dev=1).
 const REPORT_EMAIL = 'dev@raylytics.io';
 
-function buildReportBody(report, interpText, scale, extras = true) {
-  // Compare against the SCALED limit so every field genuinely shrinks with
-  // scale — comparing against the base limit would leave under-cap fields
-  // untouched and the shrink loop a no-op.
-  const cut = (s, n) => {
-    const lim = Math.max(40, Math.floor(n * scale));
-    return s && s.length > lim ? s.slice(0, lim) + ' …[truncated]' : (s || '');
-  };
+// Cut a string to at most `lim` UTF-16 units without splitting a surrogate
+// pair (a lone surrogate makes encodeURIComponent throw and pastes as U+FFFD).
+function cutText(s, lim) {
+  if (!s) return '';
+  if (s.length <= lim) return s;
+  let end = Math.max(0, lim);
+  const code = s.charCodeAt(end - 1);
+  if (code >= 0xD800 && code <= 0xDBFF) end -= 1;
+  return s.slice(0, end).trimEnd() + ' …';
+}
+
+// `answerLimit` null means "no limit" (the clipboard copy); otherwise the max
+// length of the answer prose. `questionLimit` and `pageLimit` are the caps on
+// the question and the page URL, lowered only as a last resort (a 500-char
+// question of non-ASCII text encodes to several times its length).
+function buildReportBody(report, interpText, { answerId, cached, recorded = true, answerLimit = null,
+                                                questionLimit = 300, pageLimit = 200, extras = true } = {}) {
+  const cut = (s, n) => (answerLimit === null ? (s || '') : cutText(s, n));
   const parts = [
     `A ${BOT_NAME} answer may be off.`,
     '',
-    'Page: ' + cut(location.href, 200),
+    'Page: ' + cut(location.href, pageLimit),
     'Time: ' + new Date().toISOString(),
+  ];
+  if (answerId) parts.push(`Answer ID: ${answerId}${cached ? ' (cached replay)' : ''}${recorded ? '' : ' (not recorded on this deployment)'}`);
+  parts.push(
     '',
     'Question:',
-    cut(report.question, 300),
+    cut(report.question, questionLimit),
     '',
     'Answer:',
-    cut(interpText, 800) || '(no answer produced)',
-  ];
+    (answerLimit === null ? (interpText || '') : cutText(interpText, answerLimit)) || '(no answer produced)',
+  );
   if (extras) {
     if (report.sql) parts.push('', 'SQL:', cut(report.sql, 500));
     if (report.results) parts.push('', `Results (${report.rows ?? '?'} rows):`, cut(report.results, 400));
     if (report.sources) parts.push('', 'Cited documents:', cut(report.sources, 300));
     if (report.background) parts.push('', 'General background shown:', cut(report.background, 400));
     if (report.debug.length) parts.push('', 'Debug:', cut(report.debug.join('\n'), 250));
+  } else if (answerId && recorded) {
+    parts.push('', 'The SQL, the results and the timing are on record under the answer ID above.');
   }
   parts.push('', 'What looked wrong (please describe):', '');
   return parts.join('\n');
 }
 
-function buildReport(report, interpText) {
-  const subject = `${BOT_NAME} answer report: ` + report.question.slice(0, 80);
-  const mk = (body) =>
-    `mailto:${REPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+function buildReport(report, interpText, { answerId = null, cached = false, recorded = true } = {}) {
+  // Surrogate-safe like every other cut: a plain slice could split an emoji
+  // and make encodeURIComponent throw before the clipboard fallback runs.
+  const subjectFor = (n) => `${BOT_NAME} answer report: ` + cutText(report.question, n);
+  const subject = subjectFor(80);
+  const mk = (subj, body) =>
+    `mailto:${REPORT_EMAIL}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
   const BUDGET = 1900;  // conservative: MAPI-based handlers reject ~2000+
-  // Shrink on the PLAIN-TEXT side (never slice the encoded URL — that can cut
-  // a %-escape in half and drop the trailing prompt): smaller scales, then
-  // drop the SQL/results/debug extras entirely.
-  let body = buildReportBody(report, interpText, 1);
-  let href = mk(body);
-  for (const [scale, extras] of [[0.5, true], [0.25, true], [0.25, false], [0.1, false]]) {
+  // The clipboard / inline copy has no URL budget: everything, uncut.
+  const full = buildReportBody(report, interpText, { answerId, cached, recorded, answerLimit: null, extras: true });
+  // The mailto body shrinks on the PLAIN-TEXT side (never slice the encoded
+  // URL — that can cut a %-escape in half and drop the trailing prompt): the
+  // answer prose gives way first, then the SQL/results extras (only there
+  // when no record holds them), and last the question, the page URL and the
+  // subject's copy of the question (non-ASCII text encodes at up to 9x).
+  const extras = !(answerId && recorded);
+  const steps = [];
+  for (const withExtras of extras ? [true, false] : [false]) {
+    for (const answerLimit of [2000, 1200, 800, 500, 300, 160, 80]) {
+      steps.push({ answerLimit, extras: withExtras });
+    }
+  }
+  for (const [questionLimit, pageLimit, subjectLimit] of [[120, 100, 40], [40, 40, 20]]) {
+    steps.push({ answerLimit: 80, extras: false, questionLimit, pageLimit, subjectLimit });
+  }
+  let body = '', href = '';
+  for (const { subjectLimit = 80, ...bodyOpts } of steps) {
+    body = buildReportBody(report, interpText, { answerId, cached, recorded, ...bodyOpts });
+    href = mk(subjectFor(subjectLimit), body);
     if (href.length <= BUDGET) break;
-    body = buildReportBody(report, interpText, scale, extras);
-    href = mk(body);
   }
   // Backstop only (unreachable for realistic inputs): strip any half escape.
   if (href.length > 6000) href = href.slice(0, 6000).replace(/%[0-9A-Fa-f]?$/, '');
-  return { subject, body, href };
+  return { subject, body, full, href };
 }
 
 // Behind CloudFront Origin Access Control (the AWS migration) the origin
@@ -2173,6 +2210,8 @@ async function streamAnswer(question, opts = {}) {
         if (event.type === 'answer') {
           card.answerId = event.answer_id || null;
           card.answerCached = !!event.cached;
+          // Whether this deployment records answers; an id alone does not say.
+          card.answerRecorded = event.recorded !== false;
           continue;
         }
 
@@ -2604,8 +2643,10 @@ async function streamAnswer(question, opts = {}) {
       reportBtn.setAttribute('aria-label', 'Report an issue: email dev@raylytics.io about this answer');
       reportBtn.title = 'Something off? Email us this answer’s details';
       reportBtn.addEventListener('click', async () => {
-        const r = buildReport(report, interpText);
-        const reportText = `To: ${REPORT_EMAIL}\nSubject: ${r.subject}\n\n${r.body}`;
+        const r = buildReport(report, interpText, { answerId: card.answerId, cached: card.answerCached,
+                                                    recorded: card.answerRecorded });
+        // The copied text is the uncut report (no mailto budget applies to it).
+        const reportText = `To: ${REPORT_EMAIL}\nSubject: ${r.subject}\n\n${r.full}`;
         // Fallback first: copy the full report so the user always ends up with
         // something actionable, even when the browser silently blocks the
         // mailto handoff or no mail client is configured.

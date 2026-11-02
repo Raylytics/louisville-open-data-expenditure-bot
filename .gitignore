@@ -45,3 +45,6 @@ HANDOFF*
 dist/
 .ruff_cache/
 .pytest_cache/
+
+# pulled interaction records for review (review/pull_interactions.py): review material, never repository content
+review/data/

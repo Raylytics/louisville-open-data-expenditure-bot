@@ -30,8 +30,12 @@ viewer ─HTTPS─▶ CloudFront ─OAC─▶ Function URL (RESPONSE_STREAM) ─
 - Function URL: `AWS_IAM` + `RESPONSE_STREAM`, and **both** resource-policy grants
   (`InvokeFunctionUrl` and `InvokeFunction` via URL) for `cloudfront.amazonaws.com`
   scoped to this distribution. One grant alone is a 403 on every request.
-- CloudFront: OAC on the origin, caching disabled, `AllViewerExceptHostHeader`,
-  compression off, all methods allowed.
+- CloudFront: OAC on the origin; the default behavior (page, API, SSE) has
+  caching disabled, compression off, all methods allowed, and a custom
+  origin-request policy (viewer headers + `CloudFront-Viewer-Address`, never
+  Host); `/static/*` (Chart.js, fonts) is a second behavior with
+  CachingOptimized + compression, invalidated by `deploy.sh` after each deploy
+  (`louisville-open-data-9az`: uncached assets spent Lambda concurrency).
 - Reserved concurrency and log retention are properties, not console clicks.
 - No VPC configuration on the function; no CDK custom resources in the template.
 - DynamoDB table `lou-state`, `pk` string key, TTL on `ttl`, on-demand.
