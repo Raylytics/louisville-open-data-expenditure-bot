@@ -70,8 +70,14 @@ Every `/api/ask` stream opens with
 outside `send()` and so never cached: each replay of a cached answer gets a
 fresh id, and `EVENT_SCHEMA_VERSION`, which guards the *shape of cached
 frames*, is untouched. The frontend keeps it on the card (`card.answerId`)
-for the rating widget. The short-circuit responses (empty question, rate
-limited, bad body) carry no `answer` frame and are not recorded.
+for the rating widget and for the "Report an issue" email, which leads with
+`Answer ID:` and leaves the SQL and results out (they are on the record; the
+mailto URL budget of ~1,900 characters used to chop them to "…[truncated]").
+To find a reported answer: the id's first field is the minting time in hex
+milliseconds, so `pk = day#<UTC day of that time>` and `sk` begins with
+`<ts_ms>#<answer_id>` in `lou-interactions`. The short-circuit responses
+(empty question, rate limited, bad body) carry no `answer` frame and are not
+recorded, so their report email still carries the SQL/results extras.
 
 ## Ratings
 
