@@ -271,16 +271,17 @@ class LouStack(cdk.Stack):
             query_string_behavior=cloudfront.OriginRequestQueryStringBehavior.all(),
             cookie_behavior=cloudfront.OriginRequestCookieBehavior.none(),
         )
+        origin = origins.FunctionUrlOrigin.with_origin_access_control(
+            fn_url,
+            read_timeout=Duration.seconds(60),
+            keepalive_timeout=Duration.seconds(5),
+        )
         dist = cloudfront.Distribution(
             self,
             "Cdn",
             comment="Lou bot (lou-bot Function URL, OAC)",
             default_behavior=cloudfront.BehaviorOptions(
-                origin=origins.FunctionUrlOrigin.with_origin_access_control(
-                    fn_url,
-                    read_timeout=Duration.seconds(60),
-                    keepalive_timeout=Duration.seconds(5),
-                ),
+                origin=origin,
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
                 cached_methods=cloudfront.CachedMethods.CACHE_GET_HEAD,
@@ -288,6 +289,24 @@ class LouStack(cdk.Stack):
                 origin_request_policy=origin_request_policy,
                 compress=False,
             ),
+            # /static/* (Chart.js, two woff2 fonts) is served from the edge.
+            # With caching disabled everywhere, every asset was a Lambda
+            # invocation: one page view was ~5 concurrent invocations against
+            # a reserved concurrency of 10, and Sept 2026 saw 384 throttles
+            # — visitors got 429s (louisville-open-data-9az). The app sends
+            # Cache-Control on /static (browsers 1h, CloudFront a day) and
+            # deploy.sh invalidates /static/* after every deploy, so a changed
+            # asset never sits stale at the edge. Compression is on here only:
+            # it buffers the SSE stream, which stays on the default behavior.
+            additional_behaviors={
+                "/static/*": cloudfront.BehaviorOptions(
+                    origin=origin,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                    cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                    compress=True,
+                ),
+            },
             http_version=cloudfront.HttpVersion.HTTP2_AND_3,
             price_class=cloudfront.PriceClass.PRICE_CLASS_100,
             web_acl_id=web_acl.attr_arn if web_acl else None,

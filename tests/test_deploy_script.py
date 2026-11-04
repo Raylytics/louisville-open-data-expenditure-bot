@@ -33,13 +33,15 @@ case "$*" in
       *"OutputKey=='AlertEmail'"*) printf '%s' "${LIVE_EMAIL:-}" ;;
       *"OutputKey=='CloudFrontUrl'"*) printf '%s' "${LIVE_URL:-}" ;;
     esac ;;
+  *"cloudfront create-invalidation"*) echo "I123" ;;
+  *"cloudfront wait invalidation-completed"*) : ;;
   *) echo "" ;;
 esac
 """
 NPX_STUB = r"""#!/bin/sh
 echo "npx $*" >>"$CALLS"
 # deploy.sh runs `... deploy --require-approval never --outputs-file <OUT>` (no stack name).
-case "$*" in *" deploy --require-approval"*) printf '%s' '{"LouStack":{"CloudFrontUrl":"https://d.test/","CloudFrontDomain":"d.test","FunctionName":"lou-bot"}}' >"$LOU_OUTPUTS_FILE" ;; esac
+case "$*" in *" deploy --require-approval"*) printf '%s' '{"LouStack":{"CloudFrontUrl":"https://d.test/","CloudFrontDomain":"d.test","FunctionName":"lou-bot","DistributionId":"E123"}}' >"$LOU_OUTPUTS_FILE" ;; esac
 exit 0
 """
 # curl/dig never leave the machine: the deploy step's post-deploy probes get
@@ -50,6 +52,7 @@ case "$*" in
   *"%{http_code} %{content_type}"*) printf '200 text/event-stream; charset=utf-8' ;;
   *"%{http_code}"*) printf '200' ;;
   *"live.test"*) [ -n "${LIVE_HEALTH:-}" ] || exit 22; printf '%s' "$LIVE_HEALTH" ;;
+  *"static/vendor/"*) printf 'HTTP/2 200\r\nx-cache: %s\r\n\r\n' "${STATIC_XCACHE:-Hit from cloudfront}" ;;
   *) printf '{"status":"ok","tables":{"expenditures":1}}' ;;
 esac
 """
@@ -342,6 +345,22 @@ def test_same_data_and_cache_version_deploys(harness, approved):
     proc, _ = harness("deploy", env=_live())
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "cache_version unchanged (aaaa1111)" in proc.stdout and "identical row counts" in proc.stdout
+
+
+def test_deploy_invalidates_and_verifies_the_static_cache(harness, approved):
+    # louisville-open-data-9az: /static/* is cached at the edge; a deploy drops
+    # the edge copies and proves the second fetch is a hit.
+    proc, calls = harness("deploy", env=_live())
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "aws cloudfront create-invalidation --distribution-id E123 --paths /static/*" in calls
+    assert "aws cloudfront wait invalidation-completed --distribution-id E123 --id I123" in calls
+    assert "STATIC CACHED at the edge (x-cache: Hit from cloudfront)" in proc.stdout
+
+
+def test_deploy_fails_when_static_is_not_cached(harness, approved):
+    proc, _ = harness("deploy", env={**_live(), "STATIC_XCACHE": "Miss from cloudfront"})
+    assert proc.returncode == 1
+    assert "not served from the CloudFront cache (x-cache: Miss from cloudfront)" in proc.stdout
 
 
 def test_newer_data_is_reported_and_allowed(harness, approved):

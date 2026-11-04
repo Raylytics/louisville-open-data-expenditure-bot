@@ -269,6 +269,13 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    if request.url.path.startswith("/static/") and response.status_code == 200:
+        # The assets (Chart.js, fonts) change only with a deploy. Browsers keep
+        # them an hour; CloudFront's /static/* behavior keeps them a day
+        # (s-maxage) and deploy.sh invalidates the path after each deploy
+        # (louisville-open-data-9az). The page and the API carry no
+        # Cache-Control, so nothing else is ever cached at the edge.
+        response.headers.setdefault("Cache-Control", "public, max-age=3600, s-maxage=86400")
     return response
 
 
@@ -1057,17 +1064,27 @@ async def health():
     if backend["status"] != "ok" and not degraded_reason:
         degraded_reason = f"state backend unavailable: {backend['last_error']}"
     status = "degraded" if degraded_reason else "ok"
+    claude = claude_provider.status()
     return {
         "status": status,
         "degraded_reason": degraded_reason,
         "state_backend": backend,
         "interactions": INTERACTIONS.status() if INTERACTIONS else {"backend": "off", "status": "off"},
         "tables": stats,
-        # "model" is the model actually in use; if a provider deprecation
-        # triggered a runtime fallback, model != model_configured and
+        # "model" is the model the next question goes to first. With an
+        # ANTHROPIC_API_KEY that is Claude (claude_provider sits in front of
+        # the OpenRouter -> Cerebras chain); it falls back to the chain's
+        # active model while Claude is latched out (louisville-open-data-itt:
+        # this used to name the OpenRouter slug while Claude answered
+        # everything). "provider" names where it runs. "chain_model" is the
+        # chain's model regardless; if a provider deprecation triggered a
+        # runtime fallback, chain_model != chain_model_configured and
         # model_fallback carries the {from, to, time} of the switch.
-        "model": get_active_model(MODEL),
-        "model_configured": MODEL,
+        "model": claude["model"] if claude["active"] else get_active_model(MODEL),
+        "provider": "anthropic" if claude["active"] else get_primary_tier(),
+        "claude": claude,
+        "chain_model": get_active_model(MODEL),
+        "chain_model_configured": MODEL,
         "model_fallback": get_model_fallback_event(),
         # The key prefix the cached answers live under. deploy.sh compares the
         # previewed image's value with production's: a difference means the
@@ -1604,8 +1621,12 @@ def _answer_frame(answer_id: str, cached: bool) -> str:
     """The first frame of every /api/ask response: the id a rating refers to.
     Built outside send() on purpose — it is never cached, so each replay of a
     cached answer carries its own id, and EVENT_SCHEMA_VERSION (which guards
-    the SHAPE of cached frames) is untouched by it."""
-    return f"data: {json.dumps({'type': 'answer', 'answer_id': answer_id, 'cached': cached})}\n\n"
+    the SHAPE of cached frames) is untouched by it. `recorded` says whether
+    this deployment records answers at all (RECORD_INTERACTIONS=0, or no
+    INTERACTIONS_TABLE, turn it off): the report email leaves the SQL and
+    results out only when the record exists to look them up in."""
+    frame = {"type": "answer", "answer_id": answer_id, "cached": cached, "recorded": INTERACTIONS is not None}
+    return f"data: {json.dumps(frame)}\n\n"
 
 
 def _frames_to_events(frames: list[str]) -> list[dict]:

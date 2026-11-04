@@ -398,6 +398,18 @@ def _payment_required():
     )
 
 
+def test_static_assets_carry_cache_control_and_nothing_else_does(client):
+    # louisville-open-data-9az: CloudFront caches /static/* (s-maxage a day,
+    # invalidated on deploy); browsers keep the assets an hour. The page and
+    # the API carry no Cache-Control so they are never cached at the edge.
+    r = client.get("/static/vendor/fonts/vt323.woff2")
+    assert r.status_code == 200
+    assert r.headers["Cache-Control"] == "public, max-age=3600, s-maxage=86400"
+    assert "Cache-Control" not in client.get("/").headers
+    assert "Cache-Control" not in client.get("/api/health").headers
+    assert "Cache-Control" not in client.get("/static/vendor/none.js").headers
+
+
 def test_quota_exhaustion_says_it_is_a_funding_problem(client, monkeypatch):
     """A 402 must NOT be reported as 'reword your question' — the user cannot
     fix it by rewording, and the project is happy to say the bill is unpaid."""
@@ -1169,6 +1181,7 @@ def test_every_answer_opens_with_an_uncached_answer_frame_and_is_recorded(client
 
     events = _events(_post(client, "record me", session_id="abcdefgh12345678"))
     assert events[0]["type"] == "answer" and events[0]["cached"] is False
+    assert events[0]["recorded"] is True
     aid = events[0]["answer_id"]
     assert interactions.parse_answer_id(aid) is not None
 
@@ -1203,6 +1216,21 @@ def test_the_answer_frame_is_not_cached_and_a_replay_gets_a_fresh_id(client, mon
     assert view["answer_id"] == second[0]["answer_id"] and view["cache_hit"] is True
     assert view["outcome"] == "ok" and view["cache_key"] == key
     assert [e["type"] for e in view["events"]] == _types(second)[1:]
+
+
+def test_the_answer_frame_says_when_recording_is_off(client, monkeypatch):
+    # The report email drops the SQL/results only when a record holds them;
+    # an id alone is minted whether or not anything is recorded.
+    import app
+
+    monkeypatch.setattr(app, "generate_sql", _fake_generate_sql(REAL_SQL))
+    monkeypatch.setattr(app, "interpret_results_stream", _fake_interpret_stream("body"))
+    monkeypatch.setattr(app, "refine_interpretation_stream", _fake_refine_stream("body"))
+    monkeypatch.setattr(app, "INTERACTIONS", None)
+
+    events = _events(_post(client, "unrecorded"))
+    assert events[0]["type"] == "answer" and events[0]["recorded"] is False
+    assert events[0]["answer_id"]
 
 
 def test_an_error_path_is_recorded_as_an_error(client, monkeypatch):

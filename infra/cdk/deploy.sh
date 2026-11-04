@@ -235,6 +235,28 @@ sys.exit(rc)
       -H "x-amz-content-sha256: $(printf '%s' "$body" | shasum -a 256 | cut -d' ' -f1)" --data "$body")
     echo "SSE probe: $code_type"
     case "$code_type" in "200 text/event-stream"*) echo "== DEPLOY VERIFIED: $CF" ;; *) echo "!! API probe failed"; exit 1 ;; esac
+    # /static/* is cached at the edge (louisville-open-data-9az). The new image
+    # may carry a changed asset, so drop the edge copies — one path; the first
+    # 1,000 invalidation paths a month are free — then prove the behavior
+    # caches: the second request for Chart.js must be an edge hit, or page
+    # views are spending Lambda concurrency again.
+    DIST=$(python3 -c "import json; print(json.load(open('$OUT'))['LouStack']['DistributionId'])")
+    INV=$(aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/static/*' \
+      --query Invalidation.Id --output text) || INV=""
+    if [ -n "$INV" ]; then
+      echo "== invalidating /static/* on $DIST ($INV)"
+      aws cloudfront wait invalidation-completed --distribution-id "$DIST" --id "$INV" \
+        || echo "!! invalidation $INV still in progress; the edge may serve the previous assets for a few minutes"
+    else
+      echo "!! could not create the /static/* invalidation; the edge may serve the previous assets for up to a day"
+    fi
+    asset="${CF}static/vendor/chart.umd.min.js"
+    curl -sS -o /dev/null --max-time 30 "$asset"
+    xc=$(curl -sSI --max-time 30 "$asset" | tr -d '\r' | awk -F': ' 'tolower($1)=="x-cache"{print $2}')
+    case "$xc" in
+      Hit*) echo "== STATIC CACHED at the edge (x-cache: $xc)" ;;
+      *) echo "!! /static/* is not served from the CloudFront cache (x-cache: ${xc:-none}): page views spend Lambda concurrency (9az)"; exit 1 ;;
+    esac
     # The public hostname, when bound: pinned to CloudFront with --resolve so
     # this holds before AND after the DNS cutover (before it, public DNS still
     # points at the Air). A stripped alias or wrong certificate fails HERE.
