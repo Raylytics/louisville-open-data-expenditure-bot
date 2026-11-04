@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 
 [[package]]
@@ -865,6 +865,7 @@ dependencies = [
     { name = "anthropic" },
     { name = "duckdb" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "openai" },
     { name = "pandas" },
     { name = "pyyaml" },
@@ -887,6 +888,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=1.13,<2" },
     { name = "duckdb", specifier = ">=1.5.5,<2" },
     { name = "fastapi", specifier = ">=0.115,<0.116" },
+    { name = "httpx", specifier = ">=0.27,<1" },
     { name = "openai", specifier = ">=1.82,<3" },
     { name = "pandas", specifier = ">=2.2,<3" },
     { name = "pyyaml", specifier = ">=6,<7" },
